@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════════
+   Theme Variables - добавляем в @theme для интеграции с Tailwind v4
+   ═══════════════════════════════════════════════════════════════════ */
+@theme {
+  --color-primary: #133D2C;
+  --color-primary-light: #3d8b68;
+  --color-primary-dark: #133D2C;
+}
+
+/* CSS Variables для компонентов */
+:root {
+  --primary: #133D2C;
+  --primary-light: #3d8b68;
+  --primary-dark: #133D2C;
+
+  --bg-main: #f8f6f2;
+  --bg-surface: #f8f6f2;
+  --bg-primary: #f8f6f2;
+  --bg-secondary: #f0ede8;
+  --bg-tertiary: #e8e5e0;
+
+  --shadow-dark: #d4d0c8;
+  --shadow-light: #ffffff;
+
+  --text-primary: #191919;
+  --text-secondary: #4b5563;
+  --text-muted: #777777;
+
+  --success: #2a6b50;
+  --error: #ef4444;
+  --warning: #f59e0b;
+  --border: #d1d5db;
+
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+}
+
+[data-theme="dark"] {
+  --primary: #40a22c;
+  --primary-light: #5cb645;
+  --primary-dark: #2a7b36;
+  --bg-main: #1a2e1d;
+  --bg-surface: #162316;
+  --bg-primary: #1a2e1d;
+  --bg-secondary: #1f3422;
+  --bg-tertiary: #253a28;
+  --shadow-dark: #0f1a12;
+  --shadow-light: #253a28;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --border: #374151;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Utility Classes - в @layer utilities для правильного приоритета
+   ═══════════════════════════════════════════════════════════════════ */
+@layer utilities {
+  .safe-area-top {
+    padding-top: var(--safe-area-top);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: var(--safe-area-bottom);
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Components - Neumorphic Design System
+   ═══════════════════════════════════════════════════════════════════ */
+@layer components {
+  .neumorphic {
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    box-shadow:
+      8px 8px 16px var(--shadow-dark),
+      -8px -8px 16px var(--shadow-light);
+  }
+
+  .neumorphic-flat {
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    box-shadow:
+      4px 4px 8px var(--shadow-dark),
+      -4px -4px 8px var(--shadow-light);
+  }
+
+  .neumorphic-sm {
+    background: var(--bg-surface);
+    border-radius: var(--radius-sm);
+    box-shadow:
+      4px 4px 8px var(--shadow-dark),
+      -4px -4px 8px var(--shadow-light);
+  }
+
+  .neumorphic-inset {
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    box-shadow:
+      inset 4px 4px 8px var(--shadow-dark),
+      inset -4px -4px 8px var(--shadow-light);
+  }
+
+  .neumorphic-primary {
+    background: linear-gradient(145deg, var(--primary-light), var(--primary));
+    border-radius: var(--radius-md);
+    box-shadow:
+      6px 6px 12px var(--shadow-dark),
+      -6px -6px 12px var(--shadow-light);
+    color: white;
+    font-weight: 600;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Interactive Menu - Bottom Navigation
+   ═══════════════════════════════════════════════════════════════════ */
+.menu {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 8px 16px;
+  width: 100%;
+}
+
+.menu__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  min-width: 64px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu__item::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 3px;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu__item.active::after {
+  width: var(--lineWidth, 40px);
+}
+
+.menu__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu__icon .icon {
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+  transition: color 0.3s ease, transform 0.3s ease;
+}
+
+.menu__item.active .menu__icon {
+  animation: iconBounce 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu__item.active .menu__icon .icon {
+  color: var(--primary);
+}
+
+.menu__text {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: color 0.3s ease, transform 0.2s ease;
+  white-space: nowrap;
+}
+
+.menu__text.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Badge для корзины */
+.menu__badge {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  background: var(--error);
+  border-radius: 9px;
+  padding: 0 4px;
+  animation: badgePop 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════════════════════════════ */
+@keyframes iconBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  20% {
+    transform: translateY(-6px);
+  }
+  40% {
+    transform: translateY(0);
+  }
+  60% {
+    transform: translateY(-3px);
+  }
+  80% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes badgePop {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}

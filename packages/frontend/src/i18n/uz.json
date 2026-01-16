@@ -1,0 +1,181 @@
+{
+  "common": {
+    "loading": "Yuklanmoqda...",
+    "error": "Xatolik",
+    "retry": "Qayta urinish",
+    "cancel": "Bekor qilish",
+    "save": "Saqlash",
+    "close": "Yopish",
+    "back": "Orqaga",
+    "next": "Keyingi",
+    "done": "Tayyor",
+    "search": "Qidirish",
+    "noResults": "Hech narsa topilmadi"
+  },
+  "nav": {
+    "home": "Bosh sahifa",
+    "catalog": "Katalog",
+    "cart": "Savat",
+    "profile": "Profil",
+    "orders": "Buyurtmalar"
+  },
+  "home": {
+    "welcome": "Xush kelibsiz",
+    "featuredProducts": "Mashhur mahsulotlar",
+    "allCategories": "Barcha kategoriyalar",
+    "viewAll": "Hammasini ko'rish",
+    "showMore": "Ko'proq ko'rsatish",
+    "newArrivals": "Yangi kelganlar",
+    "specialOffers": "Maxsus takliflar"
+  },
+  "catalog": {
+    "searchProducts": "Mahsulot qidirish...",
+    "searchInCategory": "Kategoriyada qidirish...",
+    "categories": "Kategoriyalar",
+    "allProducts": "Barcha mahsulotlar",
+    "noProducts": "Mahsulotlar topilmadi"
+  },
+  "product": {
+    "addToCart": "Savatga",
+    "inCart": "Savatda",
+    "outOfStock": "Mavjud emas",
+    "description": "Tavsif",
+    "price": "Narx",
+    "quantity": "Miqdor",
+    "total": "Jami",
+    "similar": "Oxshash mahsulotlar"
+  },
+  "cart": {
+    "title": "Savat",
+    "empty": "Savat bo'sh",
+    "emptyDescription": "Katalogdan mahsulot qo'shing",
+    "total": "Jami",
+    "checkout": "Buyurtma berish",
+    "clear": "Tozalash",
+    "goToCatalog": "Katalogga o'tish"
+  },
+  "checkout": {
+    "title": "Buyurtmani rasmiylashtirish",
+    "delivery": "Yetkazib berish",
+    "deliveryAddress": "Yetkazib berish manzili",
+    "deliveryCourier": "Kuryer orqali manzilga",
+    "pickup": "O'zi olib ketish",
+    "pickupStore": "Do'kondan",
+    "address": "Manzil",
+    "addressHint": "Yetkazib berish manzilini ko'rsating",
+    "street": "Ko'cha",
+    "streetPlaceholder": "Ko'cha nomini kiriting",
+    "house": "Uy",
+    "apartment": "Xonadon",
+    "entrance": "Kirish",
+    "floor": "Qavat",
+    "phone": "Telefon",
+    "phoneRequired": "Buyurtma bo'yicha aloqa uchun",
+    "comment": "Izoh",
+    "commentPlaceholder": "Buyurtmaga izoh",
+    "courierComment": "Kuryer uchun izoh",
+    "courierCommentPlaceholder": "Domofon kodi, mo'ljal va h.k.",
+    "saveAddress": "Manzilni saqlash",
+    "payment": "To'lash",
+    "paymentMethod": "Olish usuli",
+    "method": "Usul",
+    "cardPayment": "Karta orqali onlayn",
+    "cashPayment": "Naqd pul",
+    "placeOrder": "Buyurtma berish",
+    "orderTotal": "Buyurtma summasi",
+    "orderConfirmation": "Buyurtmani tasdiqlash",
+    "deliveryFee": "Yetkazib berish",
+    "freeDelivery": "Bepul",
+    "orderSummary": "Jami to'lov",
+    "yourOrder": "Sizning buyurtmangiz",
+    "items": "ta mahsulot",
+    "itemsCount": "Mahsulotlar",
+    "pcs": "dona",
+    "processing": "Qayta ishlanmoqda...",
+    "creatingPayment": "To'lov yaratilmoqda...",
+    "selectAddress": "Manzilni ko'rsatish",
+    "addAddress": "Manzil qo'shish",
+    "useCurrentLocation": "Joriy joylashuvdan foydalanish",
+    "confirmAddress": "Manzilni tasdiqlash",
+    "addressSaved": "Manzil saqlandi"
+  },
+  "profile": {
+    "title": "Profil",
+    "myOrders": "Buyurtmalarim",
+    "ordersDescription": "Xaridlar tarixi",
+    "payments": "To'lov usullari",
+    "paymentsDescription": "Kartalar va hamyonlar",
+    "settings": "Sozlamalar",
+    "settingsDescription": "Bildirishnomalar, til",
+    "language": "Til",
+    "closeApp": "Ilovani yopish"
+  },
+  "orders": {
+    "title": "Buyurtmalarim",
+    "empty": "Sizda hali buyurtmalar yo'q",
+    "emptyDescription": "Buyurtmalaringiz shu yerda ko'rinadi",
+    "orderNumber": "Buyurtma №",
+    "orderDate": "Buyurtma sanasi",
+    "viewDetails": "Batafsil",
+    "repeatOrder": "Buyurtmani takrorlash",
+    "andMore": "va yana {count} ta mahsulot",
+    "status": {
+      "pending": "Kutilmoqda",
+      "confirmed": "Tasdiqlangan",
+      "processing": "Tayyorlanmoqda",
+      "shipped": "Yo'lda",
+      "delivered": "Yetkazildi",
+      "cancelled": "Bekor qilindi"
+    },
+    "paymentStatus": {
+      "unpaid": "To'lanmagan",
+      "pending": "To'lov kutilmoqda",
+      "paid": "To'langan"
+    }
+  },
+  "payment": {
+    "success": "To'lov muvaffaqiyatli amalga oshirildi!",
+    "successDescription": "Buyurtma uchun rahmat. Tez orada siz bilan bog'lanamiz.",
+    "contactInfo": "Yetkazib berish tafsilotlarini aniqlashtirish uchun siz bilan bog'lanamiz. Buyurtma ma'lumotlari shaxsiy kabinetda mavjud.",
+    "failed": "To'lov xatosi",
+    "failedDescription": "Qayta urinib ko'ring yoki boshqa to'lov usulini tanlang.",
+    "backToOrders": "Buyurtmalarga",
+    "backToHome": "Bosh sahifaga",
+    "tryAgain": "Qayta urinish"
+  },
+  "currency": {
+    "sum": "so'm"
+  },
+  "about": {
+    "title": "Probiotiklar va vitamin-mineral komplekslar",
+    "subtitle": "Nemis sifati",
+    "description1": "BIOTACT DEUTSCHLAND bilan sog'liq dunyosini kashf eting – ilg'or probiotiklar va vitamin-mineral komplekslarni ishlab chiqishda yetakchi.",
+    "description2": "BIOTACT DEUTSCHLAND bosh ofisi Germaniyada, Bonn shahrida joylashgan.",
+    "statYears": "20 yil",
+    "statYearsLabel": "O'zbekiston bozorida",
+    "statProducts": "11",
+    "statProductsLabel": "Mahsulot turlarida",
+    "statSold": "8 mln",
+    "statSoldLabel": "Sotilgan qadoqlar"
+  },
+  "faq": {
+    "title": "Savol-javob",
+    "q1": "BIOTACT DEUTSCHLAND mahsulotlarini bozorda noyob qiladigan narsa nima?",
+    "a1": "BIOTACT DEUTSCHLAND yuqori sifatli tabiiy ingredientlarni so'nggi ilmiy yutuqlar bilan uyg'unlashtirgan innovatsion formulalar tufayli ajralib turadi. Bu bizning mahsulotlarimizga sizning sog'lig'ingizni qo'llab-quvvatlash uchun tengsiz sifat va samaradorlikni ta'minlaydi.",
+    "q2": "Biz mahsulotlarimizning yuqori nemis sifatini qanday kafolatlaymiz?",
+    "a2": "Biz ilg'or texnologiyalar va sifatli ingredientlardan foydalanib, nemis ishlab chiqarish standartlariga qat'iy rioya qilamiz. Kompaniyamiz ishlab chiqarishning har bir bosqichida sifatni sinchkovlik bilan nazorat qilish uchun o'z sertifikatlangan laboratoriyasiga ega. Shuningdek, biz DQS nemis organi tomonidan tasdiqlangan ISO 9001 va ISO 22000 HACCP xalqaro standartlariga mos kelamiz.",
+    "q3": "BIOTACT DEUTSCHLAND ning bozordagi muvaffaqiyat tarixi qanday?",
+    "a3": "BIOTACT DEUTSCHLAND yuqori sifatli probiotiklar va vitamin-mineral komplekslarni ishlab chiqaruvchi sifatida bozorda ko'p yillik tajribaga ega. Biz innovatsiyalarga doimiy intilishimiz va mijozlar ehtiyojlariga e'tibor qaratishimiz tufayli iste'molchilar ishonchini qozondik. Mahsulotlarimiz bozorda 19 yildan ortiq vaqtdan beri ma'lum, 8 milliondan ortiq sotilgan qadoqlar va millionlab mamnun mijozlar bilan.",
+    "q4": "Bizning probiotiklar va vitamin-mineral komplekslarimizning noyob afzalliklari qanday?",
+    "a4": "Mahsulotlarimiz ilg'or ilmiy ishlanmalar va tabiiy komponentlarning uyg'unligi tufayli noyobdir. Ular gipoallergen, sun'iy qo'shimchalar yo'q va homilador, emizikli onalar, bolalar, keksalar, allergiya va diabet bilan og'riganlar uchun mos.",
+    "q5": "Mahsulotlarimiz sertifikatlangan mi?",
+    "a5": "Ha, mahsulotlarimiz zarur sertifikatlash jarayonlaridan o'tgan va butun ishlab chiqarish jarayoni ISO 9001 va ISO 22000 HACCP xalqaro standartlariga mos keladi. Bu mahsulotlarimizning yuqori sifati va xavfsizligini kafolatlovchi DQS nemis organi sertifikati bilan tasdiqlanadi.",
+    "q6": "Mahsulotlarimizni qayerdan sotib olish mumkin?",
+    "a6": "Mahsulotlarimizni dorixonalarda, \"Uzum Market\"da, \"Kid Point\" do'konlarida, shuningdek rasmiy veb-saytimizda sotib olishingiz mumkin. Biz keng turdagi mahsulotlar va ular haqida to'liq ma'lumotni taklif qilamiz, Call-markazimiz esa +998 93 555 17 47 telefon raqami orqali maslahat berishga doimo tayyor."
+  },
+  "footer": {
+    "uzbekistanCity": "O'zbekiston, 100109 Toshkent",
+    "uzbekistanStreet": "Farobiy ko'chasi, 448J",
+    "phone": "Tel.:"
+  }
+}

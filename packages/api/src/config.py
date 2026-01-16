@@ -1,0 +1,71 @@
+"""Application configuration using Pydantic Settings."""
+
+from functools import lru_cache
+
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Application settings from environment variables."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # App
+    app_name: str = "Biotact API"
+    debug: bool = False
+    api_v1_prefix: str = "/api/v1"
+
+    # Database
+    database_url: str
+    database_echo: bool = False
+
+    # Auth
+    secret_key: SecretStr
+    access_token_expire_minutes: int = 1440
+    refresh_token_expire_days: int = 30
+    algorithm: str = "HS256"
+
+    # CORS
+    cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Telegram
+    telegram_bot_token: str = ""
+    telegram_notification_bot_token: str = ""
+    telegram_chat_id: str = ""
+
+    # Multicard Payment Gateway
+    multicard_application_id: str = ""
+    multicard_secret: SecretStr = SecretStr("")
+    multicard_store_id: str = ""
+    multicard_base_url: str = "https://mesh.multicard.uz"
+
+    # Email (Gmail SMTP)
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from_email: str = ""
+    smtp_from_name: str = "Biotact Admin"
+    # JWT
+    jwt_secret: SecretStr = SecretStr("change-me-in-production")
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
+    # Admin
+    admin_url: str = "https://admin.biotact.uz"
+
+    # Sentry (optional - leave empty to disable)
+    sentry_dsn: str = ""
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Cached settings instance."""
+    return Settings()
+
+
+settings = get_settings()
