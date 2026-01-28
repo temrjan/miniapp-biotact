@@ -43,6 +43,11 @@ async def create_product(
     data = product_data.model_dump()
     # JSONB automatically handles Python lists - no json.dumps needed!
     # SQLAlchemy will convert List[str] -> JSONB automatically
+    
+    # Auto-set image_url from first image if not provided
+    if not data.get("image_url") and data.get("images") and len(data["images"]) > 0:
+        data["image_url"] = data["images"][0]
+    
     product = Product(**data)
     db.add(product)
     await db.flush()
@@ -67,6 +72,12 @@ async def update_product(
     update_dict = update_data.model_dump(exclude_unset=True)
     # JSONB automatically handles Python lists - no json.dumps needed!
     # SQLAlchemy will convert List[str] -> JSONB automatically
+    
+    # Auto-set image_url from first image if not provided
+    if "images" in update_dict and update_dict["images"] and len(update_dict["images"]) > 0:
+        if not update_dict.get("image_url") and not product.image_url:
+            update_dict["image_url"] = update_dict["images"][0]
+    
     for field, value in update_dict.items():
         setattr(product, field, value)
 
@@ -96,6 +107,7 @@ async def get_products_paginated(
     active_only: bool = True,
     featured_only: bool = False,
     search: Optional[str] = None,
+    sort_by: Optional[str] = None,
 ) -> ProductListResponse:
     """Get paginated list of products."""
     query = select(Product)
@@ -125,9 +137,25 @@ async def get_products_paginated(
 
     # Get items
     offset = (page - 1) * size
+    
+    # Apply sorting
+    if sort_by == "id_desc":
+        query = query.order_by(Product.id.desc())
+    elif sort_by == "id_asc":
+        query = query.order_by(Product.id.asc())
+    elif sort_by == "name_asc":
+        query = query.order_by(Product.name.asc())
+    elif sort_by == "name_desc":
+        query = query.order_by(Product.name.desc())
+    elif sort_by == "price_asc":
+        query = query.order_by(Product.price.asc())
+    elif sort_by == "price_desc":
+        query = query.order_by(Product.price.desc())
+    else:
+        query = query.order_by(Product.sort_order, Product.name)
+    
     result = await db.execute(
         query
-        .order_by(Product.sort_order, Product.name)
         .offset(offset)
         .limit(size)
     )

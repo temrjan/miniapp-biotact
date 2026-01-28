@@ -26,6 +26,9 @@ from src.payments.router import router as payments_router
 from src.auth.admin_router import router as admin_auth_router
 from src.auth.jwt_router import router as jwt_auth_router
 from src.analytics.router import router as analytics_router
+from src.crm.admin_router import router as crm_admin_router
+from src.crm.bot_router import router as crm_bot_router
+from src.crm.router import router as crm_router
 
 
 @asynccontextmanager
@@ -161,6 +164,27 @@ def create_app() -> FastAPI:
         analytics_router,
         prefix=f"{settings.api_v1_prefix}/analytics",
         tags=["analytics"],
+    )
+
+    # CRM router (for frontend)
+    app.include_router(
+        crm_router,
+        prefix=f"{settings.api_v1_prefix}/crm",
+        tags=["crm"],
+    )
+
+    # CRM Admin router
+    app.include_router(
+        crm_admin_router,
+        prefix=f"{settings.api_v1_prefix}/admin/crm",
+        tags=["admin-crm"],
+    )
+
+    # CRM Bot router (for AI assistant)
+    app.include_router(
+        crm_bot_router,
+        prefix=f"{settings.api_v1_prefix}/bot",
+        tags=["bot-crm"],
     )
 
     return app

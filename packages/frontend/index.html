@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/jpeg" href="/favicon.jpg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>biotact</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
@@ -11,9 +11,10 @@
         background-color: #f8f6f2;
         min-height: 100vh;
         margin: 0;
+        padding: 0;
       }
       #root {
-        padding-top: var(--tg-header-height, 0px);
+        padding-top: var(--tg-content-safe-area-inset-top, 0px);
       }
     </style>
     <script>
@@ -21,22 +22,23 @@
         var tg = window.Telegram && window.Telegram.WebApp;
         if (!tg) return;
 
+        // Только для мобильных платформ
         var platform = tg.platform;
         var isMobile = platform === 'ios' || platform === 'android' || platform === 'android_x';
         if (!isMobile) return;
 
+        // Определяем fullscreen режим по соотношению viewport/screen
         var viewportHeight = tg.viewportStableHeight || tg.viewportHeight || window.innerHeight;
         var screenHeight = window.screen.height;
         var ratio = viewportHeight / screenHeight;
 
-        // Fullscreen (Open button): ratio >= 0.95
-        // Sheet (inline button): ratio < 0.95
+        // Fullscreen (кнопка Open): ratio >= 0.95
+        // Sheet (inline кнопка): ratio < 0.95
         var isFullscreenMode = ratio >= 0.95;
 
         if (isFullscreenMode) {
-          document.documentElement.style.setProperty('--tg-header-height', '56px');
-        } else {
-          document.documentElement.style.setProperty('--tg-header-height', '0px');
+          // Отступ для Telegram native header (~56px)
+          document.documentElement.style.setProperty('--tg-content-safe-area-inset-top', '56px');
         }
       })();
     </script>

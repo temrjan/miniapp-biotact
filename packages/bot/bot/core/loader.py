@@ -3,14 +3,14 @@
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.redis import RedisStorage
 
 from bot.core.config import settings
 
 
 def get_storage():
-    """Get FSM storage."""
-    return MemoryStorage()
+    """Get FSM storage backed by Redis for persistence across restarts."""
+    return RedisStorage.from_url(settings.redis_url)
 
 
 # Bot instance

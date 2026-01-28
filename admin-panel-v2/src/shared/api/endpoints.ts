@@ -47,6 +47,12 @@ export const ENDPOINTS = {
     BANNERS: "/uploads/banners",
   },
   // Analytics
+  // CRM
+  CRM: {
+    CUSTOMERS: "/crm/customers",
+    STATS: "/crm/customers/stats",
+    CUSTOMER: (id: number) => `/crm/customer/${id}`,
+  },
   ANALYTICS: {
     DASHBOARD: "/analytics/dashboard",
     REVENUE: "/analytics/revenue",

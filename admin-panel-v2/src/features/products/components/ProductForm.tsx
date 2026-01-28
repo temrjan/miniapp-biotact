@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { generateSlug } from '@/shared/utils/slugify'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -120,11 +121,7 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
   const name = watch('name')
   useEffect(() => {
     if (!product && name) {
-      const slug = name
-        .toLowerCase()
-        .replace(/[^a-z0-9а-я]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-      setValue('slug', slug)
+      setValue('slug', generateSlug(name))
     }
   }, [name, product, setValue])
 
@@ -209,7 +206,7 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
                 id="old_price"
                 type="number"
                 step="0.01"
-                {...register('old_price', { valueAsNumber: true })}
+                {...register('old_price', { setValueAs: (v) => (v === '' || v === null || v === undefined || (typeof v === 'string' && v.trim() === '')) ? null : Number(v) })}
               />
             </div>
 
@@ -323,7 +320,7 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
               <Input
                 id="vat"
                 type="number"
-                {...register('vat', { valueAsNumber: true })}
+                {...register('vat', { setValueAs: (v) => (v === '' || v === null || v === undefined || (typeof v === 'string' && v.trim() === '')) ? null : Number(v) })}
               />
             </div>
           </div>

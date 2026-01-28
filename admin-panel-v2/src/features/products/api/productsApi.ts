@@ -9,6 +9,7 @@ export interface ProductsParams {
   active_only?: boolean
   featured_only?: boolean
   search?: string | null
+  sort_by?: string | null
 }
 
 export interface ProductCreateData {
@@ -53,6 +54,7 @@ export const productsApi = {
     if (params.active_only !== undefined) queryParams.append("active_only", params.active_only.toString())
     if (params.featured_only) queryParams.append("featured_only", params.featured_only.toString())
     if (params.search) queryParams.append("search", params.search)
+    if (params.sort_by) queryParams.append("sort_by", params.sort_by)
 
     queryParams.append("include_all_translations", "true")
 

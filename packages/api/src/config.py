@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     telegram_notification_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    # Bot API (for AI assistant integration)
+    bot_api_token: SecretStr = SecretStr("")
+
     # Multicard Payment Gateway
     multicard_application_id: str = ""
     multicard_secret: SecretStr = SecretStr("")
@@ -57,6 +60,8 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
     # Admin
     admin_url: str = "https://admin.biotact.uz"
+    admin_password: SecretStr = SecretStr("")
+    admin_telegram_id: int = 0
 
     # Sentry (optional - leave empty to disable)
     sentry_dsn: str = ""

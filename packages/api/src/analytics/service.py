@@ -2,10 +2,11 @@
 
 from datetime import datetime, timedelta
 from decimal import Decimal
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.orders.models import Order, OrderItem, OrderStatus
+from src.users.models import User
 from src.analytics.schemas import (
     DashboardStats,
     RevenueDataPoint,
@@ -21,6 +22,7 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
     # Calculate date range
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days)
+    today_start = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Total revenue (paid orders only)
     revenue_query = select(func.coalesce(func.sum(Order.total), 0)).where(
@@ -166,6 +168,36 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
         for row in status_rows
     ]
 
+    # User Statistics
+    # Total users
+    total_users = await db.scalar(select(func.count(User.id))) or 0
+
+    # Buyers in last 7 days (users who made orders)
+    buyers_7d_query = (
+        select(func.count(func.distinct(Order.user_id)))
+        .where(Order.created_at >= end_date - timedelta(days=7))
+    )
+    buyers_7d = await db.scalar(buyers_7d_query) or 0
+
+    # Buyers in last 30 days
+    buyers_30d_query = (
+        select(func.count(func.distinct(Order.user_id)))
+        .where(Order.created_at >= end_date - timedelta(days=30))
+    )
+    buyers_30d = await db.scalar(buyers_30d_query) or 0
+
+    # New users today
+    new_users_today = await db.scalar(
+        select(func.count(User.id)).where(User.created_at >= today_start)
+    ) or 0
+
+    # New users in last 7 days
+    new_users_7d = await db.scalar(
+        select(func.count(User.id)).where(
+            User.created_at >= end_date - timedelta(days=7)
+        )
+    ) or 0
+
     return DashboardStats(
         total_revenue=total_revenue or Decimal("0"),
         total_orders=total_orders or 0,
@@ -175,4 +207,9 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
         recent_orders=recent_orders,
         top_products=top_products,
         order_status_distribution=order_status_distribution,
+        total_users=total_users,
+        buyers_7d=buyers_7d,
+        buyers_30d=buyers_30d,
+        new_users_today=new_users_today,
+        new_users_7d=new_users_7d,
     )

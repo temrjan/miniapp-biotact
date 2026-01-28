@@ -414,12 +414,11 @@ class LoginResponse(BaseModel):
     user: dict
 
 
-# Simple in-memory admin credentials (in production use database with hashed passwords)
-# Format: {username: {"password": "...", "telegram_id": ...}}
+# Admin credentials loaded from environment variables
 ADMIN_CREDENTIALS = {
     "biotact": {
-        "password": "41676$Biotact",
-        "telegram_id": 8503214095,
+        "password": settings.admin_password.get_secret_value(),
+        "telegram_id": settings.admin_telegram_id,
         "first_name": "Admin",
         "last_name": "User",
         "username": "biotact",

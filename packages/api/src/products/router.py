@@ -89,6 +89,7 @@ async def get_products(
     featured_only: bool = Query(False),
     search: Optional[str] = Query(None, min_length=1),
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
+    sort_by: Optional[str] = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
 ):
     """Get paginated list of products (localized by Accept-Language or all fields for admin)."""
     result = await service.get_products_paginated(
@@ -99,6 +100,7 @@ async def get_products(
         active_only=active_only,
         featured_only=featured_only,
         search=search,
+        sort_by=sort_by,
     )
 
     # If admin panel needs all translations, return full ProductResponse objects
@@ -132,6 +134,7 @@ async def get_product(
     db: DbSession,
     lang: CurrentLanguage,
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
+    sort_by: Optional[str] = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
 ):
     """Get product by ID (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_id(db, product_id)
@@ -153,6 +156,7 @@ async def get_product_by_slug(
     db: DbSession,
     lang: CurrentLanguage,
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
+    sort_by: Optional[str] = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
 ):
     """Get product by slug (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_slug(db, slug)

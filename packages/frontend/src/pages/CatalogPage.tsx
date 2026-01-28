@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { ShoppingCart, ChevronDown } from 'lucide-react';
+import { api } from '@/api/client';
 import { Card } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import { useCartStore } from '@/stores/cartStore';
@@ -60,7 +60,6 @@ const PRODUCTS_PER_PAGE = 20;
 // Типы для ProductCard
 interface ProductCardProps {
   product: Product;
-  index: number;
   onAddToCart: (product: Product) => void;
   onProductClick: (productId: string) => void;
   formatPrice: (price: number) => string;
@@ -70,7 +69,6 @@ interface ProductCardProps {
 // Компонент карточки товара (такой же дизайн как на HomePage)
 function ProductCard({
   product,
-  index,
   onAddToCart,
   onProductClick,
   formatPrice,
@@ -89,11 +87,7 @@ function ProductCard({
   );
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.05 + index * 0.02 }}
-    >
+    <div>
       {/* Card container - без padding, overflow-hidden для обрезки изображения */}
       <div className="neumorphic-flat overflow-hidden h-full flex flex-col">
         {/* Верхняя зона: изображение + информация (кликабельная для перехода к товару) */}
@@ -143,7 +137,7 @@ function ProductCard({
           {buttonText}
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -164,10 +158,9 @@ export function CatalogPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        const headers = { 'Accept-Language': language };
         const [catsRes, prodsRes] = await Promise.all([
-          fetch('/api/v1/categories', { headers }).then((r) => r.json()),
-          fetch('/api/v1/products?size=100', { headers }).then((r) => r.json()),
+          api.get<{ items: ApiCategory[] }>('/categories'),
+          api.get<{ items: ApiProduct[] }>('/products?size=100'),
         ]);
         setCategories((catsRes.items || []).map(mapCategory));
         setProducts((prodsRes.items || []).map(mapProduct));
@@ -236,7 +229,7 @@ export function CatalogPage() {
   return (
     <div className="p-3 pt-2 md:pt-3 space-y-4 max-w-4xl mx-auto">
       {/* Categories - simple 2x2 grid */}
-      <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}>
+      <section>
         <div className="grid grid-cols-2 gap-2">
           {categories.map((category) => {
             const isSelected = selectedCategoryId === category.id;
@@ -257,14 +250,10 @@ export function CatalogPage() {
             );
           })}
         </div>
-      </motion.section>
+      </section>
 
       {/* Products */}
-      <motion.section
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-      >
+      <section>
         <h2 className="text-lg font-semibold mb-3">
           {selectedCategory ? selectedCategory.name : t('catalog.allProducts')}
           <span className="text-sm font-normal text-[var(--text-muted)] ml-2">
@@ -279,11 +268,10 @@ export function CatalogPage() {
         ) : (
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {visibleProducts.map((product, index) => (
+              {visibleProducts.map((product) => (
                 <ProductCard
                   key={product.id}
                   product={product}
-                  index={index}
                   onAddToCart={handleAddToCart}
                   onProductClick={handleProductClick}
                   formatPrice={formatPrice}
@@ -294,11 +282,7 @@ export function CatalogPage() {
 
             {/* Show More Button */}
             {hasMore && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex justify-center mt-4"
-              >
+              <div className="flex justify-center mt-4">
                 <button
                   onClick={handleShowMore}
                   className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium transition-colors"
@@ -306,11 +290,11 @@ export function CatalogPage() {
                   <span>{t('home.showMore')}</span>
                   <ChevronDown size={18} />
                 </button>
-              </motion.div>
+              </div>
             )}
           </>
         )}
-      </motion.section>
+      </section>
 
     </div>
   );

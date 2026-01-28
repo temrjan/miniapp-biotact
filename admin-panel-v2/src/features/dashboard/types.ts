@@ -36,4 +36,11 @@ export interface DashboardStats {
   recent_orders: RecentOrder[]
   top_products: TopProduct[]
   order_status_distribution: OrderStatusCount[]
+  
+  // User statistics
+  total_users: number
+  buyers_7d: number
+  buyers_30d: number
+  new_users_today: number
+  new_users_7d: number
 }

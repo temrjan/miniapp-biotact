@@ -13,7 +13,7 @@ export const ProductsListPage = () => {
   const [search, setSearch] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
 
-  const { data, isLoading, error } = useProducts({ page, size: 20, search: searchQuery || null })
+  const { data, isLoading, error } = useProducts({ page, size: 20, search: searchQuery || null, sort_by: "id_desc" })
   const deleteProduct = useDeleteProduct()
 
   const handleSearch = (e: React.FormEvent) => {

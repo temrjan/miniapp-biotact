@@ -30,3 +30,7 @@ venv/
 # Uploads
 uploads/
 **/uploads/
+
+# Backups
+backups/*.sql.gz
+backups/*.log

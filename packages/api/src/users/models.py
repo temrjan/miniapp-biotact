@@ -1,10 +1,14 @@
 """User SQLAlchemy models."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import String, Boolean, DateTime, BigInteger, Text, Float, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from src.crm.models import FamilyMember, Lead
 
 from src.database import Base
 
@@ -33,7 +37,11 @@ class User(Base):
     address_comment: Mapped[Optional[str]] = mapped_column(Text)
     address_lat: Mapped[Optional[float]] = mapped_column(Float)
     address_lng: Mapped[Optional[float]] = mapped_column(Float)
-    
+
+    # CRM data (AI assistant collected)
+    symptoms: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text), default=[])
+    ai_notes: Mapped[Optional[str]] = mapped_column(Text)
+
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -46,6 +54,17 @@ class User(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    # Relationships
+    family_members: Mapped[List["FamilyMember"]] = relationship(
+        "FamilyMember",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    leads: Mapped[List["Lead"]] = relationship(
+        "Lead",
+        back_populates="user"
     )
 
     def __repr__(self) -> str:

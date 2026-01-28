@@ -28,6 +28,21 @@ class Settings(BaseSettings):
     # Debug
     debug: bool = False
 
+    # AskBiotact API
+    askbiotact_api_url: str = ""
+    askbiotact_api_key: str = ""
+
+    # CRM API
+    crm_api_url: str = "https://app.biotact.uz/api/v1/bot"
+    crm_api_token: str = ""
+
+    # Redis (for FSM storage)
+    redis_url: str = "redis://localhost:6379/0"
+
+    # Notifications
+    notification_bot_token: str = ""
+    sales_group_chat_id: int = 0
+
     @property
     def is_production(self) -> bool:
         return not self.debug

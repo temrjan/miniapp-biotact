@@ -1,12 +1,16 @@
 """User service for direct database operations."""
 
+import logging
 from typing import Literal
 
 from aiogram.types import User as TelegramUser
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.models.user import User
+
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -45,8 +49,17 @@ class UserService:
         if user:
             return user, False
 
-        user = await self.create(telegram_user)
-        return user, True
+        try:
+            user = await self.create(telegram_user)
+            return user, True
+        except IntegrityError:
+            logger.warning(
+                "Race condition in get_or_create for telegram_id=%s, fetching existing user",
+                telegram_user.id,
+            )
+            await self.session.rollback()
+            user = await self.get_by_telegram_id(telegram_user.id)
+            return user, False
 
     async def update_language(
         self,
@@ -59,3 +72,16 @@ class UserService:
             user.language_code = language_code
             await self.session.flush()
         return user
+
+    async def update_phone(self, telegram_id: int, phone: str) -> User | None:
+        """Update user's phone number."""
+        user = await self.get_by_telegram_id(telegram_id)
+        if user:
+            user.phone = phone
+            await self.session.flush()
+        return user
+
+    async def get_phone(self, telegram_id: int) -> str | None:
+        """Get user's phone number if saved."""
+        user = await self.get_by_telegram_id(telegram_id)
+        return user.phone if user else None

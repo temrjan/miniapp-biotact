@@ -19,6 +19,7 @@ class User(Base):
     username: Mapped[Optional[str]] = mapped_column(String(100))
     first_name: Mapped[Optional[str]] = mapped_column(String(100))
     last_name: Mapped[Optional[str]] = mapped_column(String(100))
+    phone: Mapped[Optional[str]] = mapped_column(String(20))
     language_code: Mapped[str] = mapped_column(String(10), default="ru")
 
     # Status

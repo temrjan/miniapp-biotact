@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DollarSign, ShoppingCart, Clock, CheckCircle2, Download } from 'lucide-react'
+import { DollarSign, ShoppingCart, Clock, CheckCircle2, Download, Users, ShoppingBag, UserPlus } from 'lucide-react'
 import { Button } from '@/shared/components/ui/button'
 import {
   Select,
@@ -113,7 +113,7 @@ export const DashboardPage = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Order Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           title="Общая выручка"
@@ -139,6 +139,48 @@ export const DashboardPage = () => {
           subtitle="Доставленные заказы"
           icon={CheckCircle2}
         />
+      </div>
+
+      {/* User Stats Cards */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4">Пользователи</h2>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <StatsCard
+            title="Всего"
+            value={data.total_users}
+            subtitle="Пользователей"
+            icon={Users}
+            index={0}
+          />
+          <StatsCard
+            title="Покупатели 7д"
+            value={data.buyers_7d}
+            subtitle="Делали заказ"
+            icon={ShoppingBag}
+            index={1}
+          />
+          <StatsCard
+            title="Покупатели 30д"
+            value={data.buyers_30d}
+            subtitle="Делали заказ"
+            icon={ShoppingBag}
+            index={2}
+          />
+          <StatsCard
+            title="Новых сегодня"
+            value={`+${data.new_users_today}`}
+            subtitle="Регистраций"
+            icon={UserPlus}
+            index={3}
+          />
+          <StatsCard
+            title="Новых за 7д"
+            value={`+${data.new_users_7d}`}
+            subtitle="Регистраций"
+            icon={UserPlus}
+            index={4}
+          />
+        </div>
       </div>
 
       {/* Revenue Chart */}

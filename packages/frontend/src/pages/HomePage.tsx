@@ -410,6 +410,7 @@ export function HomePage() {
   const [bannerInterval, setBannerInterval] = useState(DEFAULT_INTERVAL_MS);
   const [loading, setLoading] = useState(true);
   const [currentBanner, setCurrentBanner] = useState(0);
+  const [loadedImages, setLoadedImages] = useState<Set<number>>(new Set());
 
 
   // Fetch data
@@ -599,7 +600,7 @@ export function HomePage() {
   return (
     <div className="p-3 pt-2 space-y-4 max-w-4xl mx-auto">
       {/* Banner Slider */}
-      <div className="relative h-32 md:h-52 lg:h-80 overflow-hidden rounded-xl">
+      <div className="relative h-32 md:h-52 lg:h-80 overflow-hidden rounded-none md:rounded-xl -mx-3 -mt-2 md:mx-0 md:mt-0">
         {displayBanners.length === 0 ? (
           /* Skeleton while banners are loading */
           <div className="absolute inset-0 bg-[var(--bg-tertiary)] animate-pulse" />
@@ -614,17 +615,35 @@ export function HomePage() {
                   zIndex: i === currentBanner ? 1 : 0,
                 }}
                 transition={{ duration: 0.5 }}
-                className="absolute inset-0 cursor-pointer"
-                style={{
-                  background: banner.gradient || '#1b3554',
-                  backgroundImage: banner.image_url
-                    ? `url(${banner.image_url})`
-                    : undefined,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                }}
+                className="absolute inset-0 cursor-pointer overflow-hidden"
                 onClick={() => handleBannerClick(banner.link_url)}
-              />
+              >
+                {/* Skeleton while image loads */}
+                {banner.image_url && !loadedImages.has(banner.id) && (
+                  <div className="absolute inset-0 bg-[var(--bg-tertiary)] animate-pulse" />
+                )}
+                {/* Gradient fallback or loaded image */}
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background: banner.gradient || 'transparent',
+                    backgroundImage: banner.image_url
+                      ? `url(${banner.image_url})`
+                      : undefined,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }}
+                />
+                {/* Hidden img to track load */}
+                {banner.image_url && (
+                  <img
+                    src={banner.image_url}
+                    alt=""
+                    className="hidden"
+                    onLoad={() => setLoadedImages(prev => new Set(prev).add(banner.id))}
+                  />
+                )}
+              </motion.div>
             ))}
 
             {/* Banner Dots */}

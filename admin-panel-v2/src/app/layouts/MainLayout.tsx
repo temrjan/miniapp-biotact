@@ -14,6 +14,7 @@ import {
   Sun,
   Menu,
   X,
+  Contact,
 } from "lucide-react"
 import { Button } from "@/shared/components/ui/button"
 import { useAuth, useLogout } from "@/features/auth/hooks/useAuth"
@@ -31,6 +32,7 @@ const navItems = [
   { href: "/categories", label: "Категории", icon: Folder },
   { href: "/banners", label: "Баннеры", icon: Image },
   { href: "/users", label: "Пользователи", icon: Users },
+  { href: "/customers", label: "CRM", icon: Contact },
   { href: "/settings", label: "Настройки", icon: Settings },
 ]
 

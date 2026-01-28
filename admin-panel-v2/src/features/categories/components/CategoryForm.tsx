@@ -1,4 +1,5 @@
 import { useForm, Controller } from 'react-hook-form';
+import { generateSlug } from '@/shared/utils/slugify';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
@@ -78,14 +79,7 @@ export function CategoryForm({ category, onSubmit, isLoading }: CategoryFormProp
   // Auto-generate slug from name
   const slugValue = watch('slug');
 
-  const generateSlug = (text: string): string => {
-    return text
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, '-')
-      .replace(/[^\w\-]+/g, '')
-      .replace(/\-\-+/g, '-');
-  };
+
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value;

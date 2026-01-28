@@ -58,3 +58,10 @@ class DashboardStats(BaseModel):
     recent_orders: list[RecentOrderItem]
     top_products: list[TopProductItem]
     order_status_distribution: list[OrderStatusCount]
+    
+    # User statistics
+    total_users: int
+    buyers_7d: int
+    buyers_30d: int
+    new_users_today: int
+    new_users_7d: int
