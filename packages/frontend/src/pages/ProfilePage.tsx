@@ -207,7 +207,7 @@ export function ProfilePage() {
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm font-medium text-[var(--text-secondary)]">
                 <Phone size={16} />
-                Номер телефона
+                {t('profile.phoneLabel')}
               </label>
               <input
                 type="tel"
@@ -222,12 +222,12 @@ export function ProfilePage() {
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm font-medium text-[var(--text-secondary)]">
                 <MapPin size={16} />
-                Адрес доставки
+                {t('profile.addressLabel')}
               </label>
               <textarea
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                placeholder="Город, улица, дом, квартира"
+                placeholder={t('profile.addressPlaceholder')}
                 rows={2}
                 className="w-full px-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--primary)] resize-none"
               />
@@ -241,10 +241,10 @@ export function ProfilePage() {
               {saved ? (
                 <>
                   <Check size={20} />
-                  Сохранено
+                  {t('profile.saved')}
                 </>
               ) : (
-                'Сохранить'
+                t('profile.save')
               )}
             </button>
           </Card>

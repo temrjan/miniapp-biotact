@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronDown, ShoppingCart } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Loading } from '@components/ui/Loading';
+import { api } from '@/api/client';
 import { useCartStore } from '@/stores/cartStore';
 import { useTranslation } from '@/i18n';
 import { useLanguage } from '@/stores/languageStore';
@@ -131,6 +132,7 @@ function ProductCard({
                 src={product.imageUrl}
                 alt={product.name}
                 className="w-full h-full object-cover"
+                loading="lazy"
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-3xl">
@@ -417,13 +419,10 @@ export function HomePage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const headers = { 'Accept-Language': language };
         const [catsRes, prodsRes, bannersRes] = await Promise.all([
-          fetch('/api/v1/categories', { headers }).then((r) => r.json()),
-          fetch('/api/v1/products?size=100', { headers }).then((r) => r.json()),
-          fetch('/api/v1/banners', { headers })
-            .then((r) => r.json())
-            .catch(() => ({ items: [] })),
+          api.get<{ items: ApiCategory[] }>('/categories'),
+          api.get<{ items: ApiProduct[] }>('/products?size=100'),
+          api.get<{ items: ApiBanner[] }>('/banners').catch(() => ({ items: [] as ApiBanner[] })),
         ]);
 
         setCategories(catsRes.items || []);
@@ -441,9 +440,7 @@ export function HomePage() {
         }
 
         try {
-          const intervalRes = await fetch(
-            '/api/v1/settings/banner_interval'
-          ).then((r) => r.json());
+          const intervalRes = await api.get<{ value: string }>('/settings/banner_interval');
           if (intervalRes.value) {
             setBannerInterval(Number(intervalRes.value) || DEFAULT_INTERVAL_MS);
           }

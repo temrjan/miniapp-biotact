@@ -1,13 +1,17 @@
 """Common handlers: /start, /help, callbacks, AI assistant, Order Flow."""
 
 import asyncio
+import logging
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from bot.callbacks import LanguageCallback
 from bot.keyboards.inline import (
@@ -249,7 +253,10 @@ async def callback_language(
     user = await user_service.update_language(callback.from_user.id, lang)
 
     if user:
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
 
         # Check if user already has phone
         if user.phone:
@@ -343,11 +350,12 @@ async def callback_skip_phone(
     # Sync user to CRM (fire and forget)
     asyncio.create_task(sync_customer_to_crm(callback.from_user))
 
-    await callback.message.delete()
-    await callback.message.answer(
-        t(lang, "welcome").format(name=callback.from_user.first_name),
-        reply_markup=get_remove_keyboard(),
-    )
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    # Remove reply keyboard, then show welcome with webapp button
+    await callback.message.answer("⏭️", reply_markup=get_remove_keyboard())
     await callback.message.answer(
         t(lang, "welcome").format(name=callback.from_user.first_name),
         reply_markup=get_webapp_keyboard(lang),

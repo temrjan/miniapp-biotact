@@ -108,7 +108,12 @@
     "settings": "Настройки",
     "settingsDescription": "Уведомления, язык",
     "language": "Язык",
-    "closeApp": "Закрыть приложение"
+    "closeApp": "Закрыть приложение",
+    "phoneLabel": "Номер телефона",
+    "addressLabel": "Адрес доставки",
+    "addressPlaceholder": "Город, улица, дом, квартира",
+    "saved": "Сохранено",
+    "save": "Сохранить"
   },
   "orders": {
     "title": "Мои заказы",

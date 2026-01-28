@@ -7,11 +7,15 @@ from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from src.config import settings
 from src.database import engine
+
+logger = logging.getLogger(__name__)
 
 # Import routers
 from src.categories.router import router as categories_router
@@ -66,6 +70,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs" if settings.debug else None,
         redoc_url="/redoc" if settings.debug else None,
+        openapi_url="/openapi.json" if settings.debug else None,
     )
 
     # CORS
@@ -186,6 +191,31 @@ def create_app() -> FastAPI:
         prefix=f"{settings.api_v1_prefix}/bot",
         tags=["bot-crm"],
     )
+
+    # Global exception handlers
+    @app.exception_handler(IntegrityError)
+    async def integrity_error_handler(request: Request, exc: IntegrityError):
+        logger.error("IntegrityError: %s | path=%s", exc.orig, request.url.path)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "Data conflict: duplicate or constraint violation"},
+        )
+
+    @app.exception_handler(OperationalError)
+    async def operational_error_handler(request: Request, exc: OperationalError):
+        logger.error("OperationalError: %s | path=%s", exc.orig, request.url.path)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Database temporarily unavailable"},
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        logger.exception("Unhandled error: %s | path=%s", exc, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
 
     return app
 

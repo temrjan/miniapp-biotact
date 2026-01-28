@@ -4,10 +4,11 @@ import asyncio
 import logging
 import sys
 
-from aiogram import Bot
+from aiogram import Bot, Router
 from aiogram.types import (
     BotCommand,
     BotCommandScopeDefault,
+    ErrorEvent,
     MenuButtonDefault,
 )
 
@@ -15,6 +16,8 @@ from bot.core.config import settings
 from bot.core.loader import bot, dp
 from bot.handlers import router
 from bot.middlewares import DatabaseMiddleware, LoggingMiddleware
+
+logger = logging.getLogger(__name__)
 
 
 async def set_commands(bot: Bot) -> None:
@@ -72,6 +75,32 @@ async def main() -> None:
     # Register middlewares (order matters: logging first, then database)
     dp.update.outer_middleware(LoggingMiddleware())
     dp.update.outer_middleware(DatabaseMiddleware())
+
+    # Global error handler
+    @dp.errors()
+    async def error_handler(event: ErrorEvent) -> bool:
+        logger.exception(
+            "Unhandled error in update %s: %s",
+            event.update.update_id,
+            event.exception,
+        )
+        # Try to notify the user
+        try:
+            update = event.update
+            chat_id = None
+            if update.message:
+                chat_id = update.message.chat.id
+            elif update.callback_query:
+                chat_id = update.callback_query.message.chat.id
+
+            if chat_id:
+                await bot.send_message(
+                    chat_id,
+                    "Произошла ошибка. Попробуйте позже или нажмите /start",
+                )
+        except Exception:
+            pass
+        return True
 
     # Register startup/shutdown handlers
     dp.startup.register(on_startup)

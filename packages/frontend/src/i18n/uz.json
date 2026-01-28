@@ -108,7 +108,12 @@
     "settings": "Sozlamalar",
     "settingsDescription": "Bildirishnomalar, til",
     "language": "Til",
-    "closeApp": "Ilovani yopish"
+    "closeApp": "Ilovani yopish",
+    "phoneLabel": "Telefon raqami",
+    "addressLabel": "Yetkazib berish manzili",
+    "addressPlaceholder": "Shahar, ko'cha, uy, xonadon",
+    "saved": "Saqlandi",
+    "save": "Saqlash"
   },
   "orders": {
     "title": "Buyurtmalarim",
