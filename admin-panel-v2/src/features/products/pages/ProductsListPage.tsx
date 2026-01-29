@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { Plus, Edit2, Trash2 } from "lucide-react"
+import { Plus, Edit2, Trash2, Filter } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select"
 import { useProducts, useDeleteProduct } from "../hooks/useProducts"
 import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
@@ -12,13 +13,28 @@ export const ProductsListPage = () => {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
+  const [activeFilter, setActiveFilter] = useState<"active" | "all" | "inactive">("active")
 
-  const { data, isLoading, error } = useProducts({ page, size: 20, search: searchQuery || null, sort_by: "id_desc" })
+  const { data, isLoading, error } = useProducts({
+    page,
+    size: 20,
+    search: searchQuery || null,
+    sort_by: "id_desc",
+    active_only: activeFilter === "all" ? false : activeFilter === "active" ? true : false
+  })
+  const displayedItems = activeFilter === "inactive"
+    ? data?.items.filter(p => !p.is_active)
+    : data?.items
   const deleteProduct = useDeleteProduct()
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     setSearchQuery(search)
+    setPage(1)
+  }
+
+  const handleActiveFilter = (value: string) => {
+    setActiveFilter(value as "active" | "all" | "inactive")
     setPage(1)
   }
 
@@ -44,15 +60,30 @@ export const ProductsListPage = () => {
       </div>
 
       <Card className="p-4">
-        <form onSubmit={handleSearch} className="flex gap-4">
-          <Input
-            placeholder="Поиск..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1"
-          />
-          <Button type="submit">Искать</Button>
-        </form>
+        <div className="flex gap-4 items-center">
+          <form onSubmit={handleSearch} className="flex gap-4 flex-1">
+            <Input
+              placeholder="Поиск..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1"
+            />
+            <Button type="submit">Искать</Button>
+          </form>
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={activeFilter} onValueChange={handleActiveFilter}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Только активные</SelectItem>
+                <SelectItem value="all">Все товары</SelectItem>
+                <SelectItem value="inactive">Только неактивные</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </Card>
 
       <Card>
@@ -60,7 +91,7 @@ export const ProductsListPage = () => {
           <div className="p-8 text-center">Загрузка...</div>
         ) : error ? (
           <div className="p-8 text-center text-destructive">Ошибка</div>
-        ) : !data?.items.length ? (
+        ) : !displayedItems?.length ? (
           <div className="p-8 text-center">Нет товаров</div>
         ) : (
           <>
@@ -76,7 +107,7 @@ export const ProductsListPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.items.map((product) => (
+                {displayedItems.map((product) => (
                   <TableRow key={product.id}>
                     <TableCell>#{product.id}</TableCell>
                     <TableCell>{product.name}</TableCell>
@@ -107,7 +138,7 @@ export const ProductsListPage = () => {
                 ))}
               </TableBody>
             </Table>
-            {data.pages > 1 && (
+            {data && data.pages > 1 && (
               <div className="p-4 border-t flex justify-between">
                 <div>Страница {page} из {data.pages}</div>
                 <div className="flex gap-2">
