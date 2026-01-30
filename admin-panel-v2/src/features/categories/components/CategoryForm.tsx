@@ -31,6 +31,7 @@ const categorySchema = z.object({
   image_url: z.string().max(500).optional(),
   sort_order: z.number().int().optional(),
   is_active: z.boolean().optional(),
+  is_purchasable: z.boolean().optional(),
 });
 
 export type CategoryFormData = z.infer<typeof categorySchema>;
@@ -56,13 +57,14 @@ export function CategoryForm({ category, onSubmit, isLoading }: CategoryFormProp
     defaultValues: category
       ? {
           name: category.name,
-          name_uz: category.name_uz,
+          name_uz: category.name_uz || '',
           slug: category.slug,
-          description: category.description,
-          description_uz: category.description_uz,
-          image_url: category.image_url,
+          description: category.description || '',
+          description_uz: category.description_uz || '',
+          image_url: category.image_url || '',
           sort_order: category.sort_order,
           is_active: category.is_active,
+          is_purchasable: category.is_purchasable,
         }
       : {
           name: '',
@@ -73,6 +75,7 @@ export function CategoryForm({ category, onSubmit, isLoading }: CategoryFormProp
           image_url: '',
           sort_order: 0,
           is_active: true,
+          is_purchasable: true,
         },
   });
 
@@ -90,7 +93,15 @@ export function CategoryForm({ category, onSubmit, isLoading }: CategoryFormProp
   };
 
   const handleFormSubmit = (data: CategoryFormData) => {
-    onSubmit(data);
+    // Convert empty strings to undefined so backend exclude_unset=True works correctly
+    const cleanData = {
+      ...data,
+      name_uz: data.name_uz || undefined,
+      description: data.description || undefined,
+      description_uz: data.description_uz || undefined,
+      image_url: data.image_url || undefined,
+    };
+    onSubmit(cleanData);
   };
 
   return (

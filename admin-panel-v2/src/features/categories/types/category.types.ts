@@ -10,6 +10,7 @@ export interface Category {
   image_url?: string;
   sort_order: number;
   is_active: boolean;
+  is_purchasable: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -23,6 +24,7 @@ export interface CategoryCreateData {
   image_url?: string;
   sort_order?: number;
   is_active?: boolean;
+  is_purchasable?: boolean;
 }
 
 export interface CategoryUpdateData {
@@ -34,6 +36,7 @@ export interface CategoryUpdateData {
   image_url?: string;
   sort_order?: number;
   is_active?: boolean;
+  is_purchasable?: boolean;
 }
 
 export interface CategoryListResponse {
