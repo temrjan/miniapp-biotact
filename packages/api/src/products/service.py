@@ -1,12 +1,24 @@
 """Product service layer."""
 
 from typing import Optional
+from dataclasses import dataclass
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from src.products.models import Product
-from src.products.schemas import ProductCreate, ProductUpdate, ProductListResponse
+from src.products.schemas import ProductCreate, ProductUpdate
+
+
+@dataclass
+class PaginatedResult:
+    """Internal paginated result container with SQLAlchemy models."""
+    items: list[Product]
+    total: int
+    page: int
+    size: int
+    pages: int
 
 
 async def get_product_by_id(
@@ -15,7 +27,9 @@ async def get_product_by_id(
 ) -> Optional[Product]:
     """Get product by ID."""
     result = await db.execute(
-        select(Product).where(Product.id == product_id)
+        select(Product)
+        .options(joinedload(Product.category))
+        .where(Product.id == product_id)
     )
     return result.scalar_one_or_none()
 
@@ -26,7 +40,9 @@ async def get_product_by_slug(
 ) -> Optional[Product]:
     """Get product by slug."""
     result = await db.execute(
-        select(Product).where(Product.slug == slug)
+        select(Product)
+        .options(joinedload(Product.category))
+        .where(Product.slug == slug)
     )
     return result.scalar_one_or_none()
 
@@ -108,9 +124,9 @@ async def get_products_paginated(
     featured_only: bool = False,
     search: Optional[str] = None,
     sort_by: Optional[str] = None,
-) -> ProductListResponse:
+) -> PaginatedResult:
     """Get paginated list of products."""
-    query = select(Product)
+    query = select(Product).options(joinedload(Product.category))
     count_query = select(func.count(Product.id))
 
     # Apply filters
@@ -159,12 +175,12 @@ async def get_products_paginated(
         .offset(offset)
         .limit(size)
     )
-    items = list(result.scalars().all())
+    items = list(result.unique().scalars().all())
 
     # Calculate pages
     pages = (total + size - 1) // size if total > 0 else 1
 
-    return ProductListResponse(
+    return PaginatedResult(
         items=items,
         total=total,
         page=page,

@@ -165,18 +165,18 @@
   },
   "faq": {
     "title": "Savol-javob",
-    "q1": "BIOTACT DEUTSCHLAND mahsulotlarini bozorda noyob qiladigan narsa nima?",
-    "a1": "BIOTACT DEUTSCHLAND yuqori sifatli tabiiy ingredientlarni so'nggi ilmiy yutuqlar bilan uyg'unlashtirgan innovatsion formulalar tufayli ajralib turadi. Bu bizning mahsulotlarimizga sizning sog'lig'ingizni qo'llab-quvvatlash uchun tengsiz sifat va samaradorlikni ta'minlaydi.",
-    "q2": "Biz mahsulotlarimizning yuqori nemis sifatini qanday kafolatlaymiz?",
-    "a2": "Biz ilg'or texnologiyalar va sifatli ingredientlardan foydalanib, nemis ishlab chiqarish standartlariga qat'iy rioya qilamiz. Kompaniyamiz ishlab chiqarishning har bir bosqichida sifatni sinchkovlik bilan nazorat qilish uchun o'z sertifikatlangan laboratoriyasiga ega. Shuningdek, biz TUV nemis organi tomonidan tasdiqlangan ISO 9001 va ISO 22000 HACCP xalqaro standartlariga mos kelamiz.",
+    "q1": "BIOTACT DEUTSCHLAND mahsulotlarini bozorda nima noyob qiladi?",
+    "a1": "BIOTACT DEUTSCHLAND yuqori sifatli tabiiy ingrediyentlarni so'nggi ilmiy yutuqlar bilan birlashtiradigan innovatsion formulalar bilan ajralib turadi. Bu bizning mahsulotlarimizga sog'ligingizni qo'llab-quvvatlash uchun tengsiz sifat va samaradorlikni ta'minlaydi, sizga faqat eng yaxshisini kafolatlaydi.",
+    "q2": "Biz mahsulotlarimizning ajoyib nemis sifatiga qanday kafolat beramiz?",
+    "a2": "BIOTACT DEUTSCHLAND mahsulotlari ISO 9001 va ISO 22000 (HACCP) xalqaro standartlariga muvofiq litsenziya asosida ishlab chiqariladi. Ishlab chiqarish nemis organi TÜV Thüringen tomonidan sertifikatlangan, o'zining attestatsiyalangan laboratoriyasiga ega va Germaniyada belgilangan sifat standartlari bo'yicha ishlaydi.",
     "q3": "BIOTACT DEUTSCHLAND ning bozordagi muvaffaqiyat tarixi qanday?",
-    "a3": "BIOTACT DEUTSCHLAND yuqori sifatli probiotiklar va vitamin-mineral komplekslarni ishlab chiqaruvchi sifatida bozorda ko'p yillik tajribaga ega. Biz innovatsiyalarga doimiy intilishimiz va mijozlar ehtiyojlariga e'tibor qaratishimiz tufayli iste'molchilar ishonchini qozondik. Mahsulotlarimiz bozorda 19 yildan ortiq vaqtdan beri ma'lum, 8 milliondan ortiq sotilgan qadoqlar va millionlab mamnun mijozlar bilan.",
+    "a3": "BIOTACT DEUTSCHLAND yuqori sifatli probiotiklar va vitamin-mineral komplekslarining ishonchli ishlab chiqaruvchisi sifatida bozorda ko'p yillik tajribaga ega. Biz innovatsiyalarga doimiy intilishimiz va mijozlar ehtiyojlariga e'tibor qaratishimiz tufayli iste'molchilar ishonchini qozondik. Bizning mahsulotlarimiz bozorda 19 yildan ortiq vaqt davomida tanilgan, 8 milliondan ortiq qadoq sotilgan va millionlab mamnun mijozlarga ega.",
     "q4": "Bizning probiotiklar va vitamin-mineral komplekslarimizning noyob afzalliklari qanday?",
-    "a4": "Mahsulotlarimiz ilg'or ilmiy ishlanmalar va tabiiy komponentlarning uyg'unligi tufayli noyobdir. Ular gipoallergen, sun'iy qo'shimchalar yo'q va homilador, emizikli onalar, bolalar, keksalar, allergiya va diabet bilan og'riganlar uchun mos.",
-    "q5": "Mahsulotlarimiz sertifikatlangan mi?",
-    "a5": "Ha, mahsulotlarimiz zarur sertifikatlash jarayonlaridan o'tgan va butun ishlab chiqarish jarayoni ISO 9001 va ISO 22000 HACCP xalqaro standartlariga mos keladi. Bu mahsulotlarimizning yuqori sifati va xavfsizligini kafolatlovchi TUV nemis organi sertifikati bilan tasdiqlanadi.",
-    "q6": "Mahsulotlarimizni qayerdan sotib olish mumkin?",
-    "a6": "Mahsulotlarimizni dorixonalarda, \"Uzum Market\"da, \"Kid Point\" do'konlarida, shuningdek rasmiy veb-saytimizda sotib olishingiz mumkin. Biz keng turdagi mahsulotlar va ular haqida to'liq ma'lumotni taklif qilamiz, Call-markazimiz esa +998 93 555 17 47 telefon raqami orqali maslahat berishga doimo tayyor."
+    "a4": "Bizning mahsulotlarimiz ilg'or ilmiy ishlanmalar bilan tabiiy komponentlarning uyg'unligida noyobdir. Ular gipoallergen, sun'iy qo'shimchalarsiz va hamma uchun, shu jumladan homilador, emizikli onalar, bolalar, keksalar, allergiklar va diabetiklar uchun mos keladi.",
+    "q5": "Mahsulotlarimizning sertifikatsiyasi tasdiqlanganmi?",
+    "a5": "Ha, BIOTACT DEUTSCHLAND mahsulotlari to'liq sertifikatlangan. Ishlab chiqarish nemis organi TÜV Thüringen tomonidan ISO 9001 va ISO 22000 (HACCP) xalqaro standartlari bo'yicha sertifikatlangan bo'lib, mahsulotlarimizning yuqori sifati va xavfsizligini kafolatlaydi.",
+    "q6": "Mahsulotlaringizni qayerdan sotib olish mumkin?",
+    "a6": "Siz mahsulotlarimizni dorixonalarda, \"Uzum Market\"da, \"Kid Point\" do'konlarida, shuningdek, rasmiy veb-saytimizdan sotib olishingiz mumkin. Biz keng assortimentdagi mahsulotlar va ular haqida to'liq ma'lumot taklif qilamiz, Call-markazimiz esa sizga +998 93 555 17 47 telefon raqami orqali maslahatlar berishga doim tayyor."
   },
   "footer": {
     "uzbekistanCity": "O'zbekiston, 100109 Toshkent",

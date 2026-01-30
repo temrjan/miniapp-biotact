@@ -5,6 +5,29 @@ import WebApp from '@twa-dev/sdk';
 import { App } from './App';
 import './styles/global.css';
 
+// ═══════════════════════════════════════════════════════════════════
+// Viewport Height Fix for Telegram WebApp
+// ═══════════════════════════════════════════════════════════════════
+
+function setAppHeight() {
+  // Use Telegram viewport height if available, otherwise window.innerHeight
+  const height = WebApp.viewportStableHeight || WebApp.viewportHeight || window.innerHeight;
+  document.documentElement.style.setProperty('--app-height', `${height}px`);
+}
+
+// Set initial height
+setAppHeight();
+
+// Update on viewport changes (Telegram)
+WebApp.onEvent('viewportChanged', setAppHeight);
+
+// Update on resize (fallback for web)
+window.addEventListener('resize', setAppHeight);
+
+// ═══════════════════════════════════════════════════════════════════
+// Telegram WebApp Initialization
+// ═══════════════════════════════════════════════════════════════════
+
 // Вызвать ready() как можно раньше
 WebApp.ready();
 
@@ -26,7 +49,10 @@ if (typeof WebApp.setBottomBarColor === 'function') {
   WebApp.setBottomBarColor(bgColor);
 }
 
-// Root element
+// ═══════════════════════════════════════════════════════════════════
+// React App Mount
+// ═══════════════════════════════════════════════════════════════════
+
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {

@@ -23,6 +23,7 @@ interface ApiProduct {
   images: string[] | null;
   category_id: number;
   stock_quantity: number;
+  is_purchasable: boolean;
   additional_info_title: string | null;
   additional_info_title_uz: string | null;
   additional_info: string | null;
@@ -51,6 +52,7 @@ function mapProduct(api: ApiProduct, lang: string): ExtendedProduct {
     images: api.images || undefined,
     categoryId: String(api.category_id),
     inStock: true,
+    isPurchasable: api.is_purchasable,
     quantity: api.stock_quantity,
     additionalInfoTitle: isUz && api.additional_info_title_uz ? api.additional_info_title_uz : api.additional_info_title || undefined,
     additionalInfo: isUz && api.additional_info_uz ? api.additional_info_uz : api.additional_info || undefined,
@@ -189,10 +191,12 @@ export function ProductPage() {
       <div className="p-4 md:p-6 space-y-4">
         <div className="text-3xl font-bold text-[var(--primary)]">{formatPrice(product.price)}</div>
         <h1 className="text-2xl font-bold">{product.name}</h1>
-        <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddToCart} className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2">
-          <ShoppingCart size={20} />
-          {t("product.addToCart")}
-        </motion.button>
+        {product.isPurchasable !== false && (
+          <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddToCart} className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2">
+            <ShoppingCart size={20} />
+            {t("product.addToCart")}
+          </motion.button>
+        )}
         <div className="h-px bg-[var(--border)]" />
         {product.description && (
           <>

@@ -9,36 +9,36 @@
     <style>
       html, body, #root {
         background-color: #f8f6f2;
-        min-height: 100vh;
         margin: 0;
         padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
       }
       #root {
-        padding-top: var(--tg-content-safe-area-inset-top, 0px);
+        /* Height will be set by JS via --app-height variable */
+        height: var(--app-height, 100vh);
       }
     </style>
     <script>
+      // Set initial app height before React loads
       (function() {
         var tg = window.Telegram && window.Telegram.WebApp;
-        if (!tg) return;
-
-        // Только для мобильных платформ
-        var platform = tg.platform;
-        var isMobile = platform === 'ios' || platform === 'android' || platform === 'android_x';
-        if (!isMobile) return;
-
-        // Определяем fullscreen режим по соотношению viewport/screen
-        var viewportHeight = tg.viewportStableHeight || tg.viewportHeight || window.innerHeight;
-        var screenHeight = window.screen.height;
-        var ratio = viewportHeight / screenHeight;
-
-        // Fullscreen (кнопка Open): ratio >= 0.95
-        // Sheet (inline кнопка): ratio < 0.95
-        var isFullscreenMode = ratio >= 0.95;
-
-        if (isFullscreenMode) {
-          // Отступ для Telegram native header (~56px)
-          document.documentElement.style.setProperty('--tg-content-safe-area-inset-top', '56px');
+        var height = (tg && (tg.viewportStableHeight || tg.viewportHeight)) || window.innerHeight;
+        document.documentElement.style.setProperty('--app-height', height + 'px');
+        
+        // Also set padding for Telegram header if needed
+        if (tg) {
+          var platform = tg.platform;
+          var isMobile = platform === 'ios' || platform === 'android' || platform === 'android_x';
+          if (isMobile) {
+            var viewportHeight = tg.viewportStableHeight || tg.viewportHeight || window.innerHeight;
+            var screenHeight = window.screen.height;
+            var ratio = viewportHeight / screenHeight;
+            if (ratio >= 0.95) {
+              document.documentElement.style.setProperty('--tg-content-safe-area-inset-top', '56px');
+            }
+          }
         }
       })();
     </script>

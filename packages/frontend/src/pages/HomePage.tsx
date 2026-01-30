@@ -30,6 +30,7 @@ interface ApiProduct {
   category_id: number;
   stock_quantity: number;
   is_in_stock: boolean;
+  is_purchasable: boolean;
 }
 
 interface ApiBanner {
@@ -88,6 +89,7 @@ function mapApiProductToProduct(api: ApiProduct): Product {
     imageUrl: api.image_url || '',
     categoryId: String(api.category_id),
     inStock: api.is_in_stock,
+    isPurchasable: api.is_purchasable,
   };
 }
 
@@ -163,13 +165,15 @@ function ProductCard({
         </div>
 
         {/* Нижняя зона: иконка + текст "В корзину" */}
-        <div
-          onClick={handleAddToCart}
-          className="w-full py-2.5 text-[var(--primary)] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity border-t border-[var(--border)]/50"
-        >
-          <ShoppingCart size={14} />
-          {buttonText}
-        </div>
+        {product.isPurchasable !== false && (
+          <div
+            onClick={handleAddToCart}
+            className="w-full py-2.5 text-[var(--primary)] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity border-t border-[var(--border)]/50"
+          >
+            <ShoppingCart size={14} />
+            {buttonText}
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -595,7 +599,7 @@ export function HomePage() {
 
   // Render
   return (
-    <div className="p-3 pt-2 space-y-4 max-w-4xl mx-auto">
+    <div className="p-4 pt-2 space-y-6 max-w-4xl mx-auto">
       {/* Banner Slider */}
       <div className="relative h-32 md:h-52 lg:h-80 overflow-hidden rounded-none md:rounded-xl -mx-3 -mt-2 md:mx-0 md:mt-0">
         {displayBanners.length === 0 ? (
@@ -679,12 +683,12 @@ export function HomePage() {
           />
           <div className="overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
             <motion.div
-              className="flex gap-4"
+              className="flex gap-6"
               animate={{ x: scrollHintX }}
               transition={{ duration: 0.6, ease: "easeInOut" }}
             >
               {popularProducts.map((product, index) => (
-                <div key={product.id} className="w-[calc(50%-8px)] lg:w-[calc(25%-12px)] flex-shrink-0 snap-start">
+                <div key={product.id} className="w-[calc(50%-12px)] lg:w-[calc(25%-18px)] flex-shrink-0 snap-start">
                   <ProductCard
                     product={product}
                     index={index}
@@ -714,9 +718,9 @@ export function HomePage() {
             viewAllText={t('home.viewAll')}
           />
           <div className="overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
-            <div className="flex gap-4">
+            <div className="flex gap-6">
               {setsProducts.map((product, index) => (
-                <div key={product.id} className="w-[calc(50%-8px)] lg:w-[calc(25%-12px)] flex-shrink-0 snap-start">
+                <div key={product.id} className="w-[calc(50%-12px)] lg:w-[calc(25%-18px)] flex-shrink-0 snap-start">
                   <ProductCard
                     product={product}
                     index={index}
@@ -746,9 +750,9 @@ export function HomePage() {
             viewAllText={t('home.viewAll')}
           />
           <div className="overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
-            <div className="flex gap-4">
+            <div className="flex gap-6">
               {techProducts.map((product, index) => (
-                <div key={product.id} className="w-[calc(50%-8px)] lg:w-[calc(25%-12px)] flex-shrink-0 snap-start">
+                <div key={product.id} className="w-[calc(50%-12px)] lg:w-[calc(25%-18px)] flex-shrink-0 snap-start">
                   <ProductCard
                     product={product}
                     index={index}
@@ -778,9 +782,9 @@ export function HomePage() {
             viewAllText={t('home.viewAll')}
           />
           <div className="overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
-            <div className="flex gap-4">
+            <div className="flex gap-6">
               {activeProducts.map((product, index) => (
-                <div key={product.id} className="w-[calc(50%-8px)] lg:w-[calc(25%-12px)] flex-shrink-0 snap-start">
+                <div key={product.id} className="w-[calc(50%-12px)] lg:w-[calc(25%-18px)] flex-shrink-0 snap-start">
                   <ProductCard
                     product={product}
                     index={index}

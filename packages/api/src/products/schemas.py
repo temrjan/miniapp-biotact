@@ -129,6 +129,7 @@ class ProductLocalizedResponse(BaseModel):
     currency: str
     stock_quantity: int
     is_in_stock: bool
+    is_purchasable: bool = True
     image_url: Optional[str] = None
     images: Optional[List[str]] = None
     category_id: Optional[int] = None

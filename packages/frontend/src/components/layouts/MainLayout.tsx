@@ -21,11 +21,11 @@ export function MainLayout({ children }: MainLayoutProps) {
     location.pathname === ROUTES.PAYMENT_SUCCESS;
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col h-full">
       {/* Branded Header - Apple style */}
       <header
         className={cn(
-          'sticky top-0 z-40 bg-[var(--primary)]/95 backdrop-blur-md shadow-sm',
+          'flex-shrink-0 z-40 bg-[var(--primary)]/95 backdrop-blur-md shadow-sm',
           isIOS && 'safe-area-top'
         )}
       >
@@ -38,10 +38,10 @@ export function MainLayout({ children }: MainLayoutProps) {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content - scrollable area */}
       <main
         className={cn(
-          'flex-1 overflow-y-auto',
+          'flex-1 overflow-y-auto overscroll-contain',
           hideBottomNav ? 'pb-4' : 'pb-20'
         )}
       >
@@ -62,7 +62,6 @@ export function MainLayout({ children }: MainLayoutProps) {
           </div>
         </nav>
       )}
-
     </div>
   );
 }

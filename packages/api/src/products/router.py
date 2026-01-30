@@ -31,6 +31,8 @@ def localize_product(product: Product, lang: Language) -> dict:
     Falls back to Russian if translation not available.
     JSONB fields (images, advantages) are automatically converted to lists by SQLAlchemy.
     """
+    is_purchasable = product.category.is_purchasable if hasattr(product, 'category') and product.category else True
+
     return {
         "id": product.id,
         "name": product.name_uz if lang == "uz" and product.name_uz else product.name,
@@ -45,6 +47,7 @@ def localize_product(product: Product, lang: Language) -> dict:
         "currency": product.currency,
         "stock_quantity": product.stock_quantity,
         "is_in_stock": product.is_in_stock,
+        "is_purchasable": is_purchasable,
         "image_url": product.image_url,
         # JSONB automatically converts to List[str] - no json.loads needed!
         "images": product.images,

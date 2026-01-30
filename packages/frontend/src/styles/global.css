@@ -9,18 +9,28 @@
   box-sizing: border-box;
 }
 
-html, body {
+html {
   margin: 0 !important;
   padding: 0 !important;
   width: 100%;
-  min-height: 100vh;
-  overflow-x: hidden;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 #root {
   margin: 0;
   padding: var(--tg-content-safe-area-inset-top, 0px) 0 0 0;
-  min-height: 100vh;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -62,6 +72,9 @@ html, body {
   --radius-sm: 8px;
   --radius-md: 16px;
   --radius-lg: 24px;
+  
+  /* App height - will be set by JS, fallback to 100vh */
+  --app-height: 100vh;
 }
 
 [data-theme="dark"] {
@@ -100,6 +113,12 @@ html, body {
 
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+  
+  /* Fixed height using CSS variable with dvh fallback */
+  .app-height {
+    height: 100dvh;
+    height: var(--app-height, 100vh);
   }
 }
 

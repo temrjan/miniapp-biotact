@@ -27,6 +27,19 @@ module.exports = {
       max_restarts: 5,
       min_uptime: 5000,
       max_memory_restart: "512M"
+    },
+    {
+      name: "devops-agent",
+      namespace: "biotact",
+      cwd: "/var/www/biotact/devops-agent",
+      script: "/var/www/biotact/devops-agent/venv/bin/python",
+      args: "-m src.main",
+      interpreter: "none",
+      exec_mode: "fork",
+      autorestart: true,
+      max_restarts: 5,
+      min_uptime: 5000,
+      max_memory_restart: "512M"
     }
   ]
 };

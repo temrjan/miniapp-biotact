@@ -16,6 +16,7 @@ class CategoryBase(BaseModel):
     image_url: Optional[str] = None
     sort_order: int = 0
     is_active: bool = True
+    is_purchasable: bool = True
 
 
 class CategoryCreate(CategoryBase):
@@ -33,6 +34,7 @@ class CategoryUpdate(BaseModel):
     image_url: Optional[str] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+    is_purchasable: Optional[bool] = None
 
 
 class CategoryResponse(CategoryBase):

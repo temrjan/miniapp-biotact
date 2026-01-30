@@ -29,6 +29,7 @@ interface ApiProduct {
   image_url: string | null;
   category_id: number;
   stock_quantity: number;
+  is_purchasable: boolean;
 }
 
 function mapCategory(api: ApiCategory): Category {
@@ -51,6 +52,7 @@ function mapProduct(api: ApiProduct): Product {
     imageUrl: api.image_url || '',
     categoryId: String(api.category_id),
     inStock: api.stock_quantity > 0,
+    isPurchasable: api.is_purchasable,
     quantity: api.stock_quantity,
   };
 }
@@ -130,13 +132,15 @@ function ProductCard({
         </div>
 
         {/* Нижняя зона: иконка + текст "В корзину" */}
-        <div
-          onClick={handleAddToCart}
-          className="w-full py-2.5 text-[var(--primary)] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity border-t border-[var(--border)]/50"
-        >
-          <ShoppingCart size={14} />
-          {buttonText}
-        </div>
+        {product.isPurchasable !== false && (
+          <div
+            onClick={handleAddToCart}
+            className="w-full py-2.5 text-[var(--primary)] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity border-t border-[var(--border)]/50"
+          >
+            <ShoppingCart size={14} />
+            {buttonText}
+          </div>
+        )}
       </div>
     </div>
   );

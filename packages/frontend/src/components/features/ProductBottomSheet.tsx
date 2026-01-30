@@ -19,6 +19,7 @@ interface ApiProduct {
   category_id: number;
   stock_quantity: number;
   is_in_stock: boolean;
+  is_purchasable: boolean;
 }
 
 function mapApiProduct(api: ApiProduct): Product {
@@ -31,6 +32,7 @@ function mapApiProduct(api: ApiProduct): Product {
     imageUrl: api.image_url || '',
     categoryId: String(api.category_id),
     inStock: api.is_in_stock,
+    isPurchasable: api.is_purchasable,
   };
 }
 
@@ -221,21 +223,23 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
           </div>
 
           {/* Add to Cart Button */}
-          <button
-            onClick={handleAddToCart}
-            disabled={!product.inStock}
-            className="w-full py-4 rounded-xl bg-[var(--primary)] text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
-          >
-            <ShoppingCart size={20} />
-            <span>
-              {cartQuantity > 0
-                ? `${t('product.inCart')}: ${localQuantity} шт`
-                : t('product.addToCart')}
-            </span>
-            <span className="ml-auto">
-              {formatPrice(product.price * localQuantity)}
-            </span>
-          </button>
+          {product.isPurchasable !== false && (
+            <button
+              onClick={handleAddToCart}
+              disabled={!product.inStock}
+              className="w-full py-4 rounded-xl bg-[var(--primary)] text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
+            >
+              <ShoppingCart size={20} />
+              <span>
+                {cartQuantity > 0
+                  ? `${t('product.inCart')}: ${localQuantity} шт`
+                  : t('product.addToCart')}
+              </span>
+              <span className="ml-auto">
+                {formatPrice(product.price * localQuantity)}
+              </span>
+            </button>
+          )}
         </div>
       ) : null}
     </BottomSheet>

@@ -43,6 +43,7 @@ def localize_category(category: Category, lang: Language) -> dict:
         "image_url": category.image_url,
         "sort_order": category.sort_order,
         "is_active": category.is_active,
+        "is_purchasable": category.is_purchasable,
         "created_at": category.created_at,
         "updated_at": category.updated_at,
     }

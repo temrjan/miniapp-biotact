@@ -26,6 +26,7 @@ export interface Product {
   images?: string[];
   categoryId: string;
   inStock: boolean;
+  isPurchasable?: boolean;
   quantity?: number;
   weight?: string;
   tags?: string[];
