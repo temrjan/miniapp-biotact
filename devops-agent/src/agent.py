@@ -291,10 +291,20 @@ class DevOpsAgent:
         tool_calls: list[ToolUseBlock] = []
 
         for block in response.content:
-            if block.type == "text":
-                text_parts.append(block.text)
-            elif block.type == "tool_use":
-                tool_calls.append(block)
+            # Handle both dict (from Z.AI) and object (from Anthropic) formats
+            if isinstance(block, dict):
+                block_type = block.get("type")
+                if block_type == "text":
+                    text_parts.append(block.get("text", ""))
+                elif block_type == "tool_use":
+                    # Convert dict to object if needed
+                    tool_calls.append(block)
+            else:
+                # Object format (Anthropic)
+                if block.type == "text":
+                    text_parts.append(block.text)
+                elif block.type == "tool_use":
+                    tool_calls.append(block)
 
         return "\n".join(text_parts), tool_calls
 
