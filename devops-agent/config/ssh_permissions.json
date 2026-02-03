@@ -1,0 +1,17 @@
+{
+  "hosts": {
+    "localhost": {
+      "level": "admin",
+      "description": "Biotact MiniApp Server — локальный сервер"
+    },
+    "oltinkey": {
+      "level": "admin",
+      "description": "Oltin Server — удалённый сервер"
+    }
+  },
+  "default_host": "localhost",
+  "connection_timeout": 10,
+  "command_timeout": 120,
+  "max_output_lines": 200,
+  "max_output_bytes": 131072
+}
