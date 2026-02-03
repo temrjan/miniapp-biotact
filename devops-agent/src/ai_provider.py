@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
@@ -78,8 +80,9 @@ class ZAIProvider(AIProvider):
         # Convert Anthropic format to Z.AI format
         zai_messages = self._convert_messages_to_zai(system, messages)
         
-        # Call Z.AI API (synchronous)
-        response = self.client.chat.completions.create(
+        # Call Z.AI API (synchronous) in thread pool to avoid blocking
+        response = await asyncio.to_thread(
+            self.client.chat.completions.create,
             model=settings.zai_model,
             messages=zai_messages,
         )

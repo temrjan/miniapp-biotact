@@ -279,9 +279,8 @@ class DevOpsAgent:
         tools: list[dict[str, Any]],
         model: str,
     ) -> Message:
-        return await self._client.messages.create(
-            model=model,
-            max_tokens=settings.max_tokens,
+        # Use provider abstraction instead of direct client
+        return await self._provider.create_message(
             system=self._system_prompt,
             messages=messages,
             tools=tools,
