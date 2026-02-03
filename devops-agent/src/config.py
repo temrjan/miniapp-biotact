@@ -15,6 +15,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # AI Provider
+    provider: str = Field(default="anthropic", alias="PROVIDER")
+
     # Telegram
     telegram_bot_token: SecretStr = Field(alias="TELEGRAM_BOT_TOKEN")
     allowed_user_ids: list[int] = Field(default_factory=list, alias="ALLOWED_USER_IDS")
@@ -23,6 +26,10 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr = Field(alias="ANTHROPIC_API_KEY")
     model: str = "claude-sonnet-4-20250514"
     max_tokens: int = 4096
+
+    # Z.AI (ZhipuAI)
+    zai_api_key: SecretStr | None = Field(default=None, alias="ZAI_API_KEY")
+    zai_model: str = Field(default="glm-4-plus", alias="ZAI_MODEL")
 
     # Paths
     base_dir: Path = Path(__file__).parent.parent
@@ -34,7 +41,7 @@ class Settings(BaseSettings):
     # SSH
     ssh_config_path: Path = Path.home() / ".ssh" / "config"
     ssh_known_hosts_path: Path = Path.home() / ".ssh" / "known_hosts"
-    ssh_permissions_path: Path | None = None  # Defaults to config/ssh_permissions.json
+    ssh_permissions_path: Path | None = None
 
     # Debug
     debug: bool = False

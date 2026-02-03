@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from anthropic import AsyncAnthropic
+from src.ai_provider import create_provider
 from anthropic.types import Message, ToolUseBlock
 
 from src.config import settings
@@ -136,9 +137,8 @@ class DevOpsAgent:
         ssh_manager: SSHManager | None = None,
         client: AsyncAnthropic | None = None,
     ) -> None:
-        self._client = client or AsyncAnthropic(
-            api_key=settings.anthropic_api_key.get_secret_value()
-        )
+        self._provider = create_provider()
+        self._client = client or self._provider.client  # For backward compatibility
         self._tools = tool_registry
         self._state = state_manager
         self._security = security_guard

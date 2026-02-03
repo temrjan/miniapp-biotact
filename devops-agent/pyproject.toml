@@ -42,3 +42,4 @@ warn_return_any = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+    "zhipuai>=2.1",
