@@ -40,7 +40,7 @@ if (typeof WebApp.disableVerticalSwipes === 'function') {
 }
 
 // Настройка цветов
-const bgColor = '#f8f6f2';
+const bgColor = '#f5f7fa';
 
 WebApp.setHeaderColor(bgColor);
 WebApp.setBackgroundColor(bgColor);

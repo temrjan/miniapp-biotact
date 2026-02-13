@@ -683,12 +683,12 @@ export function HomePage() {
           />
           <div className="overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
             <motion.div
-              className="flex gap-6"
+              className="flex gap-3 md:gap-4"
               animate={{ x: scrollHintX }}
               transition={{ duration: 0.6, ease: "easeInOut" }}
             >
               {popularProducts.map((product, index) => (
-                <div key={product.id} className="w-[calc(50%-12px)] lg:w-[calc(25%-18px)] flex-shrink-0 snap-start">
+                <div key={product.id} className="w-[calc(50%-6px)] md:w-[31%] lg:w-[calc(25%-12px)] flex-shrink-0 snap-start">
                   <ProductCard
                     product={product}
                     index={index}
@@ -718,9 +718,9 @@ export function HomePage() {
             viewAllText={t('home.viewAll')}
           />
           <div className="overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
-            <div className="flex gap-6">
+            <div className="flex gap-3 md:gap-4">
               {setsProducts.map((product, index) => (
-                <div key={product.id} className="w-[calc(50%-12px)] lg:w-[calc(25%-18px)] flex-shrink-0 snap-start">
+                <div key={product.id} className="w-[calc(50%-6px)] md:w-[31%] lg:w-[calc(25%-12px)] flex-shrink-0 snap-start">
                   <ProductCard
                     product={product}
                     index={index}
@@ -750,9 +750,9 @@ export function HomePage() {
             viewAllText={t('home.viewAll')}
           />
           <div className="overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
-            <div className="flex gap-6">
+            <div className="flex gap-3 md:gap-4">
               {techProducts.map((product, index) => (
-                <div key={product.id} className="w-[calc(50%-12px)] lg:w-[calc(25%-18px)] flex-shrink-0 snap-start">
+                <div key={product.id} className="w-[calc(50%-6px)] md:w-[31%] lg:w-[calc(25%-12px)] flex-shrink-0 snap-start">
                   <ProductCard
                     product={product}
                     index={index}
@@ -782,9 +782,9 @@ export function HomePage() {
             viewAllText={t('home.viewAll')}
           />
           <div className="overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory">
-            <div className="flex gap-6">
+            <div className="flex gap-3 md:gap-4">
               {activeProducts.map((product, index) => (
-                <div key={product.id} className="w-[calc(50%-12px)] lg:w-[calc(25%-18px)] flex-shrink-0 snap-start">
+                <div key={product.id} className="w-[calc(50%-6px)] md:w-[31%] lg:w-[calc(25%-12px)] flex-shrink-0 snap-start">
                   <ProductCard
                     product={product}
                     index={index}

@@ -235,7 +235,7 @@ export function CatalogPage() {
     <div className="p-3 pt-2 md:pt-3 space-y-4 max-w-4xl mx-auto">
       {/* Categories - simple 2x2 grid */}
       <section>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-2">
           {categories.map((category) => {
             const isSelected = selectedCategoryId === category.id;
             return (
@@ -243,14 +243,14 @@ export function CatalogPage() {
                 key={category.id}
                 onClick={() => handleCategorySelect(isSelected ? null : category.id)}
                 className={`
-                  p-4 rounded-xl text-center transition-all
+                  px-4 py-3 rounded-xl text-left transition-all
                   ${isSelected
                     ? 'bg-[var(--primary)] text-white'
                     : 'bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border)] hover:border-[var(--primary)]'
                   }
                 `}
               >
-                <span className="text-sm font-medium">{category.name}</span>
+                <span className="text-sm font-medium truncate">{category.name}</span>
               </button>
             );
           })}
