@@ -75,7 +75,8 @@ class TelegramNotifier:
         items_text = self._format_items(items)
         now = datetime.now().strftime("%d.%m.%Y %H:%M")
 
-        message = f"""🔔 <b>НОВЫЙ ЗАКАЗ</b>
+        message = f"""📱 <b>Biotact Mini-App</b>
+🔔 <b>НОВЫЙ ЗАКАЗ</b>
 
 📦 <b>Товары:</b>
 {items_text}
@@ -108,7 +109,8 @@ class TelegramNotifier:
         items_text = self._format_items(items)
         now = datetime.now().strftime("%d.%m.%Y %H:%M")
 
-        message = f"""✅ <b>ОПЛАЧЕНО</b>
+        message = f"""📱 <b>Biotact Mini-App</b>
+✅ <b>ОПЛАЧЕНО</b>
 
 📦 <b>Товары:</b>
 {items_text}
