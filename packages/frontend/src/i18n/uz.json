@@ -182,5 +182,17 @@
     "uzbekistanCity": "O'zbekiston, 100109 Toshkent",
     "uzbekistanStreet": "Farobiy ko'chasi, 448J",
     "phone": "Tel.:"
+  },
+  "ramadan": {
+    "title": "Ramazon Setlari",
+    "subtitle": "Muqaddas oy uchun maxsus taklif",
+    "discount": "-10%",
+    "discountLabel": "Barcha setlarga chegirma",
+    "freeDelivery": "Bepul yetkazib berish",
+    "freeDeliveryLabel": "Butun O'zbekiston bo'ylab",
+    "limitedOffer": "Cheklangan taklif",
+    "limitedOfferLabel": "Faqat Ramazonda",
+    "promoNote": "Aksiya butun muqaddas Ramazon oyi davomida amal qiladi",
+    "empty": "Tez kunda..."
   }
 }

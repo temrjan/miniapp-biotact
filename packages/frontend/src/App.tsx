@@ -19,6 +19,7 @@ const ProfilePage = lazy(() => import('@pages/ProfilePage').then((m) => ({ defau
 const CheckoutPage = lazy(() => import('@pages/CheckoutPage').then((m) => ({ default: m.CheckoutPage })));
 const PaymentSuccessPage = lazy(() => import('@pages/PaymentSuccessPage').then((m) => ({ default: m.PaymentSuccessPage })));
 const OrdersPage = lazy(() => import('@pages/OrdersPage').then((m) => ({ default: m.OrdersPage })));
+const RamadanPage = lazy(() => import('@pages/RamadanPage').then((m) => ({ default: m.RamadanPage })));
 
 // ═══════════════════════════════════════════════════════════════════
 // Query Client
@@ -57,6 +58,7 @@ export function App() {
               <Route path={ROUTES.CHECKOUT} element={<CheckoutPage />} />
               <Route path={ROUTES.PROFILE} element={<ProfilePage />} />
               <Route path={ROUTES.ORDERS} element={<OrdersPage />} />
+              <Route path={ROUTES.RAMADAN} element={<RamadanPage />} />
               <Route path={ROUTES.PAYMENT_SUCCESS} element={<PaymentSuccessPage />} />
             </Routes>
           </Suspense>

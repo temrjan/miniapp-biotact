@@ -47,12 +47,13 @@ export const STORAGE_KEYS = {
 export const ROUTES = {
   HOME: '/',
   CATALOG: '/catalog',
-  CATEGORY: '/catalog/:categoryId',
+  CATEGORY: '/catalog/:slug',
   PRODUCT: '/product/:productId',
   CART: '/cart',
   CHECKOUT: '/checkout',
   PROFILE: '/profile',
   ORDERS: '/orders',
   ORDER: '/orders/:orderId',
-  PAYMENT_SUCCESS: '/payment/success',
+  PAYMENT_SUCCESS: "/payment/success",
+  RAMADAN: "/ramadan",
 } as const;

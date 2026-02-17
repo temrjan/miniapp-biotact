@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { ShoppingCart, ChevronDown } from 'lucide-react';
 import { api } from '@/api/client';
 import { Card } from '@/components/ui/Card';
@@ -147,15 +147,21 @@ function ProductCard({
 }
 
 export function CatalogPage() {
-  const [searchParams] = useSearchParams();
+  const { slug } = useParams<{ slug?: string }>();
   const navigate = useNavigate();
   const haptic = useHaptic();
   const { t } = useTranslation();
   const language = useLanguage();
+
+  // Redirect ramadan-set to promo page
+  useEffect(() => {
+    if (slug === 'ramadan-set') {
+      navigate('/ramadan', { replace: true });
+    }
+  }, [slug, navigate]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(searchParams.get("category"));
   const [visibleCount, setVisibleCount] = useState(PRODUCTS_PER_PAGE);
   const addToCart = useCartStore((state) => state.addItem);
 
@@ -181,12 +187,17 @@ export function CatalogPage() {
   // Reset visible count when category changes
   useEffect(() => {
     setVisibleCount(PRODUCTS_PER_PAGE);
-  }, [selectedCategoryId]);
+  }, [slug]);
+
+  const selectedCategory = useMemo(() => {
+    if (!slug) return null;
+    return categories.find((c) => c.slug === slug) || null;
+  }, [categories, slug]);
 
   const filteredProducts = useMemo(() => {
-    if (!selectedCategoryId) return products;
-    return products.filter((p) => p.categoryId === selectedCategoryId);
-  }, [products, selectedCategoryId]);
+    if (!selectedCategory) return products;
+    return products.filter((p) => p.categoryId === selectedCategory.id);
+  }, [products, selectedCategory]);
 
   const visibleProducts = useMemo(() => {
     return filteredProducts.slice(0, visibleCount);
@@ -194,20 +205,19 @@ export function CatalogPage() {
 
   const hasMore = visibleCount < filteredProducts.length;
 
-  const selectedCategory = useMemo(() => {
-    if (!selectedCategoryId) return null;
-    return categories.find((c) => c.id === selectedCategoryId);
-  }, [categories, selectedCategoryId]);
-
   const formatPrice = useCallback(
     (price: number) =>
       Math.floor(price).toLocaleString('ru-RU').replace(/,/g, ' ') + ' ' + t('currency.sum'),
     [t]
   );
 
-  const handleCategorySelect = (categoryId: string | null) => {
+  const handleCategorySelect = (categorySlug: string | null) => {
     haptic.selection();
-    setSelectedCategoryId(categoryId);
+    if (categorySlug) {
+      navigate('/catalog/' + categorySlug);
+    } else {
+      navigate('/catalog');
+    }
   };
 
   const handleShowMore = () => {
@@ -237,11 +247,11 @@ export function CatalogPage() {
       <section>
         <div className="flex flex-col gap-2">
           {categories.map((category) => {
-            const isSelected = selectedCategoryId === category.id;
+            const isSelected = selectedCategory?.id === category.id;
             return (
               <button
                 key={category.id}
-                onClick={() => handleCategorySelect(isSelected ? null : category.id)}
+                onClick={() => handleCategorySelect(isSelected ? null : category.slug)}
                 className={`
                   px-4 py-3 rounded-xl text-left transition-all
                   ${isSelected
