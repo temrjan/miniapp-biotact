@@ -55,7 +55,7 @@ export function calculateOrderTotal(
 /**
  * Проверка минимальной суммы заказа
  */
-export function isOrderValid(cartTotal: number, _deliveryType: 'delivery' | 'pickup'): boolean {
+export function isOrderValid(cartTotal: number): boolean {
   const MIN_ORDER_AMOUNT = 10000 // 10,000 сум минимальный заказ
 
   return cartTotal >= MIN_ORDER_AMOUNT
