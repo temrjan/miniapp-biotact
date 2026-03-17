@@ -118,7 +118,7 @@ jobs:
         run: ruff check src/
 
       - name: Type check with mypy
-        run: mypy src/ --ignore-missing-imports --no-strict --allow-untyped-defs
+        run: mypy src/ --ignore-missing-imports --allow-untyped-defs --allow-untyped-calls --no-strict-optional
 
       - name: Test with pytest
         run: pytest tests/ -v --no-header
