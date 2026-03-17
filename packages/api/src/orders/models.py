@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum as PyEnum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, func
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from src.products.models import Product
 
 
-class OrderStatus(str, PyEnum):
+class OrderStatus(StrEnum):
     """Order status enum."""
     PENDING = "pending"
     CONFIRMED = "confirmed"

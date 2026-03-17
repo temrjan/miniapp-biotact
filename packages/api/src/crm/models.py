@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
 
 
-class LeadStatus(str, enum.Enum):
+class LeadStatus(enum.StrEnum):
     """Lead status enum."""
     NEW = "new"
     IN_PROGRESS = "in_progress"
