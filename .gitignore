@@ -27,9 +27,10 @@ venv/
 # Logs
 *.log
 
-# Uploads
+# Uploads (user-uploaded files, not source code)
 uploads/
 **/uploads/
+!**/src/uploads/
 
 # Backups
 backups/*.sql.gz
