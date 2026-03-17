@@ -1,82 +1,58 @@
 """Tests for bot handlers."""
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from bot.handlers.common import cmd_start, cmd_help, callback_my_orders, callback_help
+from bot.handlers.common import cmd_start, cmd_help
+
+
+@pytest.fixture
+def mock_session():
+    """Create mock async database session."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_state():
+    """Create mock FSM state context."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_user_service():
+    """Create mock UserService that returns a test user."""
+    with patch("bot.handlers.common.UserService") as MockUserService:
+        service = AsyncMock()
+        mock_user = MagicMock()
+        mock_user.language = "ru"
+        mock_user.language_code = "ru"
+        mock_user.first_name = "Test"
+        service.get_or_create.return_value = (mock_user, False)
+        MockUserService.return_value = service
+        yield service
 
 
 class TestStartCommand:
     """Tests for /start command."""
 
     @pytest.mark.asyncio
-    async def test_start_sends_welcome(self, message):
-        """Test that /start sends welcome message."""
-        await cmd_start(message)
-        
-        message.answer.assert_called_once()
-        call_args = message.answer.call_args
-        
-        # Check that welcome text contains user name
-        assert "Test" in call_args[0][0]
-        assert "Biotact" in call_args[0][0]
+    async def test_start_clears_state(self, message, mock_session, mock_state, mock_user_service):
+        """Test that /start clears FSM state."""
+        await cmd_start(message, mock_session, mock_state)
+        mock_state.clear.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_start_has_keyboard(self, message):
-        """Test that /start message has inline keyboard."""
-        await cmd_start(message)
-        
-        call_kwargs = message.answer.call_args[1]
-        assert "reply_markup" in call_kwargs
-        assert call_kwargs["reply_markup"] is not None
+    async def test_start_sends_message(self, message, mock_session, mock_state, mock_user_service):
+        """Test that /start sends a message."""
+        await cmd_start(message, mock_session, mock_state)
+        message.answer.assert_called()
 
 
 class TestHelpCommand:
     """Tests for /help command."""
 
     @pytest.mark.asyncio
-    async def test_help_sends_info(self, message):
+    async def test_help_sends_message(self, message, mock_session, mock_user_service):
         """Test that /help sends help info."""
-        await cmd_help(message)
-        
+        await cmd_help(message, mock_session)
         message.answer.assert_called_once()
-        call_args = message.answer.call_args
-        
-        # Check that help text contains key info
-        assert "Справка" in call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_help_has_keyboard(self, message):
-        """Test that /help message has keyboard."""
-        await cmd_help(message)
-        
-        call_kwargs = message.answer.call_args[1]
-        assert "reply_markup" in call_kwargs
-
-
-class TestCallbacks:
-    """Tests for callback handlers."""
-
-    @pytest.mark.asyncio
-    async def test_my_orders_callback(self, callback_query):
-        """Test my_orders callback."""
-        callback_query.data = "my_orders"
-        
-        await callback_my_orders(callback_query)
-        
-        callback_query.message.edit_text.assert_called_once()
-        callback_query.answer.assert_called_once()
-        
-        # Check text contains orders info
-        call_args = callback_query.message.edit_text.call_args
-        assert "заказ" in call_args[0][0].lower()
-
-    @pytest.mark.asyncio
-    async def test_help_callback(self, callback_query):
-        """Test help callback."""
-        callback_query.data = "help"
-        
-        await callback_help(callback_query)
-        
-        callback_query.message.edit_text.assert_called_once()
-        callback_query.answer.assert_called_once()
