@@ -3,15 +3,14 @@
 import hashlib
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
 
 import httpx
 
 from src.config import settings
 from src.payments.schemas import (
+    MultiCardPaymentResponse,
     OFDItem,
     PaymentCreateData,
-    MultiCardPaymentResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,8 +24,8 @@ class MultiCardClient:
         self.application_id = settings.multicard_application_id
         self.secret = settings.multicard_secret.get_secret_value()
         self.store_id = settings.multicard_store_id
-        self._token: Optional[str] = None
-        self._token_expiry: Optional[datetime] = None
+        self._token: str | None = None
+        self._token_expiry: datetime | None = None
 
     async def _get_token(self) -> str:
         """Get or refresh auth token."""
@@ -102,7 +101,7 @@ class MultiCardClient:
     async def create_invoice(
         self,
         payment_data: PaymentCreateData,
-    ) -> Optional[MultiCardPaymentResponse]:
+    ) -> MultiCardPaymentResponse | None:
         """Create payment invoice in Multicard."""
         token = await self._get_token()
         url = f"{self.base_url}/payment/invoice"
@@ -149,7 +148,7 @@ class MultiCardClient:
                 logger.error(f"Failed to create invoice: {e}")
                 raise
 
-    async def get_invoice_status(self, uuid: str) -> Optional[dict]:
+    async def get_invoice_status(self, uuid: str) -> dict | None:
         """Get invoice status from Multicard."""
         token = await self._get_token()
         url = f"{self.base_url}/payment/invoice/{uuid}"

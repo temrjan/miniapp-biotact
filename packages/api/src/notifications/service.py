@@ -1,8 +1,8 @@
 """Telegram notification service."""
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Optional, Sequence
 
 import httpx
 
@@ -66,10 +66,10 @@ class TelegramNotifier:
         order_number: str,
         total: float,
         items: Sequence[dict],
-        customer_name: Optional[str] = None,
-        customer_phone: Optional[str] = None,
-        delivery_address: Optional[str] = None,
-        invoice_uuid: Optional[str] = None,
+        customer_name: str | None = None,
+        customer_phone: str | None = None,
+        delivery_address: str | None = None,
+        invoice_uuid: str | None = None,
     ) -> bool:
         """Notify about new order (payment initiated)."""
         items_text = self._format_items(items)
@@ -100,10 +100,10 @@ class TelegramNotifier:
         order_number: str,
         total: float,
         items: Sequence[dict],
-        customer_name: Optional[str] = None,
-        customer_phone: Optional[str] = None,
-        delivery_address: Optional[str] = None,
-        invoice_uuid: Optional[str] = None,
+        customer_name: str | None = None,
+        customer_phone: str | None = None,
+        delivery_address: str | None = None,
+        invoice_uuid: str | None = None,
     ) -> bool:
         """Notify about successful payment."""
         items_text = self._format_items(items)

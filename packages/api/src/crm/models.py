@@ -1,17 +1,16 @@
 """CRM SQLAlchemy models."""
 
-from datetime import datetime
-from typing import Optional, List
 import enum
+from datetime import datetime
 
-from sqlalchemy import String, Text, DateTime, BigInteger, Integer, ForeignKey, func, Enum
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database import Base
 
 
-class LeadStatus(str, enum.Enum):
+class LeadStatus(enum.StrEnum):
     """Lead status enum."""
     NEW = "new"
     IN_PROGRESS = "in_progress"
@@ -32,9 +31,9 @@ class FamilyMember(Base):
         index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    relation: Mapped[Optional[str]] = mapped_column(String(100))
-    age: Mapped[Optional[int]] = mapped_column(Integer)
-    symptoms: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text), default=[])
+    relation: Mapped[str | None] = mapped_column(String(100))
+    age: Mapped[int | None] = mapped_column(Integer)
+    symptoms: Mapped[list[str] | None] = mapped_column(ARRAY(Text), default=[])
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -59,7 +58,7 @@ class Lead(Base):
     __tablename__ = "leads"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[Optional[int]] = mapped_column(
+    user_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
         index=True
@@ -72,10 +71,10 @@ class Lead(Base):
         index=True
     )
 
-    request_text: Mapped[Optional[str]] = mapped_column(Text)
-    ai_summary: Mapped[Optional[str]] = mapped_column(Text)
-    recommended_products: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text), default=[])
-    manager_notes: Mapped[Optional[str]] = mapped_column(Text)
+    request_text: Mapped[str | None] = mapped_column(Text)
+    ai_summary: Mapped[str | None] = mapped_column(Text)
+    recommended_products: Mapped[list[str] | None] = mapped_column(ARRAY(Text), default=[])
+    manager_notes: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

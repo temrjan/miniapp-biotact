@@ -63,7 +63,7 @@ function mapProduct(api: ApiProduct, lang: string): ExtendedProduct {
 
 function getYouTubeEmbedUrl(url: string): string | null {
   try {
-    const videoId = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([^&?\/\s]+)/)?.[1];
+    const videoId = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([^&?/\s]+)/)?.[1];
     return videoId ? 'https://www.youtube.com/embed/' + videoId : null;
   } catch {
     return null;
@@ -102,7 +102,7 @@ export function ProductPage() {
             categoryId: mappedProduct.categoryId,
             limit: 10,
           });
-          const mapped = similarResponse.items.filter((p: any) => p.id !== productId).slice(0, 5).map((p: any) => ({ id: p.id, name: p.name, description: p.description || "", price: p.price, oldPrice: p.old_price, imageUrl: p.image_url || "", categoryId: p.category_id.toString(), inStock: p.stock_quantity > 0 }));
+          const mapped = (similarResponse.items as unknown as ApiProduct[]).filter((p) => String(p.id) !== productId).slice(0, 5).map((p) => mapProduct(p, language));
           setSimilarProducts(mapped);
         }
       } catch (err) {

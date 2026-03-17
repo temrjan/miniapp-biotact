@@ -1,6 +1,7 @@
 import type { ReactNode, ErrorInfo } from 'react';
 import { ErrorBoundary as ReactErrorBoundary } from 'react-error-boundary';
-import { ErrorState, getErrorType } from './ErrorState';
+import { ErrorState } from './ErrorState';
+import { getErrorType } from './ErrorState.utils';
 
 // ═══════════════════════════════════════════════════════════════════
 // Types

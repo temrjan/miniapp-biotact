@@ -3,32 +3,28 @@ import { useState, useEffect } from 'react';
 import { cn } from '@utils/cn';
 
 export function FullscreenButton() {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isSupported, setIsSupported] = useState(false);
-  
-  const tgWebApp = (window as any).Telegram?.WebApp;
+  const tgWebApp = (window as unknown as { Telegram?: { WebApp?: Record<string, unknown> } }).Telegram?.WebApp;
+
+  const [isFullscreen, setIsFullscreen] = useState(() => !!tgWebApp?.isFullscreen);
+  const [isSupported] = useState(() => !!tgWebApp?.requestFullscreen);
 
   useEffect(() => {
-    // Check if fullscreen is supported
-    setIsSupported(!!tgWebApp?.requestFullscreen);
-    setIsFullscreen(!!tgWebApp?.isFullscreen);
-    
     // Listen for fullscreen changes
     if (tgWebApp?.onEvent) {
-      tgWebApp.onEvent('fullscreenChanged', () => {
+      (tgWebApp.onEvent as (event: string, callback: () => void) => void)('fullscreenChanged', () => {
         setIsFullscreen(!!tgWebApp.isFullscreen);
       });
     }
-  }, []);
+  }, [tgWebApp]);
 
   const handleFullscreen = () => {
     if (!tgWebApp) return;
-    
+
     try {
       if (isFullscreen) {
-        tgWebApp.exitFullscreen?.();
+        (tgWebApp.exitFullscreen as (() => void) | undefined)?.();
       } else {
-        tgWebApp.requestFullscreen?.();
+        (tgWebApp.requestFullscreen as (() => void) | undefined)?.();
       }
     } catch (e) {
       console.error('Fullscreen error:', e);

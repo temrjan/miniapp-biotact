@@ -1,20 +1,16 @@
 """CRM Bot API router for AI assistant."""
 
 import logging
-from typing import Annotated, Optional
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import settings
-
-logger = logging.getLogger(__name__)
-from src.database import get_db
-from src.users.models import User
-from src.crm.models import Lead, FamilyMember, LeadStatus
+from src.crm.models import FamilyMember, Lead, LeadStatus
 from src.crm.schemas import (
     BotCustomerData,
     BotCustomerResponse,
@@ -24,7 +20,10 @@ from src.crm.schemas import (
     LeadCreate,
     LeadResponse,
 )
+from src.database import get_db
+from src.users.models import User
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -160,7 +159,7 @@ async def save_customer(
         db.add(user)
         try:
             await db.flush()
-        except IntegrityError:
+        except IntegrityError as exc:
             logger.warning(
                 "Race condition in save_customer for telegram_id=%s, fetching existing",
                 data.telegram_id,
@@ -174,7 +173,7 @@ async def save_customer(
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Failed to create or find customer",
-                )
+                ) from exc
 
     await db.commit()
     await db.refresh(user)

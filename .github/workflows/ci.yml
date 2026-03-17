@@ -32,7 +32,6 @@ jobs:
 
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Test
         run: npm run test
@@ -65,7 +64,6 @@ jobs:
 
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Build
         run: npm run build
@@ -76,6 +74,27 @@ jobs:
     defaults:
       run:
         working-directory: packages/api
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: biotact
+          POSTGRES_PASSWORD: biotact_ci
+          POSTGRES_DB: biotact_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://biotact:biotact_ci@localhost:5432/biotact_test_db
+      SECRET_KEY: ci-test-secret-key-not-for-production
+      TELEGRAM_BOT_TOKEN: fake-token-for-ci
+      TELEGRAM_CHAT_ID: "0"
 
     steps:
       - uses: actions/checkout@v4
@@ -94,11 +113,9 @@ jobs:
 
       - name: Lint with ruff
         run: ruff check src/
-        continue-on-error: true
 
       - name: Test with pytest
         run: pytest tests/ -v --no-header
-        continue-on-error: true
 
   bot:
     name: Bot (aiogram)
@@ -126,7 +143,6 @@ jobs:
         run: |
           pip install ruff
           ruff check bot/
-        continue-on-error: true
 
       - name: Syntax check
         run: python -m py_compile bot/__main__.py

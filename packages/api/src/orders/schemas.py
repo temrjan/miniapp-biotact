@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,12 +33,12 @@ class OrderItemResponse(OrderItemBase):
 class OrderBase(BaseModel):
     """Base order schema."""
     subtotal: Decimal
-    delivery_fee: Optional[Decimal] = Decimal("0")
+    delivery_fee: Decimal | None = Decimal("0")
     total: Decimal
-    delivery_address: Optional[str] = None
-    delivery_phone: Optional[str] = None
-    delivery_name: Optional[str] = None
-    customer_note: Optional[str] = None
+    delivery_address: str | None = None
+    delivery_phone: str | None = None
+    delivery_name: str | None = None
+    customer_note: str | None = None
 
 
 class OrderCreate(OrderBase):
@@ -53,13 +52,13 @@ class OrderResponse(OrderBase):
     order_number: str
     user_id: int
     status: str
-    payment_uuid: Optional[str] = None
-    payment_status: Optional[str] = None
-    paid_at: Optional[datetime] = None
+    payment_uuid: str | None = None
+    payment_status: str | None = None
+    paid_at: datetime | None = None
     currency: str = "UZS"
     created_at: datetime
     updated_at: datetime
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
     items: list[OrderItemResponse] = []
 
     class Config:

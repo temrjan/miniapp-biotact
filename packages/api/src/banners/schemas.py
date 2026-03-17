@@ -1,7 +1,6 @@
 """Banner Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -9,12 +8,12 @@ from pydantic import BaseModel, ConfigDict
 class BannerBase(BaseModel):
     """Base banner schema."""
     title: str
-    title_uz: Optional[str] = None
-    subtitle: Optional[str] = None
-    subtitle_uz: Optional[str] = None
-    image_url: Optional[str] = None
-    gradient: Optional[str] = None
-    link_url: Optional[str] = None
+    title_uz: str | None = None
+    subtitle: str | None = None
+    subtitle_uz: str | None = None
+    image_url: str | None = None
+    gradient: str | None = None
+    link_url: str | None = None
     sort_order: int = 0
     is_active: bool = True
 
@@ -26,15 +25,15 @@ class BannerCreate(BannerBase):
 
 class BannerUpdate(BaseModel):
     """Schema for updating a banner."""
-    title: Optional[str] = None
-    title_uz: Optional[str] = None
-    subtitle: Optional[str] = None
-    subtitle_uz: Optional[str] = None
-    image_url: Optional[str] = None
-    gradient: Optional[str] = None
-    link_url: Optional[str] = None
-    sort_order: Optional[int] = None
-    is_active: Optional[bool] = None
+    title: str | None = None
+    title_uz: str | None = None
+    subtitle: str | None = None
+    subtitle_uz: str | None = None
+    image_url: str | None = None
+    gradient: str | None = None
+    link_url: str | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
 
 
 class Banner(BannerBase):
@@ -56,7 +55,7 @@ class SettingsBase(BaseModel):
     """Base settings schema."""
     key: str
     value: str
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class SettingsUpdate(BaseModel):

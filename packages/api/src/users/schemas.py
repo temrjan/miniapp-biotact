@@ -1,7 +1,7 @@
 """User Pydantic schemas."""
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -9,14 +9,14 @@ from pydantic import BaseModel, ConfigDict, field_validator
 class AddressSchema(BaseModel):
     """Delivery address schema."""
 
-    street: Optional[str] = None
-    house: Optional[str] = None
-    apartment: Optional[str] = None
-    entrance: Optional[str] = None
-    floor: Optional[str] = None
-    comment: Optional[str] = None
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    street: str | None = None
+    house: str | None = None
+    apartment: str | None = None
+    entrance: str | None = None
+    floor: str | None = None
+    comment: str | None = None
+    lat: float | None = None
+    lng: float | None = None
 
 
 class PhoneUpdate(BaseModel):
@@ -40,12 +40,12 @@ class AddressUpdate(BaseModel):
 
     street: str
     house: str
-    apartment: Optional[str] = None
-    entrance: Optional[str] = None
-    floor: Optional[str] = None
-    comment: Optional[str] = None
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    apartment: str | None = None
+    entrance: str | None = None
+    floor: str | None = None
+    comment: str | None = None
+    lat: float | None = None
+    lng: float | None = None
 
 
 class LanguageUpdate(BaseModel):
@@ -58,9 +58,9 @@ class TelegramUserCreate(BaseModel):
     """Schema for creating user from Telegram."""
 
     telegram_id: int
-    username: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
+    username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     language_code: str = "ru"
 
     @field_validator("language_code")
@@ -76,10 +76,10 @@ class UserResponse(BaseModel):
 
     id: int
     telegram_id: int
-    username: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone: Optional[str] = None
+    username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
     language_code: str
     is_active: bool
     created_at: datetime
@@ -88,7 +88,7 @@ class UserResponse(BaseModel):
 class UserProfileResponse(UserResponse):
     """User profile with address."""
 
-    address: Optional[AddressSchema] = None
+    address: AddressSchema | None = None
 
     @classmethod
     def from_user(cls, user) -> "UserProfileResponse":

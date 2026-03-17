@@ -1,7 +1,6 @@
 """Category Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,11 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class CategoryBase(BaseModel):
     """Base category schema."""
     name: str = Field(..., min_length=1, max_length=100)
-    name_uz: Optional[str] = Field(None, max_length=100)
+    name_uz: str | None = Field(None, max_length=100)
     slug: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
-    description_uz: Optional[str] = None
-    image_url: Optional[str] = None
+    description: str | None = None
+    description_uz: str | None = None
+    image_url: str | None = None
     sort_order: int = 0
     is_active: bool = True
     is_purchasable: bool = True
@@ -26,15 +25,15 @@ class CategoryCreate(CategoryBase):
 
 class CategoryUpdate(BaseModel):
     """Schema for updating a category."""
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    name_uz: Optional[str] = Field(None, max_length=100)
-    slug: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = None
-    description_uz: Optional[str] = None
-    image_url: Optional[str] = None
-    sort_order: Optional[int] = None
-    is_active: Optional[bool] = None
-    is_purchasable: Optional[bool] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    name_uz: str | None = Field(None, max_length=100)
+    slug: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = None
+    description_uz: str | None = None
+    image_url: str | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
+    is_purchasable: bool | None = None
 
 
 class CategoryResponse(CategoryBase):

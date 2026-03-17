@@ -14,7 +14,7 @@ from src.config import settings
 
 
 # Test database URL
-TEST_DATABASE_URL = settings.database_url.replace("mistore_db", "mistore_test_db")
+TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
 
 
 @pytest.fixture(scope="session")

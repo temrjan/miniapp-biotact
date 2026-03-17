@@ -1,21 +1,19 @@
 """CRM API router for admin panel frontend."""
 
-from datetime import datetime, timedelta
-from typing import Annotated, Optional, List
+from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from jose import JWTError, jwt
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from jose import jwt, JWTError
 
 from src.config import settings
 from src.database import get_db
-from src.users.models import User
 from src.orders.models import Order
-from src.crm.models import Lead, FamilyMember, LeadStatus
-
+from src.users.models import User
 
 router = APIRouter()
 
@@ -41,11 +39,11 @@ async def require_admin(
             settings.secret_key.get_secret_value(),
             algorithms=[settings.algorithm],
         )
-    except JWTError:
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from exc
 
     if payload.get("type") != "admin":
         raise HTTPException(
@@ -73,9 +71,9 @@ async def require_admin(
 class FamilyMemberSchema(BaseModel):
     """Family member for frontend."""
     name: str
-    relation: Optional[str] = None
-    age: Optional[int] = None
-    problems: List[str] = []
+    relation: str | None = None
+    age: int | None = None
+    problems: list[str] = []
 
 
 class CustomerSchema(BaseModel):
@@ -83,22 +81,22 @@ class CustomerSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     telegram_id: int
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    username: Optional[str] = None
+    first_name: str | None = None
+    last_name: str | None = None
+    username: str | None = None
     language_code: str = "ru"
-    phone: Optional[str] = None
-    problems: List[str] = []
-    family: List[FamilyMemberSchema] = []
-    purchased_products: List[str] = []
-    ai_notes: Optional[str] = None
+    phone: str | None = None
+    problems: list[str] = []
+    family: list[FamilyMemberSchema] = []
+    purchased_products: list[str] = []
+    ai_notes: str | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class PaginatedCustomers(BaseModel):
     """Paginated customers response."""
-    items: List[CustomerSchema]
+    items: list[CustomerSchema]
     total: int
     page: int
     size: int
@@ -121,8 +119,8 @@ async def get_customers(
     db: DbSession,
     page: int = Query(1, ge=1),
     size: int = Query(12, ge=1, le=100),
-    search: Optional[str] = Query(None),
-    problem: Optional[str] = Query(None),
+    search: str | None = Query(None),
+    problem: str | None = Query(None),
 ) -> PaginatedCustomers:
     """Get all customers (leads) - everyone who pressed /start."""
 
@@ -254,7 +252,7 @@ async def get_customers_stats(db: DbSession) -> CustomersStats:
         "skin": 0,
     }
 
-    for problem_key in by_problem.keys():
+    for problem_key in by_problem:
         count_query = (
             select(func.count(User.id))
             .where(User.symptoms.contains([problem_key]))

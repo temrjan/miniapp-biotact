@@ -2,20 +2,19 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.language import CurrentLanguage, Language
-from src.database import get_db
 from src.categories import service
 from src.categories.models import Category
 from src.categories.schemas import (
     CategoryCreate,
-    CategoryUpdate,
-    CategoryResponse,
     CategoryListResponse,
+    CategoryResponse,
+    CategoryUpdate,
 )
-
+from src.common.language import CurrentLanguage, Language
+from src.database import get_db
 
 router = APIRouter()
 

@@ -11,8 +11,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
-
 from bot.callbacks import LanguageCallback
 from bot.keyboards.inline import (
     get_language_keyboard,
@@ -29,6 +27,8 @@ from bot.keyboards.inline import (
 )
 from bot.services.user import UserService
 from bot.services.crm import sync_customer_to_crm, sync_customer_full
+
+logger = logging.getLogger(__name__)
 
 
 router = Router(name="common")

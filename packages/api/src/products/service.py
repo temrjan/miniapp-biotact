@@ -1,9 +1,8 @@
 """Product service layer."""
 
-from typing import Optional
 from dataclasses import dataclass
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -24,7 +23,7 @@ class PaginatedResult:
 async def get_product_by_id(
     db: AsyncSession,
     product_id: int,
-) -> Optional[Product]:
+) -> Product | None:
     """Get product by ID."""
     result = await db.execute(
         select(Product)
@@ -37,7 +36,7 @@ async def get_product_by_id(
 async def get_product_by_slug(
     db: AsyncSession,
     slug: str,
-) -> Optional[Product]:
+) -> Product | None:
     """Get product by slug."""
     result = await db.execute(
         select(Product)
@@ -52,18 +51,18 @@ async def create_product(
     product_data: ProductCreate,
 ) -> Product:
     """Create new product.
-    
+
     JSONB fields (images, advantages) are automatically converted by SQLAlchemy.
     No need for json.dumps anymore!
     """
     data = product_data.model_dump()
     # JSONB automatically handles Python lists - no json.dumps needed!
     # SQLAlchemy will convert List[str] -> JSONB automatically
-    
+
     # Auto-set image_url from first image if not provided
     if not data.get("image_url") and data.get("images") and len(data["images"]) > 0:
         data["image_url"] = data["images"][0]
-    
+
     product = Product(**data)
     db.add(product)
     await db.flush()
@@ -75,9 +74,9 @@ async def update_product(
     db: AsyncSession,
     product_id: int,
     update_data: ProductUpdate,
-) -> Optional[Product]:
+) -> Product | None:
     """Update product.
-    
+
     JSONB fields (images, advantages) are automatically converted by SQLAlchemy.
     No need for json.dumps anymore!
     """
@@ -88,12 +87,11 @@ async def update_product(
     update_dict = update_data.model_dump(exclude_unset=True)
     # JSONB automatically handles Python lists - no json.dumps needed!
     # SQLAlchemy will convert List[str] -> JSONB automatically
-    
+
     # Auto-set image_url from first image if not provided
-    if "images" in update_dict and update_dict["images"] and len(update_dict["images"]) > 0:
-        if not update_dict.get("image_url") and not product.image_url:
-            update_dict["image_url"] = update_dict["images"][0]
-    
+    if "images" in update_dict and update_dict["images"] and len(update_dict["images"]) > 0 and not update_dict.get("image_url") and not product.image_url:
+        update_dict["image_url"] = update_dict["images"][0]
+
     for field, value in update_dict.items():
         setattr(product, field, value)
 
@@ -119,11 +117,11 @@ async def get_products_paginated(
     db: AsyncSession,
     page: int = 1,
     size: int = 20,
-    category_id: Optional[int] = None,
+    category_id: int | None = None,
     active_only: bool = True,
     featured_only: bool = False,
-    search: Optional[str] = None,
-    sort_by: Optional[str] = None,
+    search: str | None = None,
+    sort_by: str | None = None,
 ) -> PaginatedResult:
     """Get paginated list of products."""
     query = select(Product).options(joinedload(Product.category))
@@ -131,17 +129,17 @@ async def get_products_paginated(
 
     # Apply filters
     if active_only:
-        query = query.where(Product.is_active == True)
-        count_query = count_query.where(Product.is_active == True)
-    
+        query = query.where(Product.is_active.is_(True))
+        count_query = count_query.where(Product.is_active.is_(True))
+
     if category_id:
         query = query.where(Product.category_id == category_id)
         count_query = count_query.where(Product.category_id == category_id)
-    
+
     if featured_only:
-        query = query.where(Product.is_featured == True)
-        count_query = count_query.where(Product.is_featured == True)
-    
+        query = query.where(Product.is_featured.is_(True))
+        count_query = count_query.where(Product.is_featured.is_(True))
+
     if search:
         search_filter = Product.name.ilike(f"%{search}%")
         query = query.where(search_filter)
@@ -153,7 +151,7 @@ async def get_products_paginated(
 
     # Get items
     offset = (page - 1) * size
-    
+
     # Apply sorting
     if sort_by == "id_desc":
         query = query.order_by(Product.id.desc())
@@ -169,7 +167,7 @@ async def get_products_paginated(
         query = query.order_by(Product.price.desc())
     else:
         query = query.order_by(Product.sort_order, Product.name)
-    
+
     result = await db.execute(
         query
         .offset(offset)

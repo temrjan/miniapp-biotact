@@ -3,7 +3,7 @@
 import re
 import httpx
 from aiogram import Router, F
-from aiogram.filters import Command, CommandStart, CommandObject
+from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import Message
 
 from bot.core.config import settings

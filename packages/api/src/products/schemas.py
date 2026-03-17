@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -11,39 +10,39 @@ class ProductBase(BaseModel):
     """Base product schema."""
 
     name: str = Field(..., min_length=1, max_length=200)
-    name_uz: Optional[str] = Field(None, max_length=200)
+    name_uz: str | None = Field(None, max_length=200)
     slug: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
-    description_uz: Optional[str] = None
+    description: str | None = None
+    description_uz: str | None = None
     price: Decimal = Field(..., gt=0, decimal_places=2)
-    old_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    old_price: Decimal | None = Field(None, gt=0, decimal_places=2)
     currency: str = Field(default="UZS", max_length=3)
     stock_quantity: int = Field(default=0, ge=0)
     is_in_stock: bool = True
-    image_url: Optional[str] = None
-    images: Optional[List[str]] = Field(
+    image_url: str | None = None
+    images: list[str] | None = Field(
         default=None,
         description="Array of image URLs for product gallery"
     )
-    category_id: Optional[int] = None
-    mxik: Optional[str] = Field(
+    category_id: int | None = None
+    mxik: str | None = Field(
         None, max_length=17, description="ИКПУ из tasnif.soliq.uz (17 символов)"
     )
-    package_code: Optional[str] = Field(
+    package_code: str | None = Field(
         None, max_length=7, description="Код упаковки (7 символов)"
     )
-    vat: Optional[int] = Field(None, ge=0, le=100, description="НДС в процентах")
-    advantages: Optional[List[str]] = Field(
+    vat: int | None = Field(None, ge=0, le=100, description="НДС в процентах")
+    advantages: list[str] | None = Field(
         default=None,
         description="Array of product benefits/advantages"
     )
-    video_url: Optional[str] = Field(None, max_length=500)
-    additional_info_title: Optional[str] = Field(None, max_length=200)
-    additional_info_title_uz: Optional[str] = Field(None, max_length=200)
-    additional_info: Optional[str] = None
-    additional_info_uz: Optional[str] = None
-    disclaimer: Optional[str] = None
-    disclaimer_uz: Optional[str] = None
+    video_url: str | None = Field(None, max_length=500)
+    additional_info_title: str | None = Field(None, max_length=200)
+    additional_info_title_uz: str | None = Field(None, max_length=200)
+    additional_info: str | None = None
+    additional_info_uz: str | None = None
+    disclaimer: str | None = None
+    disclaimer_uz: str | None = None
     sort_order: int = 0
     is_active: bool = True
     is_featured: bool = False
@@ -65,39 +64,39 @@ class ProductCreate(ProductBase):
 
 
 class ProductUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=200)
-    name_uz: Optional[str] = Field(None, max_length=200)
-    slug: Optional[str] = Field(None, min_length=1, max_length=200)
-    description: Optional[str] = None
-    description_uz: Optional[str] = None
-    price: Optional[Decimal] = Field(None, gt=0)
-    old_price: Optional[Decimal] = Field(None, gt=0)
-    currency: Optional[str] = Field(None, max_length=3)
-    stock_quantity: Optional[int] = Field(None, ge=0)
-    is_in_stock: Optional[bool] = None
-    image_url: Optional[str] = None
-    images: Optional[List[str]] = Field(
+    name: str | None = Field(None, min_length=1, max_length=200)
+    name_uz: str | None = Field(None, max_length=200)
+    slug: str | None = Field(None, min_length=1, max_length=200)
+    description: str | None = None
+    description_uz: str | None = None
+    price: Decimal | None = Field(None, gt=0)
+    old_price: Decimal | None = Field(None, gt=0)
+    currency: str | None = Field(None, max_length=3)
+    stock_quantity: int | None = Field(None, ge=0)
+    is_in_stock: bool | None = None
+    image_url: str | None = None
+    images: list[str] | None = Field(
         default=None,
         description="Array of image URLs for product gallery"
     )
-    category_id: Optional[int] = None
-    mxik: Optional[str] = Field(None, max_length=17)
-    package_code: Optional[str] = Field(None, max_length=7)
-    vat: Optional[int] = Field(None, ge=0, le=100)
-    advantages: Optional[List[str]] = Field(
+    category_id: int | None = None
+    mxik: str | None = Field(None, max_length=17)
+    package_code: str | None = Field(None, max_length=7)
+    vat: int | None = Field(None, ge=0, le=100)
+    advantages: list[str] | None = Field(
         default=None,
         description="Array of product benefits/advantages"
     )
-    video_url: Optional[str] = Field(None, max_length=500)
-    additional_info_title: Optional[str] = Field(None, max_length=200)
-    additional_info_title_uz: Optional[str] = Field(None, max_length=200)
-    additional_info: Optional[str] = None
-    additional_info_uz: Optional[str] = None
-    disclaimer: Optional[str] = None
-    disclaimer_uz: Optional[str] = None
-    sort_order: Optional[int] = None
-    is_active: Optional[bool] = None
-    is_featured: Optional[bool] = None
+    video_url: str | None = Field(None, max_length=500)
+    additional_info_title: str | None = Field(None, max_length=200)
+    additional_info_title_uz: str | None = Field(None, max_length=200)
+    additional_info: str | None = None
+    additional_info_uz: str | None = None
+    disclaimer: str | None = None
+    disclaimer_uz: str | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
+    is_featured: bool | None = None
 
     @field_validator("images", "advantages", mode="before")
     @classmethod
@@ -123,24 +122,24 @@ class ProductLocalizedResponse(BaseModel):
     id: int
     name: str
     slug: str
-    description: Optional[str] = None
+    description: str | None = None
     price: Decimal
-    old_price: Optional[Decimal] = None
+    old_price: Decimal | None = None
     currency: str
     stock_quantity: int
     is_in_stock: bool
     is_purchasable: bool = True
-    image_url: Optional[str] = None
-    images: Optional[List[str]] = None
-    category_id: Optional[int] = None
-    mxik: Optional[str] = None
-    package_code: Optional[str] = None
-    vat: Optional[int] = None
-    advantages: Optional[List[str]] = None
-    video_url: Optional[str] = None
-    additional_info_title: Optional[str] = None
-    additional_info: Optional[str] = None
-    disclaimer: Optional[str] = None
+    image_url: str | None = None
+    images: list[str] | None = None
+    category_id: int | None = None
+    mxik: str | None = None
+    package_code: str | None = None
+    vat: int | None = None
+    advantages: list[str] | None = None
+    video_url: str | None = None
+    additional_info_title: str | None = None
+    additional_info: str | None = None
+    disclaimer: str | None = None
     sort_order: int
     is_active: bool
     is_featured: bool
@@ -149,7 +148,7 @@ class ProductLocalizedResponse(BaseModel):
 
 
 class ProductListResponse(BaseModel):
-    items: List[ProductResponse]
+    items: list[ProductResponse]
     total: int
     page: int
     size: int
@@ -157,7 +156,7 @@ class ProductListResponse(BaseModel):
 
 
 class ProductLocalizedListResponse(BaseModel):
-    items: List[ProductLocalizedResponse]
+    items: list[ProductLocalizedResponse]
     total: int
     page: int
     size: int

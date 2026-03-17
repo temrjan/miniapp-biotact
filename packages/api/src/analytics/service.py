@@ -2,18 +2,19 @@
 
 from datetime import datetime, timedelta
 from decimal import Decimal
-from sqlalchemy import select, func, case
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.orders.models import Order, OrderItem, OrderStatus
-from src.users.models import User
 from src.analytics.schemas import (
     DashboardStats,
-    RevenueDataPoint,
-    RecentOrderItem,
-    TopProductItem,
     OrderStatusCount,
+    RecentOrderItem,
+    RevenueDataPoint,
+    TopProductItem,
 )
+from src.orders.models import Order, OrderItem, OrderStatus
+from src.users.models import User
 
 
 async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStats:

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ErrorState, getErrorType } from './ErrorState';
+import { ErrorState } from './ErrorState';
+import { getErrorType } from './ErrorState.utils';
 
 describe('ErrorState', () => {
   it('renders with default generic error', () => {

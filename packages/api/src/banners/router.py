@@ -1,14 +1,13 @@
 """Banner API router."""
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import get_db
-from src.banners.models import Banner, Settings
 from src.banners import schemas
+from src.banners.models import Banner, Settings
+from src.database import get_db
 
 router = APIRouter(prefix="/banners", tags=["banners"])
 
@@ -17,25 +16,25 @@ router = APIRouter(prefix="/banners", tags=["banners"])
 async def get_banners(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    is_active: Optional[bool] = None,
+    is_active: bool | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> schemas.BannerList:
     """Get all banners."""
     query = select(Banner).order_by(Banner.sort_order, Banner.id)
-    
+
     if is_active is not None:
         query = query.where(Banner.is_active == is_active)
-    
+
     # Count total
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
-    
+
     # Get items
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     items = list(result.scalars().all())
-    
+
     return schemas.BannerList(items=items, total=total)
 
 
@@ -49,10 +48,10 @@ async def get_banner(
         select(Banner).where(Banner.id == banner_id)
     )
     banner = result.scalar_one_or_none()
-    
+
     if not banner:
         raise HTTPException(status_code=404, detail="Banner not found")
-    
+
     return banner
 
 
@@ -80,14 +79,14 @@ async def update_banner(
         select(Banner).where(Banner.id == banner_id)
     )
     banner = result.scalar_one_or_none()
-    
+
     if not banner:
         raise HTTPException(status_code=404, detail="Banner not found")
-    
+
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(banner, field, value)
-    
+
     await db.commit()
     await db.refresh(banner)
     return banner
@@ -103,10 +102,10 @@ async def delete_banner(
         select(Banner).where(Banner.id == banner_id)
     )
     banner = result.scalar_one_or_none()
-    
+
     if not banner:
         raise HTTPException(status_code=404, detail="Banner not found")
-    
+
     await db.delete(banner)
     await db.commit()
 
@@ -134,10 +133,10 @@ async def get_setting(
         select(Settings).where(Settings.key == key)
     )
     setting = result.scalar_one_or_none()
-    
+
     if not setting:
         raise HTTPException(status_code=404, detail="Setting not found")
-    
+
     return setting
 
 
@@ -152,13 +151,13 @@ async def update_setting(
         select(Settings).where(Settings.key == key)
     )
     setting = result.scalar_one_or_none()
-    
+
     if setting:
         setting.value = data.value
     else:
         setting = Settings(key=key, value=data.value)
         db.add(setting)
-    
+
     await db.commit()
     await db.refresh(setting)
     return setting

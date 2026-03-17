@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { api, ApiError } from './client'
-import WebApp from '@twa-dev/sdk'
 import { useLanguageStore } from '@/stores/languageStore'
 
 // Mock Telegram WebApp
@@ -18,7 +17,7 @@ vi.mock('@/stores/languageStore', () => ({
 }))
 
 // Helper to create mock Response
-function createMockResponse(data: any, options: { ok?: boolean; status?: number } = {}) {
+function createMockResponse(data: unknown, options: { ok?: boolean; status?: number } = {}) {
   return {
     ok: options.ok ?? true,
     status: options.status ?? 200,
@@ -28,7 +27,7 @@ function createMockResponse(data: any, options: { ok?: boolean; status?: number 
 
 // Mock global fetch
 const mockFetch = vi.fn()
-global.fetch = mockFetch as any
+global.fetch = mockFetch as typeof fetch
 
 describe('API Client', () => {
   beforeEach(() => {
@@ -86,7 +85,7 @@ describe('API Client', () => {
 
   it('changes language header when language changes', async () => {
     // Первый запрос с русским языком
-    vi.mocked(useLanguageStore.getState).mockReturnValue({ language: 'ru' } as any)
+    vi.mocked(useLanguageStore.getState).mockReturnValue({ language: 'ru' } as ReturnType<typeof useLanguageStore.getState>)
     mockFetch.mockResolvedValueOnce(createMockResponse({ success: true }))
 
     await api.get('/test')
@@ -101,7 +100,7 @@ describe('API Client', () => {
     )
 
     // Второй запрос с узбекским языком
-    vi.mocked(useLanguageStore.getState).mockReturnValue({ language: 'uz' } as any)
+    vi.mocked(useLanguageStore.getState).mockReturnValue({ language: 'uz' } as ReturnType<typeof useLanguageStore.getState>)
     mockFetch.mockResolvedValueOnce(createMockResponse({ success: true }))
 
     await api.get('/test')

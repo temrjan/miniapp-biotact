@@ -1,18 +1,17 @@
 """Category service layer."""
 
-from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.categories.models import Category
-from src.categories.schemas import CategoryCreate, CategoryUpdate, CategoryListResponse
+from src.categories.schemas import CategoryCreate, CategoryListResponse, CategoryUpdate
 
 
 async def get_category_by_id(
     db: AsyncSession,
     category_id: int,
-) -> Optional[Category]:
+) -> Category | None:
     """Get category by ID."""
     result = await db.execute(
         select(Category).where(Category.id == category_id)
@@ -23,7 +22,7 @@ async def get_category_by_id(
 async def get_category_by_slug(
     db: AsyncSession,
     slug: str,
-) -> Optional[Category]:
+) -> Category | None:
     """Get category by slug."""
     result = await db.execute(
         select(Category).where(Category.slug == slug)
@@ -47,7 +46,7 @@ async def update_category(
     db: AsyncSession,
     category_id: int,
     update_data: CategoryUpdate,
-) -> Optional[Category]:
+) -> Category | None:
     """Update category."""
     category = await get_category_by_id(db, category_id)
     if not category:
@@ -83,13 +82,13 @@ async def get_categories_paginated(
 ) -> CategoryListResponse:
     """Get paginated list of categories."""
     query = select(Category)
-    
+
     if active_only:
-        query = query.where(Category.is_active == True)
-    
+        query = query.where(Category.is_active.is_(True))
+
     # Count total
     count_result = await db.execute(
-        select(func.count(Category.id)).where(Category.is_active == True) if active_only
+        select(func.count(Category.id)).where(Category.is_active.is_(True)) if active_only
         else select(func.count(Category.id))
     )
     total = count_result.scalar_one()

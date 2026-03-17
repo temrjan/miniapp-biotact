@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useState, useCallback, type ChangeEvent, type KeyboardEvent } from 'react';
 import { haptic } from '@/services/telegram';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -47,14 +47,8 @@ export function PhoneInput({
   disabled = false,
   autoFocus = false,
 }: PhoneInputProps) {
-  const [localValue, setLocalValue] = useState(value || '+998');
+  const [localValue, setLocalValue] = useState(() => value ? formatPhone(value) : '+998');
   const [touched, setTouched] = useState(false);
-
-  useEffect(() => {
-    if (value) {
-      setLocalValue(formatPhone(value));
-    }
-  }, [value]);
 
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
