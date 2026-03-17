@@ -38,7 +38,9 @@ class EmailService:
             logger.error(f"Failed to send email to {to_email}: {e}")
             return False
 
-    def send_verification_email(self, to_email: str, token: str, first_name: str | None = None) -> bool:
+    def send_verification_email(
+        self, to_email: str, token: str, first_name: str | None = None
+    ) -> bool:
         name = first_name or "пользователь"
         verify_url = f"{settings.admin_url}/verify-email?token={token}"
 
@@ -72,7 +74,9 @@ class EmailService:
 
         return self._send_email(to_email, "Подтверждение email - Biotact Admin", html_content)
 
-    def send_password_reset_email(self, to_email: str, token: str, first_name: str | None = None) -> bool:
+    def send_password_reset_email(
+        self, to_email: str, token: str, first_name: str | None = None
+    ) -> bool:
         name = first_name or "пользователь"
         reset_url = f"{settings.admin_url}/reset-password?token={token}"
 

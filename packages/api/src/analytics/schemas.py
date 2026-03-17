@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 class RevenueDataPoint(BaseModel):
     """Revenue data point for chart."""
+
     model_config = ConfigDict(from_attributes=True)
 
     date: str  # YYYY-MM-DD format
@@ -17,6 +18,7 @@ class RevenueDataPoint(BaseModel):
 
 class RecentOrderItem(BaseModel):
     """Recent order item for dashboard."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -30,6 +32,7 @@ class RecentOrderItem(BaseModel):
 
 class TopProductItem(BaseModel):
     """Top selling product."""
+
     model_config = ConfigDict(from_attributes=True)
 
     product_id: int
@@ -40,6 +43,7 @@ class TopProductItem(BaseModel):
 
 class OrderStatusCount(BaseModel):
     """Order status count for distribution chart."""
+
     model_config = ConfigDict(from_attributes=True)
 
     status: str
@@ -49,6 +53,7 @@ class OrderStatusCount(BaseModel):
 
 class DashboardStats(BaseModel):
     """Dashboard statistics."""
+
     model_config = ConfigDict(from_attributes=True)
 
     total_revenue: Decimal

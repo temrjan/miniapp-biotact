@@ -36,15 +36,11 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
     total_orders = await db.scalar(total_orders_query)
 
     # Pending orders count
-    pending_query = select(func.count(Order.id)).where(
-        Order.status == OrderStatus.PENDING
-    )
+    pending_query = select(func.count(Order.id)).where(Order.status == OrderStatus.PENDING)
     pending_orders = await db.scalar(pending_query)
 
     # Completed orders count
-    completed_query = select(func.count(Order.id)).where(
-        Order.status.in_([OrderStatus.DELIVERED])
-    )
+    completed_query = select(func.count(Order.id)).where(Order.status.in_([OrderStatus.DELIVERED]))
     completed_orders = await db.scalar(completed_query)
 
     # Revenue by day (last N days)
@@ -92,11 +88,7 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
         current_date += timedelta(days=1)
 
     # Recent orders (last 10)
-    recent_orders_query = (
-        select(Order)
-        .order_by(Order.created_at.desc())
-        .limit(10)
-    )
+    recent_orders_query = select(Order).order_by(Order.created_at.desc()).limit(10)
 
     recent_result = await db.execute(recent_orders_query)
     recent_orders_rows = recent_result.scalars().all()
@@ -147,13 +139,10 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
     ]
 
     # Order Status Distribution
-    status_query = (
-        select(
-            Order.status,
-            func.count(Order.id).label("count"),
-        )
-        .group_by(Order.status)
-    )
+    status_query = select(
+        Order.status,
+        func.count(Order.id).label("count"),
+    ).group_by(Order.status)
 
     status_result = await db.execute(status_query)
     status_rows = status_result.all()
@@ -177,30 +166,29 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
     total_users = await db.scalar(select(func.count(User.id))) or 0
 
     # Buyers in last 7 days (users who made orders)
-    buyers_7d_query = (
-        select(func.count(func.distinct(Order.user_id)))
-        .where(Order.created_at >= end_date - timedelta(days=7))
+    buyers_7d_query = select(func.count(func.distinct(Order.user_id))).where(
+        Order.created_at >= end_date - timedelta(days=7)
     )
     buyers_7d = await db.scalar(buyers_7d_query) or 0
 
     # Buyers in last 30 days
-    buyers_30d_query = (
-        select(func.count(func.distinct(Order.user_id)))
-        .where(Order.created_at >= end_date - timedelta(days=30))
+    buyers_30d_query = select(func.count(func.distinct(Order.user_id))).where(
+        Order.created_at >= end_date - timedelta(days=30)
     )
     buyers_30d = await db.scalar(buyers_30d_query) or 0
 
     # New users today
-    new_users_today = await db.scalar(
-        select(func.count(User.id)).where(User.created_at >= today_start)
-    ) or 0
+    new_users_today = (
+        await db.scalar(select(func.count(User.id)).where(User.created_at >= today_start)) or 0
+    )
 
     # New users in last 7 days
-    new_users_7d = await db.scalar(
-        select(func.count(User.id)).where(
-            User.created_at >= end_date - timedelta(days=7)
+    new_users_7d = (
+        await db.scalar(
+            select(func.count(User.id)).where(User.created_at >= end_date - timedelta(days=7))
         )
-    ) or 0
+        or 0
+    )
 
     return DashboardStats(
         total_revenue=total_revenue or Decimal("0"),

@@ -43,10 +43,11 @@ async def verify_bot_token(
 
 # ==================== Customer ====================
 
+
 @router.get(
     "/customer/{telegram_id}",
     response_model=BotCustomerResponse,
-    dependencies=[Depends(verify_bot_token)]
+    dependencies=[Depends(verify_bot_token)],
 )
 async def get_customer(
     telegram_id: int,
@@ -118,20 +119,14 @@ async def get_customer(
     )
 
 
-@router.post(
-    "/customer",
-    response_model=CustomerSummary,
-    dependencies=[Depends(verify_bot_token)]
-)
+@router.post("/customer", response_model=CustomerSummary, dependencies=[Depends(verify_bot_token)])
 async def save_customer(
     data: BotCustomerData,
     db: DbSession,
 ) -> CustomerSummary:
     """Create or update customer from bot."""
 
-    result = await db.execute(
-        select(User).where(User.telegram_id == data.telegram_id)
-    )
+    result = await db.execute(select(User).where(User.telegram_id == data.telegram_id))
     user = result.scalar_one_or_none()
 
     if user:
@@ -165,9 +160,7 @@ async def save_customer(
                 data.telegram_id,
             )
             await db.rollback()
-            result = await db.execute(
-                select(User).where(User.telegram_id == data.telegram_id)
-            )
+            result = await db.execute(select(User).where(User.telegram_id == data.telegram_id))
             user = result.scalar_one_or_none()
             if not user:
                 raise HTTPException(
@@ -191,10 +184,11 @@ async def save_customer(
 
 # ==================== Family Members ====================
 
+
 @router.post(
     "/customer/{telegram_id}/family",
     response_model=FamilyMemberResponse,
-    dependencies=[Depends(verify_bot_token)]
+    dependencies=[Depends(verify_bot_token)],
 )
 async def add_family_member(
     telegram_id: int,
@@ -203,9 +197,7 @@ async def add_family_member(
 ) -> FamilyMemberResponse:
     """Add family member to customer."""
 
-    result = await db.execute(
-        select(User).where(User.telegram_id == telegram_id)
-    )
+    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -239,11 +231,8 @@ async def add_family_member(
 
 # ==================== Leads ====================
 
-@router.post(
-    "/lead",
-    response_model=LeadResponse,
-    dependencies=[Depends(verify_bot_token)]
-)
+
+@router.post("/lead", response_model=LeadResponse, dependencies=[Depends(verify_bot_token)])
 async def create_lead(
     data: LeadCreate,
     db: DbSession,
@@ -251,9 +240,7 @@ async def create_lead(
     """Create lead from bot (when customer is ready to buy)."""
 
     # Find user by telegram_id
-    result = await db.execute(
-        select(User).where(User.telegram_id == data.telegram_id)
-    )
+    result = await db.execute(select(User).where(User.telegram_id == data.telegram_id))
     user = result.scalar_one_or_none()
 
     lead = Lead(

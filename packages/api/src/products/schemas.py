@@ -21,20 +21,16 @@ class ProductBase(BaseModel):
     is_in_stock: bool = True
     image_url: str | None = None
     images: list[str] | None = Field(
-        default=None,
-        description="Array of image URLs for product gallery"
+        default=None, description="Array of image URLs for product gallery"
     )
     category_id: int | None = None
     mxik: str | None = Field(
         None, max_length=17, description="ИКПУ из tasnif.soliq.uz (17 символов)"
     )
-    package_code: str | None = Field(
-        None, max_length=7, description="Код упаковки (7 символов)"
-    )
+    package_code: str | None = Field(None, max_length=7, description="Код упаковки (7 символов)")
     vat: int | None = Field(None, ge=0, le=100, description="НДС в процентах")
     advantages: list[str] | None = Field(
-        default=None,
-        description="Array of product benefits/advantages"
+        default=None, description="Array of product benefits/advantages"
     )
     video_url: str | None = Field(None, max_length=500)
     additional_info_title: str | None = Field(None, max_length=200)
@@ -76,16 +72,14 @@ class ProductUpdate(BaseModel):
     is_in_stock: bool | None = None
     image_url: str | None = None
     images: list[str] | None = Field(
-        default=None,
-        description="Array of image URLs for product gallery"
+        default=None, description="Array of image URLs for product gallery"
     )
     category_id: int | None = None
     mxik: str | None = Field(None, max_length=17)
     package_code: str | None = Field(None, max_length=7)
     vat: int | None = Field(None, ge=0, le=100)
     advantages: list[str] | None = Field(
-        default=None,
-        description="Array of product benefits/advantages"
+        default=None, description="Array of product benefits/advantages"
     )
     video_url: str | None = Field(None, max_length=500)
     additional_info_title: str | None = Field(None, max_length=200)

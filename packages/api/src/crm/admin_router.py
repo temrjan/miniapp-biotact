@@ -60,9 +60,7 @@ async def require_admin(
         )
 
     user_id = int(payload.get("sub", 0))
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_admin:
@@ -75,6 +73,7 @@ async def require_admin(
 
 
 # ==================== Leads ====================
+
 
 @router.get("/leads", response_model=LeadsListResponse, dependencies=[Depends(require_admin)])
 async def get_leads(
@@ -113,10 +112,7 @@ async def get_leads(
     total = await db.scalar(count_query) or 0
 
     # Get funnel stats
-    stats_query = select(
-        Lead.status,
-        func.count(Lead.id).label("count")
-    ).group_by(Lead.status)
+    stats_query = select(Lead.status, func.count(Lead.id).label("count")).group_by(Lead.status)
     stats_result = await db.execute(stats_query)
     stats_rows = stats_result.all()
     stats_data: dict[str, int] = {}
@@ -158,19 +154,21 @@ async def get_leads(
                 symptoms=lead.user.symptoms or [],
             )
 
-        items.append(LeadWithCustomer(
-            id=lead.id,
-            user_id=lead.user_id,
-            telegram_id=lead.telegram_id,
-            status=lead.status,
-            request_text=lead.request_text,
-            ai_summary=lead.ai_summary,
-            recommended_products=lead.recommended_products or [],
-            manager_notes=lead.manager_notes,
-            created_at=lead.created_at,
-            updated_at=lead.updated_at,
-            customer=customer,
-        ))
+        items.append(
+            LeadWithCustomer(
+                id=lead.id,
+                user_id=lead.user_id,
+                telegram_id=lead.telegram_id,
+                status=lead.status,
+                request_text=lead.request_text,
+                ai_summary=lead.ai_summary,
+                recommended_products=lead.recommended_products or [],
+                manager_notes=lead.manager_notes,
+                created_at=lead.created_at,
+                updated_at=lead.updated_at,
+                customer=customer,
+            )
+        )
 
     pages = (total + size - 1) // size if total else 0
 
@@ -184,7 +182,9 @@ async def get_leads(
     )
 
 
-@router.get("/leads/{lead_id}", response_model=LeadWithCustomer, dependencies=[Depends(require_admin)])
+@router.get(
+    "/leads/{lead_id}", response_model=LeadWithCustomer, dependencies=[Depends(require_admin)]
+)
 async def get_lead(
     lead_id: int,
     db: DbSession,
@@ -192,9 +192,7 @@ async def get_lead(
     """Get lead details."""
 
     result = await db.execute(
-        select(Lead)
-        .options(selectinload(Lead.user))
-        .where(Lead.id == lead_id)
+        select(Lead).options(selectinload(Lead.user)).where(Lead.id == lead_id)
     )
     lead = result.scalar_one_or_none()
 
@@ -230,7 +228,9 @@ async def get_lead(
     )
 
 
-@router.patch("/leads/{lead_id}", response_model=LeadResponse, dependencies=[Depends(require_admin)])
+@router.patch(
+    "/leads/{lead_id}", response_model=LeadResponse, dependencies=[Depends(require_admin)]
+)
 async def update_lead(
     lead_id: int,
     data: LeadUpdate,
@@ -238,9 +238,7 @@ async def update_lead(
 ) -> LeadResponse:
     """Update lead status or notes."""
 
-    result = await db.execute(
-        select(Lead).where(Lead.id == lead_id)
-    )
+    result = await db.execute(select(Lead).where(Lead.id == lead_id))
     lead = result.scalar_one_or_none()
 
     if not lead:
@@ -273,7 +271,10 @@ async def update_lead(
 
 # ==================== Customers ====================
 
-@router.get("/customers/{user_id}", response_model=CustomerDetail, dependencies=[Depends(require_admin)])
+
+@router.get(
+    "/customers/{user_id}", response_model=CustomerDetail, dependencies=[Depends(require_admin)]
+)
 async def get_customer(
     user_id: int,
     db: DbSession,
@@ -341,14 +342,12 @@ async def get_customer(
 
 # ==================== Stats ====================
 
+
 @router.get("/stats", response_model=FunnelStats, dependencies=[Depends(require_admin)])
 async def get_crm_stats(db: DbSession) -> FunnelStats:
     """Get CRM funnel statistics."""
 
-    stats_query = select(
-        Lead.status,
-        func.count(Lead.id).label("count")
-    ).group_by(Lead.status)
+    stats_query = select(Lead.status, func.count(Lead.id).label("count")).group_by(Lead.status)
 
     result = await db.execute(stats_query)
     result_rows = result.all()

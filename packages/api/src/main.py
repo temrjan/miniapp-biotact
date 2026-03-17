@@ -1,4 +1,5 @@
 """Main FastAPI application."""
+
 # temrjan-2025-12-25
 import logging
 from collections.abc import AsyncIterator
@@ -48,7 +49,7 @@ def create_app() -> FastAPI:
     # Setup logging
     logging.basicConfig(
         level=logging.DEBUG if settings.debug else logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
 
@@ -61,7 +62,6 @@ def create_app() -> FastAPI:
             environment="production" if not settings.debug else "development",
         )
         logger.info("Sentry initialized")
-
 
     app = FastAPI(
         title=settings.app_name,

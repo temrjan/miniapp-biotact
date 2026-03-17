@@ -58,14 +58,9 @@ class User(Base):
 
     # Relationships
     family_members: Mapped[list["FamilyMember"]] = relationship(
-        "FamilyMember",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "FamilyMember", back_populates="user", cascade="all, delete-orphan"
     )
-    leads: Mapped[list["Lead"]] = relationship(
-        "Lead",
-        back_populates="user"
-    )
+    leads: Mapped[list["Lead"]] = relationship("Lead", back_populates="user")
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, telegram_id={self.telegram_id})>"

@@ -1,12 +1,12 @@
 """Payment schemas for Multicard integration."""
 
-
 from pydantic import BaseModel, Field
 
 
 # OFD Item for Invoice
 class OFDItem(BaseModel):
     """OFD item for fiscal receipt."""
+
     mxik: str = Field(..., max_length=17, description="IKPU code")
     package_code: str = Field(..., max_length=7, description="Package code")
     qty: int = Field(..., ge=1, description="Quantity")
@@ -19,6 +19,7 @@ class OFDItem(BaseModel):
 # Request to create payment
 class CreatePaymentRequest(BaseModel):
     """Request to create payment on Multicard."""
+
     order_id: int = Field(..., description="Order ID")
     return_url: str = Field(..., description="URL to redirect after payment")
 
@@ -26,6 +27,7 @@ class CreatePaymentRequest(BaseModel):
 # Internal payment creation data
 class PaymentCreateData(BaseModel):
     """Data for creating invoice in Multicard API."""
+
     store_id: str
     amount: int = Field(..., description="Amount in tiyins")
     invoice_id: str = Field(..., description="Unique invoice ID (order_number)")
@@ -38,6 +40,7 @@ class PaymentCreateData(BaseModel):
 # Multicard API Response
 class MultiCardPaymentResponse(BaseModel):
     """Response from Multicard invoice creation."""
+
     uuid: str
     pay_url: str
 
@@ -45,6 +48,7 @@ class MultiCardPaymentResponse(BaseModel):
 # Success callback from Multicard (POST to callback_url)
 class SuccessCallbackData(BaseModel):
     """Success callback data from Multicard."""
+
     store_id: int
     amount: int
     invoice_id: str
@@ -62,6 +66,7 @@ class SuccessCallbackData(BaseModel):
 # Response to frontend
 class PaymentResponse(BaseModel):
     """Payment response to frontend."""
+
     payment_url: str
     payment_uuid: str
     order_id: int

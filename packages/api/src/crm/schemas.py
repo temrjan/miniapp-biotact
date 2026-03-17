@@ -8,8 +8,10 @@ from src.crm.models import LeadStatus
 
 # ==================== Family Members ====================
 
+
 class FamilyMemberBase(BaseModel):
     """Base family member schema."""
+
     name: str
     relation: str | None = None
     age: int | None = None
@@ -18,11 +20,13 @@ class FamilyMemberBase(BaseModel):
 
 class FamilyMemberCreate(FamilyMemberBase):
     """Create family member schema."""
+
     pass
 
 
 class FamilyMemberUpdate(BaseModel):
     """Update family member schema."""
+
     name: str | None = None
     relation: str | None = None
     age: int | None = None
@@ -31,6 +35,7 @@ class FamilyMemberUpdate(BaseModel):
 
 class FamilyMemberResponse(FamilyMemberBase):
     """Family member response schema."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -40,8 +45,10 @@ class FamilyMemberResponse(FamilyMemberBase):
 
 # ==================== Leads ====================
 
+
 class LeadBase(BaseModel):
     """Base lead schema."""
+
     request_text: str | None = None
     ai_summary: str | None = None
     recommended_products: list[str] | None = []
@@ -49,17 +56,20 @@ class LeadBase(BaseModel):
 
 class LeadCreate(LeadBase):
     """Create lead schema (for bot)."""
+
     telegram_id: int
 
 
 class LeadUpdate(BaseModel):
     """Update lead schema (for admin)."""
+
     status: LeadStatus | None = None
     manager_notes: str | None = None
 
 
 class LeadResponse(LeadBase):
     """Lead response schema."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -73,8 +83,10 @@ class LeadResponse(LeadBase):
 
 # ==================== Customer (for admin) ====================
 
+
 class CustomerSummary(BaseModel):
     """Customer summary for lead list."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -88,13 +100,16 @@ class CustomerSummary(BaseModel):
 
 class LeadWithCustomer(LeadResponse):
     """Lead with customer info."""
+
     customer: CustomerSummary | None = None
 
 
 # ==================== Funnel Stats ====================
 
+
 class FunnelStats(BaseModel):
     """CRM funnel statistics."""
+
     new: int = 0
     in_progress: int = 0
     converted: int = 0
@@ -105,6 +120,7 @@ class FunnelStats(BaseModel):
 
 class LeadsListResponse(BaseModel):
     """Paginated leads list with stats."""
+
     items: list[LeadWithCustomer]
     total: int
     page: int
@@ -115,8 +131,10 @@ class LeadsListResponse(BaseModel):
 
 # ==================== Customer Detail ====================
 
+
 class CustomerDetail(CustomerSummary):
     """Full customer detail for CRM."""
+
     ai_notes: str | None = None
     created_at: datetime
     family_members: list[FamilyMemberResponse] = []
@@ -125,8 +143,10 @@ class CustomerDetail(CustomerSummary):
 
 # ==================== Bot API Schemas ====================
 
+
 class BotCustomerData(BaseModel):
     """Customer data for bot API."""
+
     telegram_id: int
     name: str | None = None
     username: str | None = None
@@ -137,6 +157,7 @@ class BotCustomerData(BaseModel):
 
 class BotCustomerResponse(BaseModel):
     """Customer info response for bot."""
+
     customer: CustomerSummary | None = None
     family: list[FamilyMemberResponse] = []
     recent_leads: list[LeadResponse] = []

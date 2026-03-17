@@ -1,6 +1,5 @@
 """Auth service layer."""
 
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,9 +12,7 @@ async def get_user_by_telegram_id(
     telegram_id: int,
 ) -> User | None:
     """Get user by Telegram ID."""
-    result = await db.execute(
-        select(User).where(User.telegram_id == telegram_id)
-    )
+    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
     return result.scalar_one_or_none()
 
 

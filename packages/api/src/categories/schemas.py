@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class CategoryBase(BaseModel):
     """Base category schema."""
+
     name: str = Field(..., min_length=1, max_length=100)
     name_uz: str | None = Field(None, max_length=100)
     slug: str = Field(..., min_length=1, max_length=100)
@@ -20,11 +21,13 @@ class CategoryBase(BaseModel):
 
 class CategoryCreate(CategoryBase):
     """Schema for creating a category."""
+
     pass
 
 
 class CategoryUpdate(BaseModel):
     """Schema for updating a category."""
+
     name: str | None = Field(None, min_length=1, max_length=100)
     name_uz: str | None = Field(None, max_length=100)
     slug: str | None = Field(None, min_length=1, max_length=100)
@@ -48,6 +51,7 @@ class CategoryResponse(CategoryBase):
 
 class CategoryListResponse(BaseModel):
     """Paginated category list response."""
+
     items: list[CategoryResponse]
     total: int
     page: int

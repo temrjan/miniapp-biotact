@@ -74,24 +74,28 @@ class ResetPasswordRequest(BaseModel):
 
 # Utils
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
 def create_access_token(user_id: int) -> str:
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode = {"sub": str(user_id), "type": "access", "exp": expire}
-    token: str = jwt.encode(to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm)
+    token: str = jwt.encode(
+        to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm
+    )
     return token
 
 
 def create_refresh_token(user_id: int) -> str:
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode = {"sub": str(user_id), "type": "refresh", "exp": expire}
-    token: str = jwt.encode(to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm)
+    token: str = jwt.encode(
+        to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm
+    )
     return token
 
 
@@ -101,11 +105,13 @@ def generate_token() -> str:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: AsyncSession = Depends(get_db)
+    session: AsyncSession = Depends(get_db),
 ) -> AdminUser:
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, settings.jwt_secret.get_secret_value(), algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(
+            token, settings.jwt_secret.get_secret_value(), algorithms=[settings.jwt_algorithm]
+        )
         user_id = int(payload.get("sub"))
         token_type = payload.get("type")
         if user_id is None or token_type != "access":
@@ -126,7 +132,9 @@ async def get_current_user(
 
 # Endpoints
 @router.post("/register", response_model=MessageResponse)
-async def register(data: RegisterRequest, session: AsyncSession = Depends(get_db)) -> MessageResponse:
+async def register(
+    data: RegisterRequest, session: AsyncSession = Depends(get_db)
+) -> MessageResponse:
     result = await session.execute(select(AdminUser).where(AdminUser.email == data.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -145,7 +153,9 @@ async def register(data: RegisterRequest, session: AsyncSession = Depends(get_db
     await session.commit()
 
     email_service.send_verification_email(data.email, verification_token, data.first_name)
-    return MessageResponse(message="Registration successful. Please check your email to verify your account.")
+    return MessageResponse(
+        message="Registration successful. Please check your email to verify your account."
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -172,9 +182,15 @@ async def login(data: LoginRequest, session: AsyncSession = Depends(get_db)) -> 
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(data: RefreshRequest, session: AsyncSession = Depends(get_db)) -> TokenResponse:
+async def refresh_token(
+    data: RefreshRequest, session: AsyncSession = Depends(get_db)
+) -> TokenResponse:
     try:
-        payload = jwt.decode(data.refresh_token, settings.jwt_secret.get_secret_value(), algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(
+            data.refresh_token,
+            settings.jwt_secret.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+        )
         user_id = int(payload.get("sub"))
         token_type = payload.get("type")
 
@@ -200,7 +216,7 @@ async def verify_email(token: str, session: AsyncSession = Depends(get_db)) -> M
     result = await session.execute(
         select(AdminUser).where(
             AdminUser.verification_token == token,
-            AdminUser.verification_token_expires > datetime.utcnow()
+            AdminUser.verification_token_expires > datetime.utcnow(),
         )
     )
     user = result.scalar_one_or_none()
@@ -222,7 +238,9 @@ async def get_me(current_user: AdminUser = Depends(get_current_user)) -> AdminUs
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-async def forgot_password(data: ForgotPasswordRequest, session: AsyncSession = Depends(get_db)) -> MessageResponse:
+async def forgot_password(
+    data: ForgotPasswordRequest, session: AsyncSession = Depends(get_db)
+) -> MessageResponse:
     result = await session.execute(select(AdminUser).where(AdminUser.email == data.email))
     user = result.scalar_one_or_none()
 
@@ -237,11 +255,12 @@ async def forgot_password(data: ForgotPasswordRequest, session: AsyncSession = D
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(data: ResetPasswordRequest, session: AsyncSession = Depends(get_db)) -> MessageResponse:
+async def reset_password(
+    data: ResetPasswordRequest, session: AsyncSession = Depends(get_db)
+) -> MessageResponse:
     result = await session.execute(
         select(AdminUser).where(
-            AdminUser.reset_token == data.token,
-            AdminUser.reset_token_expires > datetime.utcnow()
+            AdminUser.reset_token == data.token, AdminUser.reset_token_expires > datetime.utcnow()
         )
     )
     user = result.scalar_one_or_none()

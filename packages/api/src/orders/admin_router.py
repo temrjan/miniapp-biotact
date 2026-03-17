@@ -52,9 +52,7 @@ async def require_admin(
         )
 
     user_id = int(payload.get("sub", 0))
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_admin:
@@ -142,11 +140,7 @@ async def get_order_details(
     db: DbSession,
 ) -> OrderResponse:
     """Get order details by ID (admin only)."""
-    query = (
-        select(Order)
-        .options(selectinload(Order.items))
-        .where(Order.id == order_id)
-    )
+    query = select(Order).options(selectinload(Order.items)).where(Order.id == order_id)
 
     result = await db.execute(query)
     order = result.scalar_one_or_none()
@@ -160,18 +154,16 @@ async def get_order_details(
     return order  # type: ignore[return-value]
 
 
-@router.patch("/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(require_admin)])
+@router.patch(
+    "/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(require_admin)]
+)
 async def update_order_status_admin(
     order_id: int,
     status_data: OrderStatusUpdate,
     db: DbSession,
 ) -> OrderResponse:
     """Update order status (admin only)."""
-    query = (
-        select(Order)
-        .options(selectinload(Order.items))
-        .where(Order.id == order_id)
-    )
+    query = select(Order).options(selectinload(Order.items)).where(Order.id == order_id)
 
     result = await db.execute(query)
     order = result.scalar_one_or_none()

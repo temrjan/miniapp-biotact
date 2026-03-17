@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 # Order Item schemas
 class OrderItemBase(BaseModel):
     """Base order item schema."""
+
     product_id: int
     product_name: str
     product_price: Decimal
@@ -18,11 +19,13 @@ class OrderItemBase(BaseModel):
 
 class OrderItemCreate(OrderItemBase):
     """Create order item schema."""
+
     pass
 
 
 class OrderItemResponse(OrderItemBase):
     """Order item response schema."""
+
     id: int
 
     class Config:
@@ -32,6 +35,7 @@ class OrderItemResponse(OrderItemBase):
 # Order schemas
 class OrderBase(BaseModel):
     """Base order schema."""
+
     subtotal: Decimal
     delivery_fee: Decimal | None = Decimal("0")
     total: Decimal
@@ -43,11 +47,13 @@ class OrderBase(BaseModel):
 
 class OrderCreate(OrderBase):
     """Create order schema."""
+
     items: list[OrderItemCreate]
 
 
 class OrderResponse(OrderBase):
     """Order response schema."""
+
     id: int
     order_number: str
     user_id: int
@@ -67,6 +73,7 @@ class OrderResponse(OrderBase):
 
 class OrderListResponse(BaseModel):
     """Paginated order list response."""
+
     items: list[OrderResponse]
     total: int
     page: int
@@ -76,4 +83,5 @@ class OrderListResponse(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     """Update order status schema."""
+
     status: str = Field(..., pattern="^(pending|confirmed|processing|shipped|delivered|cancelled)$")

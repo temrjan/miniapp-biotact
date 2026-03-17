@@ -1,6 +1,5 @@
 """Category service layer."""
 
-
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,9 +12,7 @@ async def get_category_by_id(
     category_id: int,
 ) -> Category | None:
     """Get category by ID."""
-    result = await db.execute(
-        select(Category).where(Category.id == category_id)
-    )
+    result = await db.execute(select(Category).where(Category.id == category_id))
     return result.scalar_one_or_none()
 
 
@@ -24,9 +21,7 @@ async def get_category_by_slug(
     slug: str,
 ) -> Category | None:
     """Get category by slug."""
-    result = await db.execute(
-        select(Category).where(Category.slug == slug)
-    )
+    result = await db.execute(select(Category).where(Category.slug == slug))
     return result.scalar_one_or_none()
 
 
@@ -88,7 +83,8 @@ async def get_categories_paginated(
 
     # Count total
     count_result = await db.execute(
-        select(func.count(Category.id)).where(Category.is_active.is_(True)) if active_only
+        select(func.count(Category.id)).where(Category.is_active.is_(True))
+        if active_only
         else select(func.count(Category.id))
     )
     total = count_result.scalar_one()
@@ -96,10 +92,7 @@ async def get_categories_paginated(
     # Get items
     offset = (page - 1) * size
     result = await db.execute(
-        query
-        .order_by(Category.sort_order, Category.name)
-        .offset(offset)
-        .limit(size)
+        query.order_by(Category.sort_order, Category.name).offset(offset).limit(size)
     )
     items = list(result.scalars().all())
 

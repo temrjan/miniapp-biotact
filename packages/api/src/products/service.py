@@ -13,6 +13,7 @@ from src.products.schemas import ProductCreate, ProductUpdate
 @dataclass
 class PaginatedResult:
     """Internal paginated result container with SQLAlchemy models."""
+
     items: list[Product]
     total: int
     page: int
@@ -26,9 +27,7 @@ async def get_product_by_id(
 ) -> Product | None:
     """Get product by ID."""
     result = await db.execute(
-        select(Product)
-        .options(joinedload(Product.category))
-        .where(Product.id == product_id)
+        select(Product).options(joinedload(Product.category)).where(Product.id == product_id)
     )
     return result.scalar_one_or_none()
 
@@ -39,9 +38,7 @@ async def get_product_by_slug(
 ) -> Product | None:
     """Get product by slug."""
     result = await db.execute(
-        select(Product)
-        .options(joinedload(Product.category))
-        .where(Product.slug == slug)
+        select(Product).options(joinedload(Product.category)).where(Product.slug == slug)
     )
     return result.scalar_one_or_none()
 
@@ -89,7 +86,13 @@ async def update_product(
     # SQLAlchemy will convert List[str] -> JSONB automatically
 
     # Auto-set image_url from first image if not provided
-    if "images" in update_dict and update_dict["images"] and len(update_dict["images"]) > 0 and not update_dict.get("image_url") and not product.image_url:
+    if (
+        "images" in update_dict
+        and update_dict["images"]
+        and len(update_dict["images"]) > 0
+        and not update_dict.get("image_url")
+        and not product.image_url
+    ):
         update_dict["image_url"] = update_dict["images"][0]
 
     for field, value in update_dict.items():
@@ -168,11 +171,7 @@ async def get_products_paginated(
     else:
         query = query.order_by(Product.sort_order, Product.name)
 
-    result = await db.execute(
-        query
-        .offset(offset)
-        .limit(size)
-    )
+    result = await db.execute(query.offset(offset).limit(size))
     items = list(result.unique().scalars().all())
 
     # Calculate pages
@@ -193,9 +192,7 @@ async def update_product_sort_order(
     sort_order: int,
 ) -> None:
     """Update sort_order for a single product."""
-    result = await db.execute(
-        select(Product).where(Product.id == product_id)
-    )
+    result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()
     if product:
         product.sort_order = sort_order

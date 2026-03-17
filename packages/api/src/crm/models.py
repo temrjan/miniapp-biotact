@@ -12,6 +12,7 @@ from src.database import Base
 
 class LeadStatus(enum.StrEnum):
     """Lead status enum."""
+
     NEW = "new"
     IN_PROGRESS = "in_progress"
     CONVERTED = "converted"
@@ -25,10 +26,7 @@ class FamilyMember(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     relation: Mapped[str | None] = mapped_column(String(100))
@@ -59,16 +57,12 @@ class Lead(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int | None] = mapped_column(
-        Integer,
-        ForeignKey("users.id", ondelete="SET NULL"),
-        index=True
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
     telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
 
     status: Mapped[LeadStatus] = mapped_column(
-        Enum(LeadStatus, name="lead_status", create_type=True),
-        default=LeadStatus.NEW,
-        index=True
+        Enum(LeadStatus, name="lead_status", create_type=True), default=LeadStatus.NEW, index=True
     )
 
     request_text: Mapped[str | None] = mapped_column(Text)
@@ -77,9 +71,7 @@ class Lead(Base):
     manager_notes: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        index=True
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

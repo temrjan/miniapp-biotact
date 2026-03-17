@@ -52,9 +52,7 @@ async def require_admin(
         )
 
     user_id = int(payload.get("sub", 0))
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_admin:
@@ -69,6 +67,7 @@ async def require_admin(
 # Schemas
 class UserAdminResponse(BaseModel):
     """User response for admin."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -88,6 +87,7 @@ class UserAdminResponse(BaseModel):
 
 class UserListResponse(BaseModel):
     """Paginated user list response."""
+
     items: list[UserAdminResponse]
     total: int
     page: int
@@ -97,6 +97,7 @@ class UserListResponse(BaseModel):
 
 class UserOrderItem(BaseModel):
     """User's order item."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -110,6 +111,7 @@ class UserOrderItem(BaseModel):
 
 class UserDetailResponse(UserAdminResponse):
     """User detail with orders."""
+
     address_street: str | None = None
     address_house: str | None = None
     address_apartment: str | None = None
@@ -118,6 +120,7 @@ class UserDetailResponse(UserAdminResponse):
 
 class UserUpdateData(BaseModel):
     """Update user data."""
+
     is_active: bool | None = None
     is_admin: bool | None = None
 
@@ -184,21 +187,23 @@ async def get_all_users(
     items = []
     for user in users:
         stats = orders_stats.get(user.id)
-        items.append(UserAdminResponse(
-            id=user.id,
-            telegram_id=user.telegram_id,
-            username=user.username,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            phone=user.phone,
-            language_code=user.language_code,
-            is_active=user.is_active,
-            is_admin=user.is_admin,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
-            orders_count=stats.orders_count if stats else 0,
-            total_spent=stats.total_spent if stats else Decimal("0"),
-        ))
+        items.append(
+            UserAdminResponse(
+                id=user.id,
+                telegram_id=user.telegram_id,
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                phone=user.phone,
+                language_code=user.language_code,
+                is_active=user.is_active,
+                is_admin=user.is_admin,
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+                orders_count=stats.orders_count if stats else 0,
+                total_spent=stats.total_spent if stats else Decimal("0"),
+            )
+        )
 
     # Calculate pages
     pages = (total + size - 1) // size if total else 0
@@ -220,9 +225,7 @@ async def get_user_details(
     """Get user details with orders (admin only)."""
 
     # Get user
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -232,22 +235,16 @@ async def get_user_details(
         )
 
     # Get orders stats
-    stats_query = (
-        select(
-            func.count(Order.id).label("orders_count"),
-            func.coalesce(func.sum(Order.total), 0).label("total_spent"),
-        )
-        .where(Order.user_id == user_id)
-    )
+    stats_query = select(
+        func.count(Order.id).label("orders_count"),
+        func.coalesce(func.sum(Order.total), 0).label("total_spent"),
+    ).where(Order.user_id == user_id)
     stats_result = await db.execute(stats_query)
     stats = stats_result.one()
 
     # Get recent orders
     orders_query = (
-        select(Order)
-        .where(Order.user_id == user_id)
-        .order_by(Order.created_at.desc())
-        .limit(10)
+        select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc()).limit(10)
     )
     orders_result = await db.execute(orders_query)
     orders = orders_result.scalars().all()
@@ -294,9 +291,7 @@ async def update_user(
 ) -> UserAdminResponse:
     """Update user (admin only)."""
 
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -315,13 +310,10 @@ async def update_user(
     await db.refresh(user)
 
     # Get orders stats
-    stats_query = (
-        select(
-            func.count(Order.id).label("orders_count"),
-            func.coalesce(func.sum(Order.total), 0).label("total_spent"),
-        )
-        .where(Order.user_id == user_id)
-    )
+    stats_query = select(
+        func.count(Order.id).label("orders_count"),
+        func.coalesce(func.sum(Order.total), 0).label("total_spent"),
+    ).where(Order.user_id == user_id)
     stats_result = await db.execute(stats_query)
     stats = stats_result.one()
 

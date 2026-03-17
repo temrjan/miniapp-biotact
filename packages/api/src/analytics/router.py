@@ -50,9 +50,7 @@ async def require_admin(
         )
 
     user_id = int(payload.get("sub", 0))
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_admin:

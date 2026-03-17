@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 class OrderStatus(StrEnum):
     """Order status enum."""
+
     PENDING = "pending"
     CONFIRMED = "confirmed"
     PROCESSING = "processing"

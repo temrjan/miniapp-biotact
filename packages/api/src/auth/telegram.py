@@ -11,6 +11,7 @@ from src.auth.schemas import InitData, TelegramUser
 
 class InitDataValidationError(ValueError):
     """Raised when initData validation fails."""
+
     pass
 
 

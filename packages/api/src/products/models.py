@@ -39,9 +39,7 @@ class Product(Base):
     image_url: Mapped[str | None] = mapped_column(String(500))
     # JSONB stores as dict/list in Python - using dict for type hints but it will be list
     images: Mapped[Any | None] = mapped_column(
-        JSONB,
-        default=list,
-        comment="Array of image URLs for product gallery"
+        JSONB, default=list, comment="Array of image URLs for product gallery"
     )
 
     # Category
@@ -58,18 +56,20 @@ class Product(Base):
 
     # Additional info - JSONB array of advantages
     advantages: Mapped[Any | None] = mapped_column(
-        JSONB,
-        default=list,
-        comment="Array of product benefits/advantages"
+        JSONB, default=list, comment="Array of product benefits/advantages"
     )
     video_url: Mapped[str | None] = mapped_column(String(500))  # YouTube video URL
 
     # Custom information sections
-    additional_info_title: Mapped[str | None] = mapped_column(String(200))  # Title for additional info section
+    additional_info_title: Mapped[str | None] = mapped_column(
+        String(200)
+    )  # Title for additional info section
     additional_info_title_uz: Mapped[str | None] = mapped_column(String(200))
     additional_info: Mapped[str | None] = mapped_column(Text)  # Additional info text
     additional_info_uz: Mapped[str | None] = mapped_column(Text)
-    disclaimer: Mapped[str | None] = mapped_column(Text)  # Disclaimer text (e.g., "БАД. Не является лекарственным средством.")
+    disclaimer: Mapped[str | None] = mapped_column(
+        Text
+    )  # Disclaimer text (e.g., "БАД. Не является лекарственным средством.")
     disclaimer_uz: Mapped[str | None] = mapped_column(Text)
 
     # Metadata

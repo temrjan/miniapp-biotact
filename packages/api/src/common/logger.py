@@ -65,39 +65,27 @@ class StructuredLogger:
         else:
             self.logger.log(level, msg, **kwargs)
 
-    def debug(
-        self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any
-    ) -> None:
+    def debug(self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """Log debug message with optional context."""
         self._log_with_context(logging.DEBUG, msg, extra, **kwargs)
 
-    def info(
-        self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any
-    ) -> None:
+    def info(self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """Log info message with optional context."""
         self._log_with_context(logging.INFO, msg, extra, **kwargs)
 
-    def warning(
-        self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any
-    ) -> None:
+    def warning(self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """Log warning message with optional context."""
         self._log_with_context(logging.WARNING, msg, extra, **kwargs)
 
-    def error(
-        self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any
-    ) -> None:
+    def error(self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """Log error message with optional context."""
         self._log_with_context(logging.ERROR, msg, extra, **kwargs)
 
-    def critical(
-        self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any
-    ) -> None:
+    def critical(self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """Log critical message with optional context."""
         self._log_with_context(logging.CRITICAL, msg, extra, **kwargs)
 
-    def exception(
-        self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any
-    ) -> None:
+    def exception(self, msg: str, extra: dict[str, Any] | None = None, **kwargs: Any) -> None:
         """Log exception with traceback and optional context."""
         if extra:
             self.logger.exception(msg, extra=extra, **kwargs)

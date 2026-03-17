@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 class BannerBase(BaseModel):
     """Base banner schema."""
+
     title: str
     title_uz: str | None = None
     subtitle: str | None = None
@@ -20,11 +21,13 @@ class BannerBase(BaseModel):
 
 class BannerCreate(BannerBase):
     """Schema for creating a banner."""
+
     pass
 
 
 class BannerUpdate(BaseModel):
     """Schema for updating a banner."""
+
     title: str | None = None
     title_uz: str | None = None
     subtitle: str | None = None
@@ -38,6 +41,7 @@ class BannerUpdate(BaseModel):
 
 class Banner(BannerBase):
     """Banner response schema."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -47,12 +51,14 @@ class Banner(BannerBase):
 
 class BannerList(BaseModel):
     """Paginated banner list response."""
+
     items: list[Banner]
     total: int
 
 
 class SettingsBase(BaseModel):
     """Base settings schema."""
+
     key: str
     value: str
     description: str | None = None
@@ -60,11 +66,13 @@ class SettingsBase(BaseModel):
 
 class SettingsUpdate(BaseModel):
     """Schema for updating settings."""
+
     value: str
 
 
 class Settings(SettingsBase):
     """Settings response schema."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int

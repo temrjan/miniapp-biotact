@@ -14,6 +14,7 @@ from src.config import settings
 
 class Base(DeclarativeBase):
     """Base class for all models."""
+
     pass
 
 

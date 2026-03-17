@@ -24,9 +24,7 @@ async def get_order_by_id(
     order_id: int,
 ) -> Order | None:
     """Get order by ID."""
-    result = await db.execute(
-        select(Order).where(Order.id == order_id)
-    )
+    result = await db.execute(select(Order).where(Order.id == order_id))
     return result.scalar_one_or_none()
 
 
@@ -48,9 +46,7 @@ async def get_order_by_number(
     order_number: str,
 ) -> Order | None:
     """Get order by order number."""
-    result = await db.execute(
-        select(Order).where(Order.order_number == order_number)
-    )
+    result = await db.execute(select(Order).where(Order.order_number == order_number))
     return result.scalar_one_or_none()
 
 
@@ -59,9 +55,7 @@ async def get_order_by_payment_uuid(
     payment_uuid: str,
 ) -> Order | None:
     """Get order by payment UUID."""
-    result = await db.execute(
-        select(Order).where(Order.payment_uuid == payment_uuid)
-    )
+    result = await db.execute(select(Order).where(Order.payment_uuid == payment_uuid))
     return result.scalar_one_or_none()
 
 
@@ -159,8 +153,7 @@ async def get_user_orders(
     # Get items
     offset = (page - 1) * size
     result = await db.execute(
-        query
-        .options(selectinload(Order.items))
+        query.options(selectinload(Order.items))
         .order_by(Order.created_at.desc())
         .offset(offset)
         .limit(size)

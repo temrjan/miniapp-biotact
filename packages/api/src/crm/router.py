@@ -52,9 +52,7 @@ async def require_admin(
         )
 
     user_id = int(payload.get("sub", 0))
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_admin:
@@ -68,8 +66,10 @@ async def require_admin(
 
 # ==================== Schemas ====================
 
+
 class FamilyMemberSchema(BaseModel):
     """Family member for frontend."""
+
     name: str
     relation: str | None = None
     age: int | None = None
@@ -78,6 +78,7 @@ class FamilyMemberSchema(BaseModel):
 
 class CustomerSchema(BaseModel):
     """Customer schema for frontend."""
+
     model_config = ConfigDict(from_attributes=True)
 
     telegram_id: int
@@ -96,6 +97,7 @@ class CustomerSchema(BaseModel):
 
 class PaginatedCustomers(BaseModel):
     """Paginated customers response."""
+
     items: list[CustomerSchema]
     total: int
     page: int
@@ -105,6 +107,7 @@ class PaginatedCustomers(BaseModel):
 
 class CustomersStats(BaseModel):
     """CRM statistics for frontend."""
+
     total_customers: int = 0
     new_today: int = 0
     with_phone: int = 0
@@ -113,6 +116,7 @@ class CustomersStats(BaseModel):
 
 
 # ==================== Endpoints ====================
+
 
 @router.get("/customers", response_model=PaginatedCustomers, dependencies=[Depends(require_admin)])
 async def get_customers(
@@ -125,10 +129,7 @@ async def get_customers(
     """Get all customers (leads) - everyone who pressed /start."""
 
     # Base query - ALL users (everyone is a potential lead)
-    query = (
-        select(User)
-        .options(selectinload(User.family_members))
-    )
+    query = select(User).options(selectinload(User.family_members))
     count_query = select(func.count(User.id))
 
     # Search filter
@@ -164,12 +165,8 @@ async def get_customers(
 
     if user_ids:
         # Get products from completed orders
-        orders_query = (
-            select(Order.user_id, Order.items)
-            .where(
-                Order.user_id.in_(user_ids),
-                Order.status.in_(["delivered", "shipped", "processing"])
-            )
+        orders_query = select(Order.user_id, Order.items).where(
+            Order.user_id.in_(user_ids), Order.status.in_(["delivered", "shipped", "processing"])
         )
         orders_result = await db.execute(orders_query)
         for row in orders_result.all():
@@ -193,20 +190,22 @@ async def get_customers(
             for fm in user.family_members
         ]
 
-        items.append(CustomerSchema(
-            telegram_id=user.telegram_id,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            username=user.username,
-            language_code=user.language_code,
-            phone=user.phone,
-            problems=user.symptoms or [],
-            family=family,
-            purchased_products=list(purchased_products.get(user.id, [])),
-            ai_notes=user.ai_notes,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
-        ))
+        items.append(
+            CustomerSchema(
+                telegram_id=user.telegram_id,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                username=user.username,
+                language_code=user.language_code,
+                phone=user.phone,
+                problems=user.symptoms or [],
+                family=family,
+                purchased_products=list(purchased_products.get(user.id, [])),
+                ai_notes=user.ai_notes,
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+            )
+        )
 
     pages = (total + size - 1) // size if total else 0
 
@@ -219,7 +218,9 @@ async def get_customers(
     )
 
 
-@router.get("/customers/stats", response_model=CustomersStats, dependencies=[Depends(require_admin)])
+@router.get(
+    "/customers/stats", response_model=CustomersStats, dependencies=[Depends(require_admin)]
+)
 async def get_customers_stats(db: DbSession) -> CustomersStats:
     """Get CRM statistics."""
 
@@ -228,20 +229,18 @@ async def get_customers_stats(db: DbSession) -> CustomersStats:
 
     # New today
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    new_today = await db.scalar(
-        select(func.count(User.id)).where(User.created_at >= today)
-    ) or 0
+    new_today = await db.scalar(select(func.count(User.id)).where(User.created_at >= today)) or 0
 
     # With phone
-    with_phone = await db.scalar(
-        select(func.count(User.id)).where(User.phone.isnot(None))
-    ) or 0
+    with_phone = await db.scalar(select(func.count(User.id)).where(User.phone.isnot(None))) or 0
 
     # With purchases (users who have orders)
-    with_purchases = await db.scalar(
-        select(func.count(User.id.distinct()))
-        .join(Order, Order.user_id == User.id)
-    ) or 0
+    with_purchases = (
+        await db.scalar(
+            select(func.count(User.id.distinct())).join(Order, Order.user_id == User.id)
+        )
+        or 0
+    )
 
     # By problem (count users per symptom)
     # This is a simplified version - counts users who have each symptom
@@ -253,10 +252,7 @@ async def get_customers_stats(db: DbSession) -> CustomersStats:
     }
 
     for problem_key in by_problem:
-        count_query = (
-            select(func.count(User.id))
-            .where(User.symptoms.contains([problem_key]))
-        )
+        count_query = select(func.count(User.id)).where(User.symptoms.contains([problem_key]))
         by_problem[problem_key] = await db.scalar(count_query) or 0
 
     return CustomersStats(
@@ -268,7 +264,9 @@ async def get_customers_stats(db: DbSession) -> CustomersStats:
     )
 
 
-@router.get("/customer/{telegram_id}", response_model=CustomerSchema, dependencies=[Depends(require_admin)])
+@router.get(
+    "/customer/{telegram_id}", response_model=CustomerSchema, dependencies=[Depends(require_admin)]
+)
 async def get_customer(
     telegram_id: int,
     db: DbSession,
@@ -290,10 +288,8 @@ async def get_customer(
 
     # Get purchased products
     orders_result = await db.execute(
-        select(Order.items)
-        .where(
-            Order.user_id == user.id,
-            Order.status.in_(["delivered", "shipped", "processing"])
+        select(Order.items).where(
+            Order.user_id == user.id, Order.status.in_(["delivered", "shipped", "processing"])
         )
     )
     purchased_products = set()
