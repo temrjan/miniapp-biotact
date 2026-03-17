@@ -128,7 +128,7 @@ async def get_all_orders(
     pages = (total + size - 1) // size if total else 0
 
     return OrderListResponse(
-        items=orders,
+        items=orders,  # type: ignore[arg-type]
         total=total or 0,
         page=page,
         size=size,
@@ -157,7 +157,7 @@ async def get_order_details(
             detail="Order not found",
         )
 
-    return order
+    return order  # type: ignore[return-value]
 
 
 @router.patch("/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(require_admin)])
@@ -200,4 +200,4 @@ async def update_order_status_admin(
             detail=f"Invalid status: {status_data.status}",
         ) from exc
 
-    return order
+    return order  # type: ignore[return-value]

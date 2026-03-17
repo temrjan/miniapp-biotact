@@ -109,7 +109,7 @@ class CustomersStats(BaseModel):
     new_today: int = 0
     with_phone: int = 0
     with_purchases: int = 0
-    by_problem: dict = {}
+    by_problem: dict[str, int] = {}
 
 
 # ==================== Endpoints ====================
@@ -160,7 +160,7 @@ async def get_customers(
 
     # Get purchased products for users
     user_ids = [u.id for u in users]
-    purchased_products = {}
+    purchased_products: dict[int, set[str]] = {}
 
     if user_ids:
         # Get products from completed orders

@@ -1,6 +1,6 @@
 """Order API router."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from src.orders.schemas import (
     OrderResponse,
     OrderStatusUpdate,
 )
+from src.users.models import User
 
 router = APIRouter()
 
@@ -25,7 +26,7 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 async def get_optional_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     x_init_data: Annotated[str | None, Header(alias="X-Init-Data")] = None,
-):
+) -> User | None:
     """Get user if auth provided, otherwise return None."""
     if not x_init_data or not settings.telegram_bot_token:
         return None
@@ -42,8 +43,8 @@ async def get_optional_user(
 async def create_order(
     order_data: OrderCreate,
     db: DbSession,
-    user=Depends(get_optional_user),
-):
+    user: User | None = Depends(get_optional_user),
+) -> Any:
     """Create new order."""
     user_id = user.id if user else 1
     return await service.create_order(db, order_data, user_id=user_id)
@@ -52,10 +53,10 @@ async def create_order(
 @router.get("", response_model=OrderListResponse)
 async def get_orders(
     db: DbSession,
-    user=Depends(get_optional_user),
+    user: User | None = Depends(get_optional_user),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-):
+) -> Any:
     """Get user orders."""
     user_id = user.id if user else 1
     return await service.get_user_orders(db, user_id=user_id, page=page, size=size)
@@ -65,8 +66,8 @@ async def get_orders(
 async def get_order(
     order_id: int,
     db: DbSession,
-    user=Depends(get_optional_user),
-):
+    user: User | None = Depends(get_optional_user),
+) -> Any:
     """Get order by ID."""
     order = await service.get_order_with_items(db, order_id)
     if not order:
@@ -87,7 +88,7 @@ async def update_order_status(
     order_id: int,
     status_data: OrderStatusUpdate,
     db: DbSession,
-):
+) -> Any:
     """Update order status (admin only)."""
     order = await service.update_order_status(db, order_id, status_data.status)
     if not order:

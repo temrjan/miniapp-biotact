@@ -1,9 +1,14 @@
 """User Pydantic schemas."""
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+if TYPE_CHECKING:
+    from src.users.models import User
 
 
 class AddressSchema(BaseModel):
@@ -91,7 +96,7 @@ class UserProfileResponse(UserResponse):
     address: AddressSchema | None = None
 
     @classmethod
-    def from_user(cls, user) -> "UserProfileResponse":
+    def from_user(cls, user: User) -> UserProfileResponse:
         """Create from User model with address mapping."""
         address = None
         if user.address_street:

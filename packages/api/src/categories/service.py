@@ -107,7 +107,7 @@ async def get_categories_paginated(
     pages = (total + size - 1) // size if total > 0 else 1
 
     return CategoryListResponse(
-        items=items,
+        items=items,  # type: ignore[arg-type]
         total=total,
         page=page,
         size=size,

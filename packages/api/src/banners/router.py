@@ -35,7 +35,7 @@ async def get_banners(
     result = await db.execute(query)
     items = list(result.scalars().all())
 
-    return schemas.BannerList(items=items, total=total)
+    return schemas.BannerList(items=items, total=total)  # type: ignore[arg-type]
 
 
 @router.get("/{banner_id}", response_model=schemas.Banner)

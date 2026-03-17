@@ -2,7 +2,7 @@
 
 import secrets
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from jose import jwt
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/admin/auth", tags=["admin-auth"])
 
 # In-memory store for auth codes (in production use Redis)
 # Format: {code: {"created_at": timestamp, "telegram_id": None or int, "user_data": None or dict}}
-AUTH_CODES: dict[str, dict] = {}
+AUTH_CODES: dict[str, dict[str, Any]] = {}
 
 # Code expiration time (5 minutes)
 CODE_EXPIRY_SECONDS = 300
@@ -39,7 +39,7 @@ ATTEMPT_WINDOW_SECONDS = 60  # Time window for counting attempts
 
 # In-memory store for login attempts
 # Format: {ip: {"attempts": [(timestamp, success), ...], "locked_until": timestamp or None}}
-LOGIN_ATTEMPTS: dict[str, dict] = {}
+LOGIN_ATTEMPTS: dict[str, dict[str, Any]] = {}
 
 
 def cleanup_old_attempts() -> None:
@@ -143,7 +143,7 @@ class CodeStatusResponse(BaseModel):
     """Response with code status."""
     status: str  # "pending", "verified", "expired"
     token: str | None = None
-    user: dict | None = None
+    user: dict[str, Any] | None = None
 
 
 class VerifyCodeRequest(BaseModel):
@@ -284,7 +284,7 @@ async def check_code_status(
 async def verify_code(
     request: VerifyCodeRequest,
     x_bot_token: Annotated[str | None, Header(alias="X-Bot-Token")] = None,
-) -> dict:
+) -> dict[str, Any]:
     """
     Verify auth code from bot.
 
@@ -347,7 +347,7 @@ async def verify_code(
 async def get_current_admin(
     db: Annotated[AsyncSession, Depends(get_db)],
     authorization: Annotated[str | None, Header()] = None,
-) -> dict:
+) -> dict[str, Any]:
     """Get current admin user from token."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -410,7 +410,7 @@ class LoginResponse(BaseModel):
     """Login response with token."""
     access_token: str
     token_type: str = "bearer"
-    user: dict
+    user: dict[str, Any]
 
 
 # Admin credentials loaded from environment variables

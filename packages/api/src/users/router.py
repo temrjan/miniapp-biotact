@@ -44,7 +44,7 @@ BotAuth = Depends(verify_bot_token)
 # =============================================================================
 
 @router.get("/me", response_model=UserProfileResponse)
-async def get_me(current_user: CurrentUser):
+async def get_me(current_user: CurrentUser) -> UserProfileResponse:
     """Get current user profile."""
     return UserProfileResponse.from_user(current_user)
 
@@ -54,7 +54,7 @@ async def update_phone(
     data: PhoneUpdate,
     current_user: CurrentUser,
     db: DbSession,
-):
+) -> UserProfileResponse:
     """Update phone number."""
     user = await service.update_phone(db, current_user, data)
     return UserProfileResponse.from_user(user)
@@ -65,7 +65,7 @@ async def update_address(
     data: AddressUpdate,
     current_user: CurrentUser,
     db: DbSession,
-):
+) -> UserProfileResponse:
     """Update delivery address."""
     user = await service.update_address(db, current_user, data)
     return UserProfileResponse.from_user(user)
@@ -76,7 +76,7 @@ async def update_my_language(
     data: LanguageUpdate,
     current_user: CurrentUser,
     db: DbSession,
-):
+) -> UserProfileResponse:
     """Update current user language."""
     user = await service.update_language(db, current_user, data.language_code)
     return UserProfileResponse.from_user(user)
@@ -94,7 +94,7 @@ async def update_my_language(
 async def get_user_by_telegram_id(
     telegram_id: int,
     db: DbSession,
-):
+) -> UserResponse:
     """Get user by Telegram ID (for bot)."""
     user = await service.get_by_telegram_id(db, telegram_id)
     if not user:
@@ -102,7 +102,7 @@ async def get_user_by_telegram_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-    return user
+    return user  # type: ignore[return-value]
 
 
 @router.post(
@@ -114,15 +114,14 @@ async def get_user_by_telegram_id(
 async def create_telegram_user(
     data: TelegramUserCreate,
     db: DbSession,
-):
+) -> UserResponse:
     """Create user from Telegram (for bot)."""
-    # Check if user already exists
     existing = await service.get_by_telegram_id(db, data.telegram_id)
     if existing:
-        return existing
+        return existing  # type: ignore[return-value]
 
     user = await service.create_from_telegram(db, data)
-    return user
+    return user  # type: ignore[return-value]
 
 
 @router.patch(
@@ -134,7 +133,7 @@ async def update_telegram_user_language(
     telegram_id: int,
     data: LanguageUpdate,
     db: DbSession,
-):
+) -> UserResponse:
     """Update user language (for bot)."""
     user = await service.get_by_telegram_id(db, telegram_id)
     if not user:
@@ -144,4 +143,4 @@ async def update_telegram_user_language(
         )
 
     user = await service.update_language(db, user, data.language_code)
-    return user
+    return user  # type: ignore[return-value]

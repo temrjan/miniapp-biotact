@@ -1,6 +1,6 @@
 """Category API router."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +23,7 @@ router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
-def localize_category(category: Category, lang: Language) -> dict:
+def localize_category(category: Category, lang: Language) -> dict[str, Any]:
     """Create localized category dict based on language.
 
     Falls back to Russian if translation not available.
@@ -55,7 +55,7 @@ async def get_categories(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     active_only: bool = Query(True),
-):
+) -> CategoryListResponse:
     """Get paginated list of categories (localized by Accept-Language)."""
     result = await service.get_categories_paginated(
         db, page=page, size=size, active_only=active_only
@@ -63,7 +63,7 @@ async def get_categories(
 
     # Localize categories
     localized_items = [
-        CategoryResponse.model_validate(localize_category(cat, lang))
+        CategoryResponse.model_validate(localize_category(cat, lang))  # type: ignore[arg-type]
         for cat in result.items
     ]
 
@@ -81,7 +81,7 @@ async def get_category(
     category_id: int,
     db: DbSession,
     lang: CurrentLanguage,
-):
+) -> Any:
     """Get category by ID (localized by Accept-Language)."""
     category = await service.get_category_by_id(db, category_id)
     if not category:
@@ -97,7 +97,7 @@ async def get_category_by_slug(
     slug: str,
     db: DbSession,
     lang: CurrentLanguage,
-):
+) -> Any:
     """Get category by slug (localized by Accept-Language)."""
     category = await service.get_category_by_slug(db, slug)
     if not category:
@@ -112,7 +112,7 @@ async def get_category_by_slug(
 async def create_category(
     category_data: CategoryCreate,
     db: DbSession,
-):
+) -> Any:
     """Create new category."""
     # Check if slug already exists
     existing = await service.get_category_by_slug(db, category_data.slug)
@@ -129,7 +129,7 @@ async def update_category(
     category_id: int,
     update_data: CategoryUpdate,
     db: DbSession,
-):
+) -> Any:
     """Update category."""
     category = await service.update_category(db, category_id, update_data)
     if not category:
@@ -144,7 +144,7 @@ async def update_category(
 async def delete_category(
     category_id: int,
     db: DbSession,
-):
+) -> None:
     """Delete category."""
     deleted = await service.delete_category(db, category_id)
     if not deleted:

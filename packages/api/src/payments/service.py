@@ -3,6 +3,7 @@
 import hashlib
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 import httpx
 
@@ -65,7 +66,7 @@ class MultiCardClient:
                 logger.error(f"Failed to get auth token: {e}")
                 raise
 
-    def _get_headers(self, token: str) -> dict:
+    def _get_headers(self, token: str) -> dict[str, str]:
         """Get authorization headers."""
         return {
             "Authorization": f"Bearer {token}",
@@ -148,7 +149,7 @@ class MultiCardClient:
                 logger.error(f"Failed to create invoice: {e}")
                 raise
 
-    async def get_invoice_status(self, uuid: str) -> dict | None:
+    async def get_invoice_status(self, uuid: str) -> dict[str, Any] | None:
         """Get invoice status from Multicard."""
         token = await self._get_token()
         url = f"{self.base_url}/payment/invoice/{uuid}"
@@ -159,7 +160,8 @@ class MultiCardClient:
                 response.raise_for_status()
                 result = response.json()
                 if result.get("success"):
-                    return result.get("data")
+                    data: dict[str, Any] | None = result.get("data")
+                    return data
                 return None
             except Exception as e:
                 logger.error(f"Failed to get invoice status: {e}")
@@ -170,7 +172,7 @@ class MultiCardClient:
 multicard_client = MultiCardClient()
 
 
-def build_ofd_items(order_items: list) -> list[OFDItem]:
+def build_ofd_items(order_items: list[Any]) -> list[OFDItem]:
     """Build OFD items from order items."""
     ofd_items = []
 
