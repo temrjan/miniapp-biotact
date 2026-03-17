@@ -154,59 +154,88 @@ export function ProductPage() {
   const embedUrl = product.youtubeVideoUrl ? getYouTubeEmbedUrl(product.youtubeVideoUrl) : null;
 
   return (
-    <div className="pt-safe-top md:pt-4 pb-6 max-w-4xl mx-auto">
+    <div className="pt-safe-top md:pt-4 pb-6 max-w-5xl mx-auto">
 
-      <div className="relative w-full aspect-square bg-[var(--bg-secondary)] rounded-xl overflow-hidden">
-        <AnimatePresence mode="wait">
-          <motion.img
-            key={currentImageIndex}
-            src={images[currentImageIndex]}
-            alt={product.name}
-            className="w-full h-full object-cover"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-          />
-        </AnimatePresence>
-        {images.length > 1 && (
-          <>
-            <button onClick={() => handleImageChange('prev')} className="absolute left-4 top-1/2 -translate-y-1/2 neumorphic-sm w-10 h-10 flex items-center justify-center rounded-full">
-              <ChevronLeft size={20} />
-            </button>
-            <button onClick={() => handleImageChange('next')} className="absolute right-4 top-1/2 -translate-y-1/2 neumorphic-sm w-10 h-10 flex items-center justify-center rounded-full">
-              <ChevronRight size={20} />
-            </button>
-          </>
-        )}
-        {images.length > 1 && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-            {images.map((_, index) => (
-              <div key={index} className={'w-2 h-2 rounded-full transition-all ' + (index === currentImageIndex ? 'bg-[var(--primary)] w-6' : 'bg-white/50')} />
-            ))}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-8 lg:p-6">
+        {/* Image gallery */}
+        <div>
+          <div className="relative w-full aspect-square bg-[var(--bg-secondary)] rounded-xl overflow-hidden">
+            <AnimatePresence mode="wait">
+              <motion.img
+                key={currentImageIndex}
+                src={images[currentImageIndex]}
+                alt={product.name}
+                className="w-full h-full object-cover"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+              />
+            </AnimatePresence>
+            {images.length > 1 && (
+              <>
+                <button onClick={() => handleImageChange('prev')} className="absolute left-4 top-1/2 -translate-y-1/2 neumorphic-sm w-10 h-10 flex items-center justify-center rounded-full lg:hidden">
+                  <ChevronLeft size={20} />
+                </button>
+                <button onClick={() => handleImageChange('next')} className="absolute right-4 top-1/2 -translate-y-1/2 neumorphic-sm w-10 h-10 flex items-center justify-center rounded-full lg:hidden">
+                  <ChevronRight size={20} />
+                </button>
+              </>
+            )}
+            {images.length > 1 && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 lg:hidden">
+                {images.map((_, index) => (
+                  <div key={index} className={'w-2 h-2 rounded-full transition-all ' + (index === currentImageIndex ? 'bg-[var(--primary)] w-6' : 'bg-white/50')} />
+                ))}
+              </div>
+            )}
           </div>
-        )}
+          {/* Desktop thumbnails */}
+          {images.length > 1 && (
+            <div className="hidden lg:flex gap-2 mt-3">
+              {images.map((src, index) => (
+                <button
+                  key={index}
+                  onClick={() => setCurrentImageIndex(index)}
+                  className={'w-16 h-16 rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 ' + (index === currentImageIndex ? 'border-[var(--primary)] opacity-100' : 'border-transparent opacity-60 hover:opacity-100')}
+                >
+                  <img src={src} alt={product.name + ' ' + (index + 1)} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Product info — right column on desktop */}
+        <div className="p-4 md:p-6 lg:p-0 space-y-4">
+          <h1 className="text-2xl font-bold">{product.name}</h1>
+          <div className="flex items-baseline gap-3">
+            <div className="text-3xl font-bold text-[var(--primary)]">{formatPrice(product.price)}</div>
+            {product.oldPrice && (
+              <div className="text-lg text-[var(--text-secondary)] line-through">{formatPrice(product.oldPrice)}</div>
+            )}
+          </div>
+          {product.isPurchasable !== false && (
+            <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddToCart} className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2">
+              <ShoppingCart size={20} />
+              {t('product.addToCart')}
+            </motion.button>
+          )}
+          <div className="h-px bg-[var(--border)]" />
+          {product.description && (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold mb-2">{t('product.description')}</h2>
+                <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{product.description}</p>
+              </div>
+              <div className="h-px bg-[var(--border)]" />
+            </>
+          )}
+        </div>
       </div>
 
+      {/* Full-width sections below the grid */}
       <div className="p-4 md:p-6 space-y-4">
-        <div className="text-3xl font-bold text-[var(--primary)]">{formatPrice(product.price)}</div>
-        <h1 className="text-2xl font-bold">{product.name}</h1>
-        {product.isPurchasable !== false && (
-          <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddToCart} className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2">
-            <ShoppingCart size={20} />
-            {t("product.addToCart")}
-          </motion.button>
-        )}
-        <div className="h-px bg-[var(--border)]" />
-        {product.description && (
-          <>
-            <div>
-              <h2 className="text-lg font-semibold mb-2">{t('product.description')}</h2>
-              <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{product.description}</p>
-            </div>
-            <div className="h-px bg-[var(--border)]" />
-          </>
-        )}
         {product.additionalInfo && (
           <>
             <div>
