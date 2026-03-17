@@ -1,0 +1,71 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' }}
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.DEPLOY_PORT }} ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'SCRIPT'
+          set -e
+          cd /var/www/biotact
+
+          echo "=== Pull latest code ==="
+          git pull origin main
+
+          echo "=== Build frontend ==="
+          cd packages/frontend
+          npm ci --production=false
+          npm run build
+          cd ../..
+
+          echo "=== Build admin panel ==="
+          cd admin-panel-v2
+          npm ci --production=false
+          npm run build
+          cd ..
+
+          echo "=== Update API dependencies ==="
+          cd packages/api
+          source venv/bin/activate
+          pip install -r requirements.txt --quiet
+          deactivate
+          cd ../..
+
+          echo "=== Update Bot dependencies ==="
+          cd packages/bot
+          source venv/bin/activate
+          pip install -r requirements.txt --quiet
+          deactivate
+          cd ../..
+
+          echo "=== Restart services ==="
+          pm2 restart api --namespace biotact
+          pm2 restart bot --namespace biotact
+
+          echo "=== Health check ==="
+          sleep 3
+          pm2 list --no-color | grep -E "api|bot"
+
+          echo "=== Deploy complete ==="
+          SCRIPT
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
