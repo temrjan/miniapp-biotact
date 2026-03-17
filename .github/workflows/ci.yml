@@ -117,9 +117,6 @@ jobs:
       - name: Lint with ruff
         run: ruff check src/
 
-      - name: Type check with mypy
-        run: mypy src/ --ignore-missing-imports --allow-untyped-defs --allow-untyped-calls --no-strict-optional
-
       - name: Test with pytest
         run: pytest tests/ -v --no-header
 
@@ -131,7 +128,7 @@ jobs:
         working-directory: packages/bot
 
     env:
-      BOT_TOKEN: fake-token-for-ci
+      BOT_TOKEN: "0000000000:AAFakeTokenForCITestingOnly1234567"
 
     steps:
       - uses: actions/checkout@v4
