@@ -1,6 +1,6 @@
 """Product API router."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -26,7 +26,7 @@ router = APIRouter()
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
-def localize_product(product: Product, lang: Language) -> dict:
+def localize_product(product: Product, lang: Language) -> dict[str, Any]:
     """Create localized product dict based on language.
 
     Falls back to Russian if translation not available.
@@ -94,7 +94,7 @@ async def get_products(
     search: str | None = Query(None, min_length=1),
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
     sort_by: str | None = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
-):
+) -> Any:
     """Get paginated list of products (localized by Accept-Language or all fields for admin)."""
     result = await service.get_products_paginated(
         db,
@@ -139,7 +139,7 @@ async def get_product(
     lang: CurrentLanguage,
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
     _sort_by: str | None = Query(None, alias="sort_by", description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
-):
+) -> Any:
     """Get product by ID (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_id(db, product_id)
     if not product:
@@ -161,7 +161,7 @@ async def get_product_by_slug(
     lang: CurrentLanguage,
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
     _sort_by: str | None = Query(None, alias="sort_by", description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
-):
+) -> Any:
     """Get product by slug (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_slug(db, slug)
     if not product:
@@ -180,7 +180,7 @@ async def get_product_by_slug(
 async def create_product(
     product_data: ProductCreate,
     db: DbSession,
-):
+) -> Any:
     """Create new product."""
     existing = await service.get_product_by_slug(db, product_data.slug)
     if existing:
@@ -196,7 +196,7 @@ async def update_product(
     product_id: int,
     update_data: ProductUpdate,
     db: DbSession,
-):
+) -> Any:
     """Update product."""
     product = await service.update_product(db, product_id, update_data)
     if not product:
@@ -211,7 +211,7 @@ async def update_product(
 async def delete_product(
     product_id: int,
     db: DbSession,
-):
+) -> None:
     """Delete product."""
     deleted = await service.delete_product(db, product_id)
     if not deleted:
@@ -235,7 +235,7 @@ class ReorderRequest(BaseModel):
 async def reorder_products(
     request: ReorderRequest,
     db: DbSession,
-):
+) -> dict[str, Any]:
     """Update sort_order for multiple products."""
     for item in request.items:
         await service.update_product_sort_order(db, item.id, item.sort_order)

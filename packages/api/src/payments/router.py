@@ -1,7 +1,7 @@
 """Payment API router."""
 
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +30,7 @@ async def create_payment(
     request: CreatePaymentRequest,
     req: Request,
     db: DbSession,
-):
+) -> PaymentResponse:
     """Create payment for order."""
     # Get order with items
     order = await orders_service.get_order_with_items(db, request.order_id)
@@ -90,7 +90,7 @@ async def create_payment(
             ]
             await telegram_notifier.notify_order_created(
                 order_number=order.order_number,
-                total=order.total,
+                total=float(order.total),
                 items=items_data,
                 customer_name=order.delivery_name,
                 customer_phone=order.delivery_phone,
@@ -118,7 +118,7 @@ async def create_payment(
 async def payment_callback(
     callback: SuccessCallbackData,
     db: DbSession,
-):
+) -> dict[str, bool]:
     """Handle success callback from Multicard."""
     logger.info(f"Payment callback: uuid={callback.uuid}, invoice_id={callback.invoice_id}")
 
@@ -171,7 +171,7 @@ async def payment_callback(
             ]
             await telegram_notifier.notify_payment_success(
                 order_number=order_with_items.order_number,
-                total=order_with_items.total,
+                total=float(order_with_items.total),
                 items=items_data,
                 customer_name=order_with_items.delivery_name,
                 customer_phone=order_with_items.delivery_phone,
@@ -185,7 +185,7 @@ async def payment_callback(
 
 
 @router.get("/status/{payment_uuid}")
-async def get_payment_status(payment_uuid: str):
+async def get_payment_status(payment_uuid: str) -> Any:
     """Get payment status from Multicard."""
     result = await multicard_client.get_invoice_status(payment_uuid)
     if not result:

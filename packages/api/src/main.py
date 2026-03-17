@@ -192,7 +192,7 @@ def create_app() -> FastAPI:
 
     # Global exception handlers
     @app.exception_handler(IntegrityError)
-    async def integrity_error_handler(request: Request, exc: IntegrityError):
+    async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
         logger.error("IntegrityError: %s | path=%s", exc.orig, request.url.path)
         return JSONResponse(
             status_code=409,
@@ -200,7 +200,7 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(OperationalError)
-    async def operational_error_handler(request: Request, exc: OperationalError):
+    async def operational_error_handler(request: Request, exc: OperationalError) -> JSONResponse:
         logger.error("OperationalError: %s | path=%s", exc.orig, request.url.path)
         return JSONResponse(
             status_code=503,
@@ -208,7 +208,7 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(request: Request, exc: Exception):
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled error: %s | path=%s", exc, request.url.path)
         return JSONResponse(
             status_code=500,

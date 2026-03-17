@@ -124,7 +124,7 @@ async def get_current_user(
 
 # Endpoints
 @router.post("/register", response_model=MessageResponse)
-async def register(data: RegisterRequest, session: AsyncSession = Depends(get_db)):
+async def register(data: RegisterRequest, session: AsyncSession = Depends(get_db)) -> MessageResponse:
     result = await session.execute(select(AdminUser).where(AdminUser.email == data.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -147,7 +147,7 @@ async def register(data: RegisterRequest, session: AsyncSession = Depends(get_db
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, session: AsyncSession = Depends(get_db)):
+async def login(data: LoginRequest, session: AsyncSession = Depends(get_db)) -> TokenResponse:
     result = await session.execute(select(AdminUser).where(AdminUser.email == data.email))
     user = result.scalar_one_or_none()
 
@@ -172,7 +172,7 @@ async def login(data: LoginRequest, session: AsyncSession = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(data: RefreshRequest, session: AsyncSession = Depends(get_db)):
+async def refresh_token(data: RefreshRequest, session: AsyncSession = Depends(get_db)) -> TokenResponse:
     try:
         payload = jwt.decode(data.refresh_token, settings.jwt_secret.get_secret_value(), algorithms=[settings.jwt_algorithm])
         user_id = int(payload.get("sub"))
@@ -198,7 +198,7 @@ async def refresh_token(data: RefreshRequest, session: AsyncSession = Depends(ge
 
 
 @router.get("/verify-email", response_model=MessageResponse)
-async def verify_email(token: str, session: AsyncSession = Depends(get_db)):
+async def verify_email(token: str, session: AsyncSession = Depends(get_db)) -> MessageResponse:
     result = await session.execute(
         select(AdminUser).where(
             AdminUser.verification_token == token,
@@ -219,12 +219,12 @@ async def verify_email(token: str, session: AsyncSession = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: AdminUser = Depends(get_current_user)):
+async def get_me(current_user: AdminUser = Depends(get_current_user)) -> AdminUser:
     return current_user
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-async def forgot_password(data: ForgotPasswordRequest, session: AsyncSession = Depends(get_db)):
+async def forgot_password(data: ForgotPasswordRequest, session: AsyncSession = Depends(get_db)) -> MessageResponse:
     result = await session.execute(select(AdminUser).where(AdminUser.email == data.email))
     user = result.scalar_one_or_none()
 
@@ -239,7 +239,7 @@ async def forgot_password(data: ForgotPasswordRequest, session: AsyncSession = D
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(data: ResetPasswordRequest, session: AsyncSession = Depends(get_db)):
+async def reset_password(data: ResetPasswordRequest, session: AsyncSession = Depends(get_db)) -> MessageResponse:
     result = await session.execute(
         select(AdminUser).where(
             AdminUser.reset_token == data.token,
