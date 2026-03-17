@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShoppingCart, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react';
 import { Loading } from '@/components/ui/Loading';
 import { useCartStore } from '@/stores/cartStore';
 import { useHaptic } from '@/hooks/useTelegram';
+import { useBackButton } from '@/hooks/useBackButton';
 import { useTranslation } from '@/i18n';
 import { useLanguage } from '@/stores/languageStore';
 import { productsApi } from '@/api';
@@ -84,6 +85,13 @@ export function ProductPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
+  useBackButton();
+
+  const handleGoBack = () => {
+    haptic.light();
+    navigate(-1);
+  };
+
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('ru-RU').format(price) + ' ' + t('currency.sum');
   };
@@ -155,6 +163,15 @@ export function ProductPage() {
 
   return (
     <div className="pt-safe-top md:pt-4 pb-6 max-w-5xl mx-auto">
+
+      {/* Back button */}
+      <button
+        onClick={handleGoBack}
+        className="flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors px-4 py-2 md:px-6 lg:px-6"
+      >
+        <ArrowLeft size={20} />
+        <span className="text-sm">{t('common.back')}</span>
+      </button>
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-8 lg:p-6">
         {/* Image gallery */}
