@@ -1,43 +1,40 @@
 """Main FastAPI application."""
 # temrjan-2025-12-25
 import logging
-
-import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from src.config import settings
-from src.database import engine
-
-logger = logging.getLogger(__name__)
-
-# Import routers
-from src.categories.router import router as categories_router
-from src.products.router import router as products_router
-from src.uploads.router import router as uploads_router
-from src.banners.router import router as banners_router, settings_router
-from src.users.router import router as users_router
-from src.users.admin_router import router as admin_users_router
-from src.orders.router import router as orders_router
-from src.orders.admin_router import router as admin_orders_router
-from src.payments.router import router as payments_router
+from src.analytics.router import router as analytics_router
 from src.auth.admin_router import router as admin_auth_router
 from src.auth.jwt_router import router as jwt_auth_router
-from src.analytics.router import router as analytics_router
+from src.banners.router import router as banners_router
+from src.banners.router import settings_router
+from src.categories.router import router as categories_router
+from src.config import settings
 from src.crm.admin_router import router as crm_admin_router
 from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
+from src.database import engine
+from src.orders.admin_router import router as admin_orders_router
+from src.orders.router import router as orders_router
+from src.payments.router import router as payments_router
+from src.products.router import router as products_router
+from src.uploads.router import router as uploads_router
+from src.users.admin_router import router as admin_users_router
+from src.users.router import router as users_router
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Application lifespan events."""
     # Startup
     yield

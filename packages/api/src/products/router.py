@@ -1,8 +1,9 @@
 """Product API router."""
 
-from typing import Annotated, Optional, Union
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.language import CurrentLanguage, Language
@@ -81,18 +82,18 @@ def localize_product(product: Product, lang: Language) -> dict:
     }
 
 
-@router.get("", response_model=Union[ProductListResponse, ProductLocalizedListResponse])
+@router.get("", response_model=ProductListResponse | ProductLocalizedListResponse)
 async def get_products(
     db: DbSession,
     lang: CurrentLanguage,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    category_id: Optional[int] = Query(None),
+    category_id: int | None = Query(None),
     active_only: bool = Query(True),
     featured_only: bool = Query(False),
-    search: Optional[str] = Query(None, min_length=1),
+    search: str | None = Query(None, min_length=1),
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
-    sort_by: Optional[str] = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
+    sort_by: str | None = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
 ):
     """Get paginated list of products (localized by Accept-Language or all fields for admin)."""
     result = await service.get_products_paginated(
@@ -131,13 +132,13 @@ async def get_products(
     )
 
 
-@router.get("/{product_id}", response_model=Union[ProductResponse, ProductLocalizedResponse])
+@router.get("/{product_id}", response_model=ProductResponse | ProductLocalizedResponse)
 async def get_product(
     product_id: int,
     db: DbSession,
     lang: CurrentLanguage,
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
-    sort_by: Optional[str] = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
+    _sort_by: str | None = Query(None, alias="sort_by", description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
 ):
     """Get product by ID (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_id(db, product_id)
@@ -153,13 +154,13 @@ async def get_product(
     return ProductLocalizedResponse.model_validate(localize_product(product, lang))
 
 
-@router.get("/slug/{slug}", response_model=Union[ProductResponse, ProductLocalizedResponse])
+@router.get("/slug/{slug}", response_model=ProductResponse | ProductLocalizedResponse)
 async def get_product_by_slug(
     slug: str,
     db: DbSession,
     lang: CurrentLanguage,
     include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
-    sort_by: Optional[str] = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
+    _sort_by: str | None = Query(None, alias="sort_by", description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
 ):
     """Get product by slug (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_slug(db, slug)
@@ -219,8 +220,6 @@ async def delete_product(
             detail="Product not found",
         )
 
-
-from pydantic import BaseModel
 
 
 class ReorderItem(BaseModel):

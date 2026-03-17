@@ -1,28 +1,27 @@
 """CRM Admin API router."""
 
-from typing import Annotated, Optional
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
-from sqlalchemy import select, func, or_
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from jose import JWTError, jwt
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from jose import jwt, JWTError
 
 from src.config import settings
-from src.database import get_db
-from src.users.models import User
-from src.crm.models import Lead, FamilyMember, LeadStatus
+from src.crm.models import Lead, LeadStatus
 from src.crm.schemas import (
+    CustomerDetail,
+    CustomerSummary,
+    FamilyMemberResponse,
+    FunnelStats,
     LeadResponse,
+    LeadsListResponse,
     LeadUpdate,
     LeadWithCustomer,
-    LeadsListResponse,
-    FunnelStats,
-    CustomerSummary,
-    CustomerDetail,
-    FamilyMemberResponse,
 )
-
+from src.database import get_db
+from src.users.models import User
 
 router = APIRouter()
 
@@ -48,11 +47,11 @@ async def require_admin(
             settings.secret_key.get_secret_value(),
             algorithms=[settings.algorithm],
         )
-    except JWTError:
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from exc
 
     if payload.get("type") != "admin":
         raise HTTPException(
@@ -82,8 +81,8 @@ async def get_leads(
     db: DbSession,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    status_filter: Optional[LeadStatus] = Query(None, alias="status"),
-    search: Optional[str] = Query(None),
+    status_filter: LeadStatus | None = Query(None, alias="status"),
+    search: str | None = Query(None),
 ) -> LeadsListResponse:
     """Get all leads with pagination and stats."""
 

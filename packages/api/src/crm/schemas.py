@@ -1,21 +1,19 @@
 """CRM Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional, List
 
 from pydantic import BaseModel, ConfigDict
 
 from src.crm.models import LeadStatus
-
 
 # ==================== Family Members ====================
 
 class FamilyMemberBase(BaseModel):
     """Base family member schema."""
     name: str
-    relation: Optional[str] = None
-    age: Optional[int] = None
-    symptoms: Optional[List[str]] = []
+    relation: str | None = None
+    age: int | None = None
+    symptoms: list[str] | None = []
 
 
 class FamilyMemberCreate(FamilyMemberBase):
@@ -25,10 +23,10 @@ class FamilyMemberCreate(FamilyMemberBase):
 
 class FamilyMemberUpdate(BaseModel):
     """Update family member schema."""
-    name: Optional[str] = None
-    relation: Optional[str] = None
-    age: Optional[int] = None
-    symptoms: Optional[List[str]] = None
+    name: str | None = None
+    relation: str | None = None
+    age: int | None = None
+    symptoms: list[str] | None = None
 
 
 class FamilyMemberResponse(FamilyMemberBase):
@@ -44,9 +42,9 @@ class FamilyMemberResponse(FamilyMemberBase):
 
 class LeadBase(BaseModel):
     """Base lead schema."""
-    request_text: Optional[str] = None
-    ai_summary: Optional[str] = None
-    recommended_products: Optional[List[str]] = []
+    request_text: str | None = None
+    ai_summary: str | None = None
+    recommended_products: list[str] | None = []
 
 
 class LeadCreate(LeadBase):
@@ -56,8 +54,8 @@ class LeadCreate(LeadBase):
 
 class LeadUpdate(BaseModel):
     """Update lead schema (for admin)."""
-    status: Optional[LeadStatus] = None
-    manager_notes: Optional[str] = None
+    status: LeadStatus | None = None
+    manager_notes: str | None = None
 
 
 class LeadResponse(LeadBase):
@@ -65,10 +63,10 @@ class LeadResponse(LeadBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    user_id: Optional[int] = None
+    user_id: int | None = None
     telegram_id: int
     status: LeadStatus
-    manager_notes: Optional[str] = None
+    manager_notes: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -81,16 +79,16 @@ class CustomerSummary(BaseModel):
 
     id: int
     telegram_id: int
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    username: Optional[str] = None
-    phone: Optional[str] = None
-    symptoms: Optional[List[str]] = []
+    first_name: str | None = None
+    last_name: str | None = None
+    username: str | None = None
+    phone: str | None = None
+    symptoms: list[str] | None = []
 
 
 class LeadWithCustomer(LeadResponse):
     """Lead with customer info."""
-    customer: Optional[CustomerSummary] = None
+    customer: CustomerSummary | None = None
 
 
 # ==================== Funnel Stats ====================
@@ -107,7 +105,7 @@ class FunnelStats(BaseModel):
 
 class LeadsListResponse(BaseModel):
     """Paginated leads list with stats."""
-    items: List[LeadWithCustomer]
+    items: list[LeadWithCustomer]
     total: int
     page: int
     size: int
@@ -119,10 +117,10 @@ class LeadsListResponse(BaseModel):
 
 class CustomerDetail(CustomerSummary):
     """Full customer detail for CRM."""
-    ai_notes: Optional[str] = None
+    ai_notes: str | None = None
     created_at: datetime
-    family_members: List[FamilyMemberResponse] = []
-    leads: List[LeadResponse] = []
+    family_members: list[FamilyMemberResponse] = []
+    leads: list[LeadResponse] = []
 
 
 # ==================== Bot API Schemas ====================
@@ -130,15 +128,15 @@ class CustomerDetail(CustomerSummary):
 class BotCustomerData(BaseModel):
     """Customer data for bot API."""
     telegram_id: int
-    name: Optional[str] = None
-    username: Optional[str] = None
-    phone: Optional[str] = None
-    symptoms: Optional[List[str]] = None
-    ai_notes: Optional[str] = None
+    name: str | None = None
+    username: str | None = None
+    phone: str | None = None
+    symptoms: list[str] | None = None
+    ai_notes: str | None = None
 
 
 class BotCustomerResponse(BaseModel):
     """Customer info response for bot."""
-    customer: Optional[CustomerSummary] = None
-    family: List[FamilyMemberResponse] = []
-    recent_leads: List[LeadResponse] = []
+    customer: CustomerSummary | None = None
+    family: list[FamilyMemberResponse] = []
+    recent_leads: list[LeadResponse] = []

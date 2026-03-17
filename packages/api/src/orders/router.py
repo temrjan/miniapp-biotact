@@ -1,22 +1,21 @@
 """Order API router."""
 
-from typing import Annotated, Optional
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.service import get_or_create_user
+from src.auth.telegram import InitDataValidationError, validate_init_data
+from src.config import settings
 from src.database import get_db
 from src.orders import service
 from src.orders.schemas import (
     OrderCreate,
-    OrderResponse,
     OrderListResponse,
+    OrderResponse,
     OrderStatusUpdate,
 )
-from src.auth.dependencies import CurrentUser, get_current_user
-from src.auth.telegram import validate_init_data, InitDataValidationError
-from src.auth.service import get_or_create_user
-from src.config import settings
 
 router = APIRouter()
 
@@ -25,7 +24,7 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 async def get_optional_user(
     db: Annotated[AsyncSession, Depends(get_db)],
-    x_init_data: Annotated[Optional[str], Header(alias="X-Init-Data")] = None,
+    x_init_data: Annotated[str | None, Header(alias="X-Init-Data")] = None,
 ):
     """Get user if auth provided, otherwise return None."""
     if not x_init_data or not settings.telegram_bot_token:

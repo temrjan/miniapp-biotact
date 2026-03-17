@@ -4,7 +4,7 @@ import asyncio
 import logging
 import sys
 
-from aiogram import Bot, Router
+from aiogram import Bot
 from aiogram.types import (
     BotCommand,
     BotCommandScopeDefault,

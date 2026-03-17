@@ -1,19 +1,18 @@
-from datetime import datetime, timedelta
-from typing import Optional
 import secrets
-import bcrypt
+from datetime import datetime, timedelta
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from jose import jwt, JWTError
 
+from src.auth.email_service import email_service
+from src.auth.models import AdminUser
 from src.config import settings
 from src.database import get_db
-from src.auth.models import AdminUser
-from src.auth.email_service import email_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer()
@@ -27,8 +26,8 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -50,8 +49,8 @@ class RefreshRequest(BaseModel):
 class UserResponse(BaseModel):
     id: int
     email: str
-    first_name: Optional[str]
-    last_name: Optional[str]
+    first_name: str | None
+    last_name: str | None
     is_verified: bool
     is_active: bool
     created_at: datetime
@@ -109,8 +108,8 @@ async def get_current_user(
         token_type = payload.get("type")
         if user_id is None or token_type != "access":
             raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid token") from exc
 
     result = await session.execute(select(AdminUser).where(AdminUser.id == user_id))
     user = result.scalar_one_or_none()
@@ -181,8 +180,8 @@ async def refresh_token(data: RefreshRequest, session: AsyncSession = Depends(ge
 
         if token_type != "refresh":
             raise HTTPException(status_code=401, detail="Invalid refresh token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token") from exc
 
     result = await session.execute(select(AdminUser).where(AdminUser.id == user_id))
     user = result.scalar_one_or_none()

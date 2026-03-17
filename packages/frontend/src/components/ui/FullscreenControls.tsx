@@ -3,7 +3,7 @@ import { cn } from '@utils/cn';
 import '@/types/telegram.d.ts';
 
 export function FullscreenControls() {
-  const tgWebApp = window.Telegram?.WebApp as any;
+  const tgWebApp = window.Telegram?.WebApp as Record<string, unknown> | undefined;
   
   // Только показываем в полноэкранном режиме
   if (!tgWebApp?.isFullscreen) {
@@ -12,7 +12,7 @@ export function FullscreenControls() {
 
   const handleMinimize = () => {
     try {
-      tgWebApp?.exitFullscreen?.();
+      (tgWebApp?.exitFullscreen as (() => void) | undefined)?.();
     } catch (e) {
       console.log('Exit fullscreen error:', e);
     }
@@ -20,7 +20,7 @@ export function FullscreenControls() {
 
   const handleClose = () => {
     try {
-      tgWebApp?.close();
+      (tgWebApp?.close as (() => void) | undefined)?.();
     } catch (e) {
       console.log('Close error:', e);
     }

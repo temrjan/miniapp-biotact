@@ -57,11 +57,7 @@ export function Skeleton({
 // Preset Components
 // ═══════════════════════════════════════════════════════════════════
 
-interface ProductCardSkeletonProps extends HTMLAttributes<HTMLDivElement> {
-  // No additional props
-}
-
-export function ProductCardSkeleton({ className, ...props }: ProductCardSkeletonProps) {
+export function ProductCardSkeleton({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div className={cn('neumorphic overflow-hidden', className)} {...props}>
       <Skeleton className="aspect-square w-full" />
@@ -77,11 +73,7 @@ export function ProductCardSkeleton({ className, ...props }: ProductCardSkeleton
   );
 }
 
-interface ProductDetailSkeletonProps extends HTMLAttributes<HTMLDivElement> {
-  // No additional props
-}
-
-export function ProductDetailSkeleton({ className, ...props }: ProductDetailSkeletonProps) {
+export function ProductDetailSkeleton({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div className={cn('p-4 space-y-4', className)} {...props}>
       <Skeleton className="aspect-square w-full rounded-[var(--radius-lg)]" />

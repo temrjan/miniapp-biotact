@@ -2,16 +2,16 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from jose import jwt, JWTError
 
+from src.analytics import service
+from src.analytics.schemas import DashboardStats
 from src.config import settings
 from src.database import get_db
 from src.users.models import User
-from src.analytics import service
-from src.analytics.schemas import DashboardStats
 
 router = APIRouter()
 
@@ -37,11 +37,11 @@ async def require_admin(
             settings.secret_key.get_secret_value(),
             algorithms=[settings.algorithm],
         )
-    except JWTError:
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from exc
 
     if payload.get("type") != "admin":
         raise HTTPException(

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -58,7 +59,7 @@ class DashboardStats(BaseModel):
     recent_orders: list[RecentOrderItem]
     top_products: list[TopProductItem]
     order_status_distribution: list[OrderStatusCount]
-    
+
     # User statistics
     total_users: int
     buyers_7d: int

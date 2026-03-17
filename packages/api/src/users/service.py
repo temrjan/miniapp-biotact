@@ -1,15 +1,14 @@
 """Users service layer."""
 
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.users.models import User
-from src.users.schemas import PhoneUpdate, AddressUpdate, TelegramUserCreate
+from src.users.schemas import AddressUpdate, PhoneUpdate, TelegramUserCreate
 
 
-async def get_by_telegram_id(db: AsyncSession, telegram_id: int) -> Optional[User]:
+async def get_by_telegram_id(db: AsyncSession, telegram_id: int) -> User | None:
     """Get user by Telegram ID."""
     result = await db.execute(
         select(User).where(User.telegram_id == telegram_id)

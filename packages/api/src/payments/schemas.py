@@ -1,6 +1,5 @@
 """Payment schemas for Multicard integration."""
 
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,8 +12,8 @@ class OFDItem(BaseModel):
     qty: int = Field(..., ge=1, description="Quantity")
     price: int = Field(..., ge=0, description="Price in tiyins")
     name: str = Field(..., max_length=256, description="Product name")
-    total: Optional[int] = Field(None, description="Total in tiyins")
-    vat: Optional[int] = Field(None, ge=0, le=100, description="VAT percent")
+    total: int | None = Field(None, description="Total in tiyins")
+    vat: int | None = Field(None, ge=0, le=100, description="VAT percent")
 
 
 # Request to create payment
@@ -49,14 +48,14 @@ class SuccessCallbackData(BaseModel):
     store_id: int
     amount: int
     invoice_id: str
-    billing_id: Optional[str] = None
-    payment_time: Optional[str] = None
-    phone: Optional[str] = None
-    card_pan: Optional[str] = None
-    ps: Optional[str] = None  # Payment system: uzcard, humo, etc.
-    card_token: Optional[str] = None
+    billing_id: str | None = None
+    payment_time: str | None = None
+    phone: str | None = None
+    card_pan: str | None = None
+    ps: str | None = None  # Payment system: uzcard, humo, etc.
+    card_token: str | None = None
     uuid: str
-    receipt_url: Optional[str] = None
+    receipt_url: str | None = None
     sign: str  # MD5: {store_id}{invoice_id}{amount}{secret}
 
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import WebApp from '@twa-dev/sdk';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -48,6 +48,36 @@ interface PaymentResponse {
   order_id: number;
 }
 
+interface WebButtonProps {
+  onClick: () => void;
+  isActive: boolean;
+  isProcessing: boolean;
+  text: string;
+  processingText: string;
+}
+
+function WebButton({ onClick, isActive, isProcessing, text, processingText }: WebButtonProps) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      disabled={!isActive}
+      className={`w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg transition-opacity ${
+        isActive ? '' : 'opacity-50 cursor-not-allowed'
+      }`}
+    >
+      {isProcessing ? (
+        <span className="flex items-center justify-center gap-2">
+          <Loader2 size={20} className="animate-spin" />
+          {processingText}
+        </span>
+      ) : (
+        text
+      )}
+    </motion.button>
+  );
+}
+
 export function CheckoutPage() {
   const navigate = useNavigate();
   const haptic = useHaptic();
@@ -63,6 +93,7 @@ export function CheckoutPage() {
   const [deliveryType, setDeliveryType] = useState<DeliveryType>('delivery');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditingPhone, setIsEditingPhone] = useState(false);
+  const phoneSyncedRef = useRef(false);
 
   const isWebPlatform = platform === 'web' || platform === 'unknown';
 
@@ -74,17 +105,17 @@ export function CheckoutPage() {
   );
 
   useEffect(() => {
-    void fetchProfile();
-  }, [fetchProfile]);
-
-  useEffect(() => {
-    if (profile?.phone) {
-      setPhone(profile.phone);
-      if (!isEditingPhone && profile.phone.length >= 13) {
-        setStep('delivery');
+    void fetchProfile().then(() => {
+      const currentProfile = useUserStore.getState().profile;
+      if (currentProfile?.phone && !phoneSyncedRef.current) {
+        phoneSyncedRef.current = true;
+        setPhone(currentProfile.phone);
+        if (currentProfile.phone.length >= 13) {
+          setStep('delivery');
+        }
       }
-    }
-  }, [profile?.phone, isEditingPhone]);
+    });
+  }, [fetchProfile]);
 
   const handleBack = useCallback(() => {
     if (step === 'phone') {
@@ -205,26 +236,13 @@ export function CheckoutPage() {
 
   const stepIndex = ['phone', 'delivery', 'address', 'confirm'].indexOf(step);
 
-  // Кнопка для web
-  const WebButton = () => (
-    <motion.button
-      whileTap={{ scale: 0.98 }}
-      onClick={mainButtonConfig.onClick}
-      disabled={!mainButtonConfig.isActive}
-      className={`w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg transition-opacity ${
-        mainButtonConfig.isActive ? '' : 'opacity-50 cursor-not-allowed'
-      }`}
-    >
-      {isProcessing ? (
-        <span className="flex items-center justify-center gap-2">
-          <Loader2 size={20} className="animate-spin" />
-          {t('checkout.processing')}
-        </span>
-      ) : (
-        mainButtonConfig.text
-      )}
-    </motion.button>
-  );
+  const webButtonProps: WebButtonProps = {
+    onClick: mainButtonConfig.onClick,
+    isActive: mainButtonConfig.isActive,
+    isProcessing,
+    text: mainButtonConfig.text,
+    processingText: t('checkout.processing'),
+  };
 
   return (
     <div className="min-h-screen pb-24 md:pb-4">
@@ -267,7 +285,7 @@ export function CheckoutPage() {
                 {/* Web button inside card */}
                 {isWebPlatform && (
                   <div className="mt-4 hidden md:block">
-                    <WebButton />
+                    <WebButton {...webButtonProps} />
                   </div>
                 )}
               </Card>
@@ -360,7 +378,7 @@ export function CheckoutPage() {
               {/* Web button */}
               {isWebPlatform && (
                 <div className="hidden md:block pt-2">
-                  <WebButton />
+                  <WebButton {...webButtonProps} />
                 </div>
               )}
             </motion.div>
@@ -400,7 +418,7 @@ export function CheckoutPage() {
                 {/* Web button inside card */}
                 {isWebPlatform && (
                   <div className="mt-4 hidden md:block">
-                    <WebButton />
+                    <WebButton {...webButtonProps} />
                   </div>
                 )}
               </Card>
@@ -447,7 +465,7 @@ export function CheckoutPage() {
                 {/* Web button INSIDE Card - same as CartPage */}
                 {isWebPlatform && (
                   <div className="mt-4 hidden md:block">
-                    <WebButton />
+                    <WebButton {...webButtonProps} />
                   </div>
                 )}
               </Card>
@@ -468,7 +486,7 @@ export function CheckoutPage() {
       {/* Mobile Web Button - fixed at bottom, only on mobile */}
       {isWebPlatform && !isModalOpen && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-[var(--bg-primary)] border-t border-[var(--border)] md:hidden safe-area-bottom">
-          <WebButton />
+          <WebButton {...webButtonProps} />
         </div>
       )}
     </div>

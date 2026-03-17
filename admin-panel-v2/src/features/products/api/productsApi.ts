@@ -42,7 +42,7 @@ export interface ProductCreateData {
   is_featured?: boolean
 }
 
-export interface ProductUpdateData extends Partial<ProductCreateData> {}
+export type ProductUpdateData = Partial<ProductCreateData>
 
 export const productsApi = {
   getProducts: async (params: ProductsParams = {}): Promise<PaginatedResponse<Product>> => {

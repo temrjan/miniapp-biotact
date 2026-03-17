@@ -29,30 +29,30 @@ export const ImageUploader = ({
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const uploadImage = async (file: File): Promise<string | null> => {
-    const formData = new FormData()
-    formData.append('file', file)
-
-    try {
-      const response = await apiClient.post<UploadedImage>(
-        uploadEndpoint,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
-      )
-      return response.data.url
-    } catch (err) {
-      console.error('Upload failed:', err)
-      return null
-    }
-  }
-
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       if (disabled) return
+
+      const uploadImage = async (file: File): Promise<string | null> => {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        try {
+          const response = await apiClient.post<UploadedImage>(
+            uploadEndpoint,
+            formData,
+            {
+              headers: {
+                'Content-Type': 'multipart/form-data',
+              },
+            }
+          )
+          return response.data.url
+        } catch (err) {
+          console.error('Upload failed:', err)
+          return null
+        }
+      }
 
       setError(null)
       setUploading(true)

@@ -1,9 +1,9 @@
 """Category SQLAlchemy models."""
 
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Boolean, DateTime, Integer, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database import Base
@@ -19,11 +19,11 @@ class Category(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    name_uz: Mapped[Optional[str]] = mapped_column(String(100))
+    name_uz: Mapped[str | None] = mapped_column(String(100))
     slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    description_uz: Mapped[Optional[str]] = mapped_column(Text)
-    image_url: Mapped[Optional[str]] = mapped_column(String(500))
+    description: Mapped[str | None] = mapped_column(Text)
+    description_uz: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(String(500))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_purchasable: Mapped[bool] = mapped_column(Boolean, default=True)

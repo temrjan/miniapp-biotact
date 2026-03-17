@@ -3,20 +3,20 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.database import get_db
+from src.notifications.service import telegram_notifier
 from src.orders import service as orders_service
 from src.payments.schemas import (
     CreatePaymentRequest,
-    SuccessCallbackData,
     PaymentCreateData,
     PaymentResponse,
+    SuccessCallbackData,
 )
-from src.payments.service import multicard_client, build_ofd_items
-from src.notifications.service import telegram_notifier
+from src.payments.service import build_ofd_items, multicard_client
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ async def create_payment(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Payment service error: {str(e)}",
-        )
+        ) from e
 
 
 @router.post("/callback")

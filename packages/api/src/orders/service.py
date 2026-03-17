@@ -3,9 +3,8 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,7 +22,7 @@ def generate_order_number() -> str:
 async def get_order_by_id(
     db: AsyncSession,
     order_id: int,
-) -> Optional[Order]:
+) -> Order | None:
     """Get order by ID."""
     result = await db.execute(
         select(Order).where(Order.id == order_id)
@@ -34,7 +33,7 @@ async def get_order_by_id(
 async def get_order_with_items(
     db: AsyncSession,
     order_id: int,
-) -> Optional[Order]:
+) -> Order | None:
     """Get order with items loaded."""
     result = await db.execute(
         select(Order)
@@ -47,7 +46,7 @@ async def get_order_with_items(
 async def get_order_by_number(
     db: AsyncSession,
     order_number: str,
-) -> Optional[Order]:
+) -> Order | None:
     """Get order by order number."""
     result = await db.execute(
         select(Order).where(Order.order_number == order_number)
@@ -58,7 +57,7 @@ async def get_order_by_number(
 async def get_order_by_payment_uuid(
     db: AsyncSession,
     payment_uuid: str,
-) -> Optional[Order]:
+) -> Order | None:
     """Get order by payment UUID."""
     result = await db.execute(
         select(Order).where(Order.payment_uuid == payment_uuid)
@@ -105,7 +104,7 @@ async def update_order_status(
     db: AsyncSession,
     order_id: int,
     status: str,
-) -> Optional[Order]:
+) -> Order | None:
     """Update order status."""
     order = await get_order_by_id(db, order_id)
     if not order:
@@ -126,7 +125,7 @@ async def update_order_payment(
     order_id: int,
     payment_uuid: str,
     payment_status: str,
-) -> Optional[Order]:
+) -> Order | None:
     """Update order payment info."""
     order = await get_order_by_id(db, order_id)
     if not order:

@@ -1,18 +1,17 @@
 """Auth service layer."""
 
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.users.models import User
 from src.auth.schemas import TelegramUser
+from src.users.models import User
 
 
 async def get_user_by_telegram_id(
     db: AsyncSession,
     telegram_id: int,
-) -> Optional[User]:
+) -> User | None:
     """Get user by Telegram ID."""
     result = await db.execute(
         select(User).where(User.telegram_id == telegram_id)
@@ -44,7 +43,7 @@ async def get_or_create_user(
 ) -> User:
     """Get existing user or create new one from Telegram data."""
     user = await get_user_by_telegram_id(db, telegram_user.id)
-    
+
     if user:
         # Update user data from Telegram (name might change)
         user.username = telegram_user.username
@@ -54,5 +53,5 @@ async def get_or_create_user(
             user.language_code = telegram_user.language_code
         await db.flush()
         return user
-    
+
     return await create_user_from_telegram(db, telegram_user)

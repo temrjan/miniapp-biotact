@@ -2,10 +2,10 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, TYPE_CHECKING
 from enum import Enum as PyEnum
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import String, DateTime, Integer, Text, ForeignKey, Numeric, Enum, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database import Base
@@ -45,9 +45,9 @@ class Order(Base):
     )
 
     # Payment (Multicard)
-    payment_uuid: Mapped[Optional[str]] = mapped_column(String(100), index=True)
-    payment_status: Mapped[Optional[str]] = mapped_column(String(20), default="unpaid")
-    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    payment_uuid: Mapped[str | None] = mapped_column(String(100), index=True)
+    payment_status: Mapped[str | None] = mapped_column(String(20), default="unpaid")
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Totals
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -56,13 +56,13 @@ class Order(Base):
     currency: Mapped[str] = mapped_column(String(3), default="UZS")
 
     # Delivery info
-    delivery_address: Mapped[Optional[str]] = mapped_column(Text)
-    delivery_phone: Mapped[Optional[str]] = mapped_column(String(20))
-    delivery_name: Mapped[Optional[str]] = mapped_column(String(200))
+    delivery_address: Mapped[str | None] = mapped_column(Text)
+    delivery_phone: Mapped[str | None] = mapped_column(String(20))
+    delivery_name: Mapped[str | None] = mapped_column(String(200))
 
     # Notes
-    customer_note: Mapped[Optional[str]] = mapped_column(Text)
-    admin_note: Mapped[Optional[str]] = mapped_column(Text)
+    customer_note: Mapped[str | None] = mapped_column(Text)
+    admin_note: Mapped[str | None] = mapped_column(Text)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -74,7 +74,7 @@ class Order(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
     items: Mapped[list["OrderItem"]] = relationship(
@@ -97,7 +97,7 @@ class OrderItem(Base):
         ForeignKey("orders.id", ondelete="CASCADE"),
         index=True,
     )
-    product_id: Mapped[Optional[int]] = mapped_column(
+    product_id: Mapped[int | None] = mapped_column(
         ForeignKey("products.id", ondelete="SET NULL"),
         nullable=True,
     )

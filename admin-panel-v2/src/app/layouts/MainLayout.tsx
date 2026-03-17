@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/shared/components/ui/button"
 import { useAuth, useLogout } from "@/features/auth/hooks/useAuth"
-import { useTheme } from "@/app/providers/ThemeProvider"
+import { useTheme } from "@/app/providers/useTheme"
 import { cn } from "@/shared/lib/utils"
 
 interface MainLayoutProps {
@@ -36,18 +36,26 @@ const navItems = [
   { href: "/settings", label: "Настройки", icon: Settings },
 ]
 
-export const MainLayout = ({ children }: MainLayoutProps) => {
-  const { user } = useAuth()
-  const logout = useLogout()
-  const location = useLocation()
-  const { setTheme, resolvedTheme } = useTheme()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+interface SidebarContentProps {
+  pathname: string
+  onCloseSidebar: () => void
+  onToggleTheme: () => void
+  resolvedTheme: 'light' | 'dark'
+  userName: string
+  onLogout: () => void
+  isLogoutPending: boolean
+}
 
-  const toggleTheme = () => {
-    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
-  }
-
-  const SidebarContent = () => (
+function SidebarContent({
+  pathname,
+  onCloseSidebar,
+  onToggleTheme,
+  resolvedTheme,
+  userName,
+  onLogout,
+  isLogoutPending,
+}: SidebarContentProps) {
+  return (
     <>
       <div className="h-16 border-b flex items-center justify-between px-6">
         <div className="flex items-center gap-3">
@@ -60,7 +68,7 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
           variant="ghost"
           size="icon"
           className="lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          onClick={onCloseSidebar}
         >
           <X className="h-5 w-5" />
         </Button>
@@ -68,12 +76,12 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
 
       <nav className="flex-1 p-4 space-y-2">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.href ||
-                          location.pathname.startsWith(item.href + "/")
+          const isActive = pathname === item.href ||
+                          pathname.startsWith(item.href + "/")
           const Icon = item.icon
 
           return (
-            <Link key={item.href} to={item.href} onClick={() => setSidebarOpen(false)}>
+            <Link key={item.href} to={item.href} onClick={onCloseSidebar}>
               <Button
                 variant={isActive ? "secondary" : "ghost"}
                 className={cn(
@@ -94,7 +102,7 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
         <Button
           variant="outline"
           className="w-full justify-start"
-          onClick={toggleTheme}
+          onClick={onToggleTheme}
         >
           {resolvedTheme === 'dark' ? (
             <>
@@ -111,7 +119,7 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
 
         {/* User Info */}
         <div className="text-sm">
-          <div className="font-medium">{user?.first_name || user?.username || "Admin"}</div>
+          <div className="font-medium">{userName}</div>
           <div className="text-xs text-muted-foreground">Администратор</div>
         </div>
 
@@ -119,8 +127,8 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
         <Button
           variant="outline"
           className="w-full justify-start text-destructive hover:text-destructive"
-          onClick={() => logout.mutate()}
-          disabled={logout.isPending}
+          onClick={onLogout}
+          disabled={isLogoutPending}
         >
           <LogOut className="mr-2 h-4 w-4" />
           Выйти
@@ -128,12 +136,37 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
       </div>
     </>
   )
+}
+
+export const MainLayout = ({ children }: MainLayoutProps) => {
+  const { user } = useAuth()
+  const logout = useLogout()
+  const location = useLocation()
+  const { setTheme, resolvedTheme } = useTheme()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const toggleTheme = () => {
+    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+  }
+
+  const closeSidebar = () => setSidebarOpen(false)
+  const userName = user?.first_name || user?.username || "Admin"
+
+  const sidebarProps: SidebarContentProps = {
+    pathname: location.pathname,
+    onCloseSidebar: closeSidebar,
+    onToggleTheme: toggleTheme,
+    resolvedTheme,
+    userName,
+    onLogout: () => logout.mutate(),
+    isLogoutPending: logout.isPending,
+  }
 
   return (
     <div className="min-h-screen bg-background flex">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex w-64 border-r bg-card flex-col">
-        <SidebarContent />
+        <SidebarContent {...sidebarProps} />
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -145,7 +178,7 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-              onClick={() => setSidebarOpen(false)}
+              onClick={closeSidebar}
             />
             <motion.aside
               initial={{ x: -280 }}
@@ -154,7 +187,7 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
               className="fixed left-0 top-0 bottom-0 w-64 border-r bg-card flex flex-col z-50 lg:hidden"
             >
-              <SidebarContent />
+              <SidebarContent {...sidebarProps} />
             </motion.aside>
           </>
         )}
@@ -185,5 +218,3 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
     </div>
   )
 }
-
-export default MainLayout

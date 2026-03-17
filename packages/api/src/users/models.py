@@ -1,9 +1,9 @@
 """User SQLAlchemy models."""
 
 from datetime import datetime
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Boolean, DateTime, BigInteger, Text, Float, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,27 +20,27 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
-    username: Mapped[Optional[str]] = mapped_column(String(100))
-    first_name: Mapped[Optional[str]] = mapped_column(String(100))
-    last_name: Mapped[Optional[str]] = mapped_column(String(100))
+    username: Mapped[str | None] = mapped_column(String(100))
+    first_name: Mapped[str | None] = mapped_column(String(100))
+    last_name: Mapped[str | None] = mapped_column(String(100))
     language_code: Mapped[str] = mapped_column(String(10), default="ru")
-    
+
     # Contact
-    phone: Mapped[Optional[str]] = mapped_column(String(20))
-    
+    phone: Mapped[str | None] = mapped_column(String(20))
+
     # Default delivery address
-    address_street: Mapped[Optional[str]] = mapped_column(String(255))
-    address_house: Mapped[Optional[str]] = mapped_column(String(20))
-    address_apartment: Mapped[Optional[str]] = mapped_column(String(20))
-    address_entrance: Mapped[Optional[str]] = mapped_column(String(10))
-    address_floor: Mapped[Optional[str]] = mapped_column(String(10))
-    address_comment: Mapped[Optional[str]] = mapped_column(Text)
-    address_lat: Mapped[Optional[float]] = mapped_column(Float)
-    address_lng: Mapped[Optional[float]] = mapped_column(Float)
+    address_street: Mapped[str | None] = mapped_column(String(255))
+    address_house: Mapped[str | None] = mapped_column(String(20))
+    address_apartment: Mapped[str | None] = mapped_column(String(20))
+    address_entrance: Mapped[str | None] = mapped_column(String(10))
+    address_floor: Mapped[str | None] = mapped_column(String(10))
+    address_comment: Mapped[str | None] = mapped_column(Text)
+    address_lat: Mapped[float | None] = mapped_column(Float)
+    address_lng: Mapped[float | None] = mapped_column(Float)
 
     # CRM data (AI assistant collected)
-    symptoms: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text), default=[])
-    ai_notes: Mapped[Optional[str]] = mapped_column(Text)
+    symptoms: Mapped[list[str] | None] = mapped_column(ARRAY(Text), default=[])
+    ai_notes: Mapped[str | None] = mapped_column(Text)
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -57,12 +57,12 @@ class User(Base):
     )
 
     # Relationships
-    family_members: Mapped[List["FamilyMember"]] = relationship(
+    family_members: Mapped[list["FamilyMember"]] = relationship(
         "FamilyMember",
         back_populates="user",
         cascade="all, delete-orphan"
     )
-    leads: Mapped[List["Lead"]] = relationship(
+    leads: Mapped[list["Lead"]] = relationship(
         "Lead",
         back_populates="user"
     )

@@ -1,8 +1,7 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from typing import Optional
 import logging
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 from src.config import settings
 
@@ -39,10 +38,10 @@ class EmailService:
             logger.error(f"Failed to send email to {to_email}: {e}")
             return False
 
-    def send_verification_email(self, to_email: str, token: str, first_name: Optional[str] = None) -> bool:
+    def send_verification_email(self, to_email: str, token: str, first_name: str | None = None) -> bool:
         name = first_name or "пользователь"
         verify_url = f"{settings.admin_url}/verify-email?token={token}"
-        
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -70,13 +69,13 @@ class EmailService:
         </body>
         </html>
         """
-        
+
         return self._send_email(to_email, "Подтверждение email - Biotact Admin", html_content)
 
-    def send_password_reset_email(self, to_email: str, token: str, first_name: Optional[str] = None) -> bool:
+    def send_password_reset_email(self, to_email: str, token: str, first_name: str | None = None) -> bool:
         name = first_name or "пользователь"
         reset_url = f"{settings.admin_url}/reset-password?token={token}"
-        
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -104,7 +103,7 @@ class EmailService:
         </body>
         </html>
         """
-        
+
         return self._send_email(to_email, "Сброс пароля - Biotact Admin", html_content)
 
 

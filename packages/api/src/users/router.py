@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import CurrentUser
@@ -10,14 +10,13 @@ from src.config import settings
 from src.database import get_db
 from src.users import service
 from src.users.schemas import (
-    UserProfileResponse,
-    UserResponse,
-    PhoneUpdate,
     AddressUpdate,
     LanguageUpdate,
+    PhoneUpdate,
     TelegramUserCreate,
+    UserProfileResponse,
+    UserResponse,
 )
-
 
 router = APIRouter()
 

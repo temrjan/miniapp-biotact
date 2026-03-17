@@ -1,21 +1,19 @@
 """Admin Users API router."""
 
 from datetime import datetime
-from typing import Annotated, Optional
 from decimal import Decimal
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from jose import JWTError, jwt
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from jose import jwt, JWTError
 
 from src.config import settings
 from src.database import get_db
-from src.users.models import User
 from src.orders.models import Order
-
+from src.users.models import User
 
 router = APIRouter()
 
@@ -41,11 +39,11 @@ async def require_admin(
             settings.secret_key.get_secret_value(),
             algorithms=[settings.algorithm],
         )
-    except JWTError:
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from exc
 
     if payload.get("type") != "admin":
         raise HTTPException(
@@ -75,10 +73,10 @@ class UserAdminResponse(BaseModel):
 
     id: int
     telegram_id: int
-    username: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone: Optional[str] = None
+    username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
     language_code: str
     is_active: bool
     is_admin: bool
@@ -106,22 +104,22 @@ class UserOrderItem(BaseModel):
     status: str
     total: Decimal
     currency: str
-    payment_status: Optional[str] = None
+    payment_status: str | None = None
     created_at: datetime
 
 
 class UserDetailResponse(UserAdminResponse):
     """User detail with orders."""
-    address_street: Optional[str] = None
-    address_house: Optional[str] = None
-    address_apartment: Optional[str] = None
+    address_street: str | None = None
+    address_house: str | None = None
+    address_apartment: str | None = None
     recent_orders: list[UserOrderItem] = []
 
 
 class UserUpdateData(BaseModel):
     """Update user data."""
-    is_active: Optional[bool] = None
-    is_admin: Optional[bool] = None
+    is_active: bool | None = None
+    is_admin: bool | None = None
 
 
 @router.get("", response_model=UserListResponse, dependencies=[Depends(require_admin)])
@@ -129,7 +127,7 @@ async def get_all_users(
     db: DbSession,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    search: Optional[str] = Query(None),
+    search: str | None = Query(None),
     active_only: bool = Query(False),
 ) -> UserListResponse:
     """Get all users with pagination (admin only)."""
@@ -150,8 +148,8 @@ async def get_all_users(
         count_query = count_query.where(search_filter)
 
     if active_only:
-        query = query.where(User.is_active == True)
-        count_query = count_query.where(User.is_active == True)
+        query = query.where(User.is_active.is_(True))
+        count_query = count_query.where(User.is_active.is_(True))
 
     # Get total count
     total = await db.scalar(count_query)

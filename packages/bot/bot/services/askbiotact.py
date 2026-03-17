@@ -1,7 +1,6 @@
 """AskBiotact API integration service."""
 
 import logging
-from typing import Any
 
 import httpx
 
