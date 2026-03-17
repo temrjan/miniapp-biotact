@@ -27,7 +27,8 @@ jobs:
           cd /var/www/biotact
 
           echo "=== Pull latest code ==="
-          git pull origin main
+          git fetch origin main
+          git reset --hard origin/main
 
           echo "=== Build frontend ==="
           cd packages/frontend
