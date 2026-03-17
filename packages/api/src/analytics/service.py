@@ -158,16 +158,19 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
     status_result = await db.execute(status_query)
     status_rows = status_result.all()
 
-    total_for_percentage = sum(int(row.count)  # type: ignore[arg-type] for row in status_rows) or 1
+    status_counts = [int(row.count) for row in status_rows]  # type: ignore[call-overload]
+    total_for_percentage = sum(status_counts) or 1
 
-    order_status_distribution = [
-        OrderStatusCount(
-            status=row.status.value,
-            count=int(row.count)  # type: ignore[arg-type],
-            percentage=round((int(row.count)  # type: ignore[arg-type] / total_for_percentage) * 100, 1),
+    order_status_distribution = []
+    for row in status_rows:
+        count = int(row.count)  # type: ignore[call-overload]
+        order_status_distribution.append(
+            OrderStatusCount(
+                status=row.status.value,
+                count=count,
+                percentage=round((count / total_for_percentage) * 100, 1),
+            )
         )
-        for row in status_rows
-    ]
 
     # User Statistics
     # Total users

@@ -118,9 +118,10 @@ async def get_leads(
         func.count(Lead.id).label("count")
     ).group_by(Lead.status)
     stats_result = await db.execute(stats_query)
-    stats_data: dict[str, int] = {
-        row.status: int(row.count)  # type: ignore[arg-type] for row in stats_result.all()
-    }
+    stats_rows = stats_result.all()
+    stats_data: dict[str, int] = {}
+    for row in stats_rows:
+        stats_data[row.status] = int(row.count)  # type: ignore[call-overload]
 
     total_leads = sum(stats_data.values())
     converted = stats_data.get(LeadStatus.CONVERTED, 0)
@@ -350,9 +351,10 @@ async def get_crm_stats(db: DbSession) -> FunnelStats:
     ).group_by(Lead.status)
 
     result = await db.execute(stats_query)
-    stats_data: dict[str, int] = {
-        row.status: int(row.count)  # type: ignore[arg-type] for row in result.all()
-    }
+    result_rows = result.all()
+    stats_data: dict[str, int] = {}
+    for row in result_rows:
+        stats_data[row.status] = int(row.count)  # type: ignore[call-overload]
 
     total = sum(stats_data.values())
     converted = stats_data.get(LeadStatus.CONVERTED, 0)
