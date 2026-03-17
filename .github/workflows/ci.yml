@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 jobs:
   frontend:
@@ -31,7 +31,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Lint
-        run: npm run lint || echo 'Lint warnings - will fix later'
+        run: npm run lint
 
       - name: Test
         run: npm run test
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: packages/admin
+        working-directory: admin-panel-v2
 
     steps:
       - uses: actions/checkout@v4
@@ -54,16 +54,16 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: packages/admin/package-lock.json
+          cache-dependency-path: admin-panel-v2/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
       - name: Type check
-        run: npx tsc --noEmit
+        run: npx tsc -b
 
       - name: Lint
-        run: npm run lint || echo 'Lint warnings - will fix later'
+        run: npm run lint
 
       - name: Build
         run: npm run build
@@ -91,11 +91,37 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint with ruff
-        run: |
-          pip install ruff
-          ruff check src/ || echo 'Lint warnings'
+        run: ruff check src/
 
       - name: Test with pytest
+        run: pytest tests/ -v
+
+  bot:
+    name: Bot (aiogram)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/bot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: packages/bot/requirements.txt
+
+      - name: Install dependencies
         run: |
-          pip install pytest pytest-asyncio httpx
-          pytest tests/ -v || echo 'Some tests failed'
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint with ruff
+        run: |
+          pip install ruff
+          ruff check bot/
+
+      - name: Import check
+        run: python -c "from bot.__main__ import *; print('Import OK')"
