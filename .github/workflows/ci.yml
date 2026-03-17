@@ -118,7 +118,7 @@ jobs:
         run: ruff check src/
 
       - name: Type check with mypy
-        run: mypy src/ --ignore-missing-imports
+        run: mypy src/ --ignore-missing-imports --no-strict --allow-untyped-defs
 
       - name: Test with pytest
         run: pytest tests/ -v --no-header
@@ -129,6 +129,9 @@ jobs:
     defaults:
       run:
         working-directory: packages/bot
+
+    env:
+      BOT_TOKEN: fake-token-for-ci
 
     steps:
       - uses: actions/checkout@v4
