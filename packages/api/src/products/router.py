@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import verify_admin_jwt
 from src.common.language import CurrentLanguage, Language
 from src.database import get_db
 from src.products import service
@@ -32,7 +33,11 @@ def localize_product(product: Product, lang: Language) -> dict[str, Any]:
     Falls back to Russian if translation not available.
     JSONB fields (images, advantages) are automatically converted to lists by SQLAlchemy.
     """
-    is_purchasable = product.category.is_purchasable if hasattr(product, 'category') and product.category else True
+    is_purchasable = (
+        product.category.is_purchasable
+        if hasattr(product, "category") and product.category
+        else True
+    )
 
     return {
         "id": product.id,
@@ -70,9 +75,7 @@ def localize_product(product: Product, lang: Language) -> dict[str, Any]:
             else product.additional_info
         ),
         "disclaimer": (
-            product.disclaimer_uz
-            if lang == "uz" and product.disclaimer_uz
-            else product.disclaimer
+            product.disclaimer_uz if lang == "uz" and product.disclaimer_uz else product.disclaimer
         ),
         "sort_order": product.sort_order,
         "is_active": product.is_active,
@@ -92,8 +95,12 @@ async def get_products(
     active_only: bool = Query(True),
     featured_only: bool = Query(False),
     search: str | None = Query(None, min_length=1),
-    include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
-    sort_by: str | None = Query(None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
+    include_all_translations: bool = Query(
+        False, description="Return all translation fields (for admin)"
+    ),
+    sort_by: str | None = Query(
+        None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"
+    ),
 ) -> Any:
     """Get paginated list of products (localized by Accept-Language or all fields for admin)."""
     result = await service.get_products_paginated(
@@ -137,8 +144,14 @@ async def get_product(
     product_id: int,
     db: DbSession,
     lang: CurrentLanguage,
-    include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
-    _sort_by: str | None = Query(None, alias="sort_by", description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
+    include_all_translations: bool = Query(
+        False, description="Return all translation fields (for admin)"
+    ),
+    _sort_by: str | None = Query(
+        None,
+        alias="sort_by",
+        description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc",
+    ),
 ) -> Any:
     """Get product by ID (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_id(db, product_id)
@@ -159,8 +172,14 @@ async def get_product_by_slug(
     slug: str,
     db: DbSession,
     lang: CurrentLanguage,
-    include_all_translations: bool = Query(False, description="Return all translation fields (for admin)"),
-    _sort_by: str | None = Query(None, alias="sort_by", description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"),
+    include_all_translations: bool = Query(
+        False, description="Return all translation fields (for admin)"
+    ),
+    _sort_by: str | None = Query(
+        None,
+        alias="sort_by",
+        description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc",
+    ),
 ) -> Any:
     """Get product by slug (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_slug(db, slug)
@@ -176,7 +195,12 @@ async def get_product_by_slug(
     return ProductLocalizedResponse.model_validate(localize_product(product, lang))
 
 
-@router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ProductResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(verify_admin_jwt)],
+)
 async def create_product(
     product_data: ProductCreate,
     db: DbSession,
@@ -191,7 +215,9 @@ async def create_product(
     return await service.create_product(db, product_data)
 
 
-@router.patch("/{product_id}", response_model=ProductResponse)
+@router.patch(
+    "/{product_id}", response_model=ProductResponse, dependencies=[Depends(verify_admin_jwt)]
+)
 async def update_product(
     product_id: int,
     update_data: ProductUpdate,
@@ -207,7 +233,11 @@ async def update_product(
     return product
 
 
-@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{product_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(verify_admin_jwt)],
+)
 async def delete_product(
     product_id: int,
     db: DbSession,
@@ -221,7 +251,6 @@ async def delete_product(
         )
 
 
-
 class ReorderItem(BaseModel):
     id: int
     sort_order: int
@@ -231,7 +260,7 @@ class ReorderRequest(BaseModel):
     items: list[ReorderItem]
 
 
-@router.post("/reorder", status_code=status.HTTP_200_OK)
+@router.post("/reorder", status_code=status.HTTP_200_OK, dependencies=[Depends(verify_admin_jwt)])
 async def reorder_products(
     request: ReorderRequest,
     db: DbSession,

@@ -4,14 +4,11 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 from pydantic import BaseModel
 
-from src.config import settings
+from src.auth.dependencies import verify_admin_jwt
 
 router = APIRouter()
-security = HTTPBearer()
 
 # Configuration
 UPLOAD_DIR = Path("/var/www/biotact/api/shared/uploads")
@@ -25,24 +22,6 @@ class UploadResponse(BaseModel):
 
     url: str
     filename: str
-
-
-async def verify_admin_jwt(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> int:
-    """Verify JWT token and return user_id. Lightweight — no DB lookup."""
-    token = credentials.credentials
-    for secret, allowed_type in [
-        (settings.secret_key.get_secret_value(), "admin"),
-        (settings.jwt_secret.get_secret_value(), "access"),
-    ]:
-        try:
-            payload = jwt.decode(token, secret, algorithms=[settings.jwt_algorithm])
-            if payload.get("type") == allowed_type:
-                return int(payload.get("sub"))
-        except (JWTError, ValueError, TypeError):
-            continue
-    raise HTTPException(status_code=401, detail="Invalid token")
 
 
 def validate_file(file: UploadFile) -> None:

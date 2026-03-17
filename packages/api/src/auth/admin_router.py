@@ -1,5 +1,6 @@
 """Admin auth via code - alternative to Telegram Login Widget."""
 
+import hmac as _hmac
 import secrets
 import time
 from typing import Annotated, Any
@@ -50,7 +51,8 @@ def cleanup_old_attempts() -> None:
     for ip, data in LOGIN_ATTEMPTS.items():
         # Remove attempts older than the window
         data["attempts"] = [
-            (ts, success) for ts, success in data["attempts"]
+            (ts, success)
+            for ts, success in data["attempts"]
             if current_time - ts < ATTEMPT_WINDOW_SECONDS
         ]
 
@@ -92,7 +94,8 @@ def check_rate_limit(ip: str) -> tuple[bool, int]:
 
     # Count failed attempts in the window
     failed_attempts = sum(
-        1 for ts, success in data["attempts"]
+        1
+        for ts, success in data["attempts"]
         if not success and current_time - ts < ATTEMPT_WINDOW_SECONDS
     )
 
@@ -135,12 +138,14 @@ def get_client_ip(request: Request) -> str:
 
 class CodeResponse(BaseModel):
     """Response with generated code."""
+
     code: str
     expires_in: int
 
 
 class CodeStatusResponse(BaseModel):
     """Response with code status."""
+
     status: str  # "pending", "verified", "expired"
     token: str | None = None
     user: dict[str, Any] | None = None
@@ -148,6 +153,7 @@ class CodeStatusResponse(BaseModel):
 
 class VerifyCodeRequest(BaseModel):
     """Request to verify code from bot."""
+
     code: str
     telegram_id: int
     first_name: str
@@ -159,7 +165,8 @@ def cleanup_expired_codes() -> None:
     """Remove expired codes from memory."""
     current_time = time.time()
     expired = [
-        code for code, data in AUTH_CODES.items()
+        code
+        for code, data in AUTH_CODES.items()
         if current_time - data["created_at"] > CODE_EXPIRY_SECONDS
     ]
     for code in expired:
@@ -228,9 +235,7 @@ async def check_code_status(
     user_data = code_data["user_data"]
 
     # Check if admin
-    result = await db.execute(
-        select(User).where(User.telegram_id == telegram_id)
-    )
+    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -293,7 +298,7 @@ async def verify_code(
     Protected by X-Bot-Token header.
     """
     # Verify bot token
-    if x_bot_token != settings.telegram_bot_token:
+    if not x_bot_token or not _hmac.compare_digest(x_bot_token, settings.telegram_bot_token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid bot token",
@@ -377,9 +382,7 @@ async def get_current_admin(
         )
 
     user_id = int(payload.get("sub", 0))
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_admin:
@@ -401,14 +404,17 @@ async def get_current_admin(
 # Simple password-based admin login (for admin panel)
 # =============================================================================
 
+
 class LoginRequest(BaseModel):
     """Simple login request."""
+
     username: str
     password: str
 
 
 class LoginResponse(BaseModel):
     """Login response with token."""
+
     access_token: str
     token_type: str = "bearer"
     user: dict[str, Any]
@@ -456,7 +462,7 @@ async def admin_login(
 
     creds = ADMIN_CREDENTIALS[request.username]
 
-    if request.password != creds["password"]:
+    if not _hmac.compare_digest(request.password, creds["password"]):
         record_login_attempt(client_ip, success=False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -469,9 +475,7 @@ async def admin_login(
     # Get or create user
     telegram_id = creds["telegram_id"]
 
-    result = await db.execute(
-        select(User).where(User.telegram_id == telegram_id)
-    )
+    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
     user = result.scalar_one_or_none()
 
     if not user:

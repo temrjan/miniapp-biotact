@@ -1,10 +1,10 @@
 """Banner API router."""
 
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import verify_admin_jwt
 from src.banners import schemas
 from src.banners.models import Banner, Settings
 from src.database import get_db
@@ -44,9 +44,7 @@ async def get_banner(
     db: AsyncSession = Depends(get_db),
 ) -> Banner:
     """Get banner by ID."""
-    result = await db.execute(
-        select(Banner).where(Banner.id == banner_id)
-    )
+    result = await db.execute(select(Banner).where(Banner.id == banner_id))
     banner = result.scalar_one_or_none()
 
     if not banner:
@@ -55,7 +53,9 @@ async def get_banner(
     return banner
 
 
-@router.post("", response_model=schemas.Banner, status_code=201)
+@router.post(
+    "", response_model=schemas.Banner, status_code=201, dependencies=[Depends(verify_admin_jwt)]
+)
 async def create_banner(
     data: schemas.BannerCreate,
     db: AsyncSession = Depends(get_db),
@@ -68,16 +68,16 @@ async def create_banner(
     return banner
 
 
-@router.patch("/{banner_id}", response_model=schemas.Banner)
+@router.patch(
+    "/{banner_id}", response_model=schemas.Banner, dependencies=[Depends(verify_admin_jwt)]
+)
 async def update_banner(
     banner_id: int,
     data: schemas.BannerUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> Banner:
     """Update a banner."""
-    result = await db.execute(
-        select(Banner).where(Banner.id == banner_id)
-    )
+    result = await db.execute(select(Banner).where(Banner.id == banner_id))
     banner = result.scalar_one_or_none()
 
     if not banner:
@@ -92,15 +92,13 @@ async def update_banner(
     return banner
 
 
-@router.delete("/{banner_id}", status_code=204)
+@router.delete("/{banner_id}", status_code=204, dependencies=[Depends(verify_admin_jwt)])
 async def delete_banner(
     banner_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a banner."""
-    result = await db.execute(
-        select(Banner).where(Banner.id == banner_id)
-    )
+    result = await db.execute(select(Banner).where(Banner.id == banner_id))
     banner = result.scalar_one_or_none()
 
     if not banner:
@@ -129,9 +127,7 @@ async def get_setting(
     db: AsyncSession = Depends(get_db),
 ) -> Settings:
     """Get setting by key."""
-    result = await db.execute(
-        select(Settings).where(Settings.key == key)
-    )
+    result = await db.execute(select(Settings).where(Settings.key == key))
     setting = result.scalar_one_or_none()
 
     if not setting:
@@ -140,16 +136,16 @@ async def get_setting(
     return setting
 
 
-@settings_router.put("/{key}", response_model=schemas.Settings)
+@settings_router.put(
+    "/{key}", response_model=schemas.Settings, dependencies=[Depends(verify_admin_jwt)]
+)
 async def update_setting(
     key: str,
     data: schemas.SettingsUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> Settings:
     """Update or create a setting."""
-    result = await db.execute(
-        select(Settings).where(Settings.key == key)
-    )
+    result = await db.execute(select(Settings).where(Settings.key == key))
     setting = result.scalar_one_or_none()
 
     if setting:

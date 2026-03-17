@@ -1,5 +1,6 @@
 """Users router."""
 
+import hmac as _hmac
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -27,9 +28,10 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 # Bot token verification
 # =============================================================================
 
+
 async def verify_bot_token(x_bot_token: str = Header(...)) -> None:
     """Verify bot token from header."""
-    if x_bot_token != settings.telegram_bot_token:
+    if not _hmac.compare_digest(x_bot_token, settings.telegram_bot_token):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid bot token",
@@ -42,6 +44,7 @@ BotAuth = Depends(verify_bot_token)
 # =============================================================================
 # User endpoints (Mini App)
 # =============================================================================
+
 
 @router.get("/me", response_model=UserProfileResponse)
 async def get_me(current_user: CurrentUser) -> UserProfileResponse:
@@ -85,6 +88,7 @@ async def update_my_language(
 # =============================================================================
 # Telegram Bot endpoints
 # =============================================================================
+
 
 @router.get(
     "/telegram/{telegram_id}",

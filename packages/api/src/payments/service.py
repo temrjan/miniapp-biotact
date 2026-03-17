@@ -81,10 +81,12 @@ class MultiCardClient:
         sign: str,
     ) -> bool:
         """Verify success callback signature (MD5)."""
+        import hmac as _hmac
+
         # MD5: {store_id}{invoice_id}{amount}{secret}
         data = f"{store_id}{invoice_id}{amount}{self.secret}"
         expected_sign = hashlib.md5(data.encode()).hexdigest()
-        return sign == expected_sign
+        return _hmac.compare_digest(sign, expected_sign)
 
     def verify_webhook_sign(
         self,
@@ -94,10 +96,12 @@ class MultiCardClient:
         sign: str,
     ) -> bool:
         """Verify webhook signature (SHA1)."""
+        import hmac as _hmac
+
         # SHA1: {uuid}{invoice_id}{amount}{secret}
         data = f"{uuid}{invoice_id}{amount}{self.secret}"
         expected_sign = hashlib.sha1(data.encode()).hexdigest()
-        return sign == expected_sign
+        return _hmac.compare_digest(sign, expected_sign)
 
     async def create_invoice(
         self,
@@ -117,7 +121,9 @@ class MultiCardClient:
             "ofd": [item.model_dump(exclude_none=True) for item in payment_data.ofd],
         }
 
-        logger.info(f"Creating invoice: invoice_id={payment_data.invoice_id}, amount={payment_data.amount}")
+        logger.info(
+            f"Creating invoice: invoice_id={payment_data.invoice_id}, amount={payment_data.amount}"
+        )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -182,7 +188,7 @@ def build_ofd_items(order_items: list[Any]) -> list[OFDItem]:
         total_tiyins = int(item.total * 100)
 
         # Get OFD data from product
-        product = item.product if hasattr(item, 'product') else None
+        product = item.product if hasattr(item, "product") else None
 
         ofd_item = OFDItem(
             mxik=product.mxik if product and product.mxik else "00000000000000000",

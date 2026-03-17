@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import verify_admin_jwt
 from src.auth.service import get_or_create_user
 from src.auth.telegram import InitDataValidationError, validate_init_data
 from src.config import settings
@@ -83,7 +84,9 @@ async def get_order(
     return order
 
 
-@router.patch("/{order_id}/status", response_model=OrderResponse)
+@router.patch(
+    "/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(verify_admin_jwt)]
+)
 async def update_order_status(
     order_id: int,
     status_data: OrderStatusUpdate,

@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import verify_admin_jwt
 from src.categories import service
 from src.categories.models import Category
 from src.categories.schemas import (
@@ -108,7 +109,12 @@ async def get_category_by_slug(
     return localize_category(category, lang)
 
 
-@router.post("", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CategoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(verify_admin_jwt)],
+)
 async def create_category(
     category_data: CategoryCreate,
     db: DbSession,
@@ -124,7 +130,9 @@ async def create_category(
     return await service.create_category(db, category_data)
 
 
-@router.patch("/{category_id}", response_model=CategoryResponse)
+@router.patch(
+    "/{category_id}", response_model=CategoryResponse, dependencies=[Depends(verify_admin_jwt)]
+)
 async def update_category(
     category_id: int,
     update_data: CategoryUpdate,
@@ -140,7 +148,11 @@ async def update_category(
     return category
 
 
-@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(verify_admin_jwt)],
+)
 async def delete_category(
     category_id: int,
     db: DbSession,

@@ -110,7 +110,7 @@ async def create_payment(
         logger.error(f"Failed to create payment: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Payment service error: {str(e)}",
+            detail="Payment service temporarily unavailable",
         ) from e
 
 

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     smtp_from_name: str = "Biotact Admin"
     # JWT
-    jwt_secret: SecretStr = SecretStr("change-me-in-production")
+    jwt_secret: SecretStr
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
     # Admin

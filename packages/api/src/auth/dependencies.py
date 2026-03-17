@@ -2,7 +2,9 @@
 
 from typing import Annotated
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.service import get_or_create_user
@@ -11,6 +13,8 @@ from src.common.exceptions import ForbiddenException, UnauthorizedException
 from src.config import settings
 from src.database import get_db
 from src.users.models import User
+
+_security = HTTPBearer()
 
 
 async def get_current_user(
@@ -55,6 +59,24 @@ async def get_current_admin(
     if not current_user.is_admin:
         raise ForbiddenException("Admin access required")
     return current_user
+
+
+async def verify_admin_jwt(
+    credentials: HTTPAuthorizationCredentials = Depends(_security),
+) -> int:
+    """Verify JWT token and return user_id. Lightweight — no DB lookup."""
+    token = credentials.credentials
+    for secret, allowed_type in [
+        (settings.secret_key.get_secret_value(), "admin"),
+        (settings.jwt_secret.get_secret_value(), "access"),
+    ]:
+        try:
+            payload = jwt.decode(token, secret, algorithms=[settings.jwt_algorithm])
+            if payload.get("type") == allowed_type:
+                return int(payload.get("sub"))
+        except (JWTError, ValueError, TypeError):
+            continue
+    raise HTTPException(status_code=401, detail="Invalid token")
 
 
 # Type aliases for cleaner code
