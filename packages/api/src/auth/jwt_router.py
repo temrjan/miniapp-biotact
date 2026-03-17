@@ -84,13 +84,15 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(user_id: int) -> str:
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode = {"sub": str(user_id), "type": "access", "exp": expire}
-    return jwt.encode(to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm)
+    token: str = jwt.encode(to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm)
+    return token
 
 
 def create_refresh_token(user_id: int) -> str:
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode = {"sub": str(user_id), "type": "refresh", "exp": expire}
-    return jwt.encode(to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm)
+    token: str = jwt.encode(to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm)
+    return token
 
 
 def generate_token() -> str:

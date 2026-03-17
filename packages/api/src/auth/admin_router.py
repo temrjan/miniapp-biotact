@@ -174,11 +174,12 @@ def create_admin_token(user_id: int, telegram_id: int) -> str:
         "type": "admin",
         "exp": int(time.time()) + (settings.access_token_expire_minutes * 60),
     }
-    return jwt.encode(
+    token: str = jwt.encode(
         payload,
         settings.secret_key.get_secret_value(),
         algorithm=settings.algorithm,
     )
+    return token
 
 
 @router.post("/code", response_model=CodeResponse)
