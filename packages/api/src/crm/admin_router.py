@@ -119,7 +119,7 @@ async def get_leads(
     ).group_by(Lead.status)
     stats_result = await db.execute(stats_query)
     stats_data: dict[str, int] = {
-        row.status: int(getattr(row, "count")) for row in stats_result.all()
+        row.status: int(row.count)  # type: ignore[arg-type] for row in stats_result.all()
     }
 
     total_leads = sum(stats_data.values())
@@ -351,7 +351,7 @@ async def get_crm_stats(db: DbSession) -> FunnelStats:
 
     result = await db.execute(stats_query)
     stats_data: dict[str, int] = {
-        row.status: int(getattr(row, "count")) for row in result.all()
+        row.status: int(row.count)  # type: ignore[arg-type] for row in result.all()
     }
 
     total = sum(stats_data.values())
