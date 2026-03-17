@@ -63,7 +63,7 @@ async def get_categories(
 
     # Localize categories
     localized_items = [
-        CategoryResponse.model_validate(localize_category(cat, lang))
+        CategoryResponse.model_validate(localize_category(cat, lang))  # type: ignore[arg-type]
         for cat in result.items
     ]
 

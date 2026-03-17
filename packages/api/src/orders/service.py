@@ -171,7 +171,7 @@ async def get_user_orders(
     pages = (total + size - 1) // size if total > 0 else 1
 
     return OrderListResponse(
-        items=items,
+        items=items,  # type: ignore[arg-type]
         total=total,
         page=page,
         size=size,

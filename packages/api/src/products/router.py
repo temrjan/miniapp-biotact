@@ -110,7 +110,7 @@ async def get_products(
     # If admin panel needs all translations, return full ProductResponse objects
     if include_all_translations:
         return ProductListResponse(
-            items=result.items,
+            items=result.items,  # type: ignore[arg-type]
             total=result.total,
             page=result.page,
             size=result.size,

@@ -1,6 +1,7 @@
 """Main FastAPI application."""
 # temrjan-2025-12-25
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import sentry_sdk
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan events."""
     # Startup
     yield

@@ -143,7 +143,7 @@ async def register(data: RegisterRequest, session: AsyncSession = Depends(get_db
     await session.commit()
 
     email_service.send_verification_email(data.email, verification_token, data.first_name)
-    return {"message": "Registration successful. Please check your email to verify your account."}
+    return MessageResponse(message="Registration successful. Please check your email to verify your account.")
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -163,12 +163,10 @@ async def login(data: LoginRequest, session: AsyncSession = Depends(get_db)) -> 
     user.last_login = datetime.utcnow()
     await session.commit()
 
-    return {
-        "access_token": create_access_token(user.id),
-        "refresh_token": create_refresh_token(user.id),
-        "token_type": "bearer",
-        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    }
+    return TokenResponse(
+        access_token=create_access_token(user.id),
+        refresh_token=create_refresh_token(user.id),
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -189,12 +187,10 @@ async def refresh_token(data: RefreshRequest, session: AsyncSession = Depends(ge
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or disabled")
 
-    return {
-        "access_token": create_access_token(user.id),
-        "refresh_token": create_refresh_token(user.id),
-        "token_type": "bearer",
-        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    }
+    return TokenResponse(
+        access_token=create_access_token(user.id),
+        refresh_token=create_refresh_token(user.id),
+    )
 
 
 @router.get("/verify-email", response_model=MessageResponse)
@@ -215,7 +211,7 @@ async def verify_email(token: str, session: AsyncSession = Depends(get_db)) -> M
     user.verification_token_expires = None
     await session.commit()
 
-    return {"message": "Email verified successfully. You can now login."}
+    return MessageResponse(message="Email verified successfully. You can now login.")
 
 
 @router.get("/me", response_model=UserResponse)
@@ -235,7 +231,7 @@ async def forgot_password(data: ForgotPasswordRequest, session: AsyncSession = D
         await session.commit()
         email_service.send_password_reset_email(data.email, reset_token, user.first_name)
 
-    return {"message": "If this email exists, a password reset link has been sent."}
+    return MessageResponse(message="If this email exists, a password reset link has been sent.")
 
 
 @router.post("/reset-password", response_model=MessageResponse)
@@ -256,4 +252,4 @@ async def reset_password(data: ResetPasswordRequest, session: AsyncSession = Dep
     user.reset_token_expires = None
     await session.commit()
 
-    return {"message": "Password reset successfully. You can now login."}
+    return MessageResponse(message="Password reset successfully. You can now login.")

@@ -160,7 +160,8 @@ class MultiCardClient:
                 response.raise_for_status()
                 result = response.json()
                 if result.get("success"):
-                    return result.get("data")
+                    data: dict[str, Any] | None = result.get("data")
+                    return data
                 return None
             except Exception as e:
                 logger.error(f"Failed to get invoice status: {e}")

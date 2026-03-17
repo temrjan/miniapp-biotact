@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 import httpx
 
@@ -47,7 +48,7 @@ class TelegramNotifier:
             logger.error(f"Failed to send Telegram notification: {e}")
             return False
 
-    def _format_items(self, items: Sequence[dict]) -> str:
+    def _format_items(self, items: Sequence[dict[str, Any]]) -> str:
         """Format order items for message."""
         lines = []
         for i, item in enumerate(items, 1):
@@ -65,7 +66,7 @@ class TelegramNotifier:
         self,
         order_number: str,
         total: float,
-        items: Sequence[dict],
+        items: Sequence[dict[str, Any]],
         customer_name: str | None = None,
         customer_phone: str | None = None,
         delivery_address: str | None = None,
@@ -99,7 +100,7 @@ class TelegramNotifier:
         self,
         order_number: str,
         total: float,
-        items: Sequence[dict],
+        items: Sequence[dict[str, Any]],
         customer_name: str | None = None,
         customer_phone: str | None = None,
         delivery_address: str | None = None,
