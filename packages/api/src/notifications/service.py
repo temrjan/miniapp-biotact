@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class TelegramNotifier:
     """Send notifications to Telegram group."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.bot_token = settings.telegram_notification_bot_token or settings.telegram_bot_token
         self.chat_id = settings.telegram_chat_id
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"

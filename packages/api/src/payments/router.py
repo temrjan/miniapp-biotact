@@ -69,6 +69,8 @@ async def create_payment(
 
     try:
         result = await multicard_client.create_invoice(payment_data)
+        if not result:
+            raise HTTPException(status_code=502, detail="Payment service returned no result")
 
         # Save payment UUID to order
         await orders_service.update_order_payment(

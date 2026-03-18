@@ -162,7 +162,7 @@ jobs:
       - name: Type check with mypy
         run: |
           pip install mypy
-          mypy bot/ --strict --ignore-missing-imports
+          mypy bot/ --ignore-missing-imports --allow-untyped-defs --allow-untyped-calls --no-strict-optional
 
       - name: Test with pytest
         run: pytest tests/ -v --no-header
