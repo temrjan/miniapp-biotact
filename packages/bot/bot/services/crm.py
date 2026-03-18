@@ -1,8 +1,9 @@
 """CRM service for syncing customer data to API."""
 
 import logging
-from aiogram.types import User as TelegramUser
+
 import httpx
+from aiogram.types import User as TelegramUser
 
 from bot.core.config import settings
 

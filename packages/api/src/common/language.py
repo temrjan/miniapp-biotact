@@ -20,7 +20,7 @@ def get_language(
     """
     # X-Language takes precedence (explicit override from Mini App)
     if x_language and x_language.lower() in ("ru", "uz"):
-        return x_language.lower()  # type: ignore
+        return x_language.lower()  # type: ignore[return-value]
 
     # Parse Accept-Language (simplified)
     if accept_language:

@@ -45,7 +45,7 @@ class ProductBase(BaseModel):
 
     @field_validator("images", "advantages", mode="before")
     @classmethod
-    def validate_arrays(cls, v):
+    def validate_arrays(cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return None
         if not isinstance(v, list):
@@ -94,7 +94,7 @@ class ProductUpdate(BaseModel):
 
     @field_validator("images", "advantages", mode="before")
     @classmethod
-    def validate_arrays(cls, v):
+    def validate_arrays(cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return None
         if not isinstance(v, list):

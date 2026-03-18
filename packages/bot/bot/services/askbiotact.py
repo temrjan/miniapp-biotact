@@ -15,18 +15,18 @@ TIMEOUT = 30.0
 
 async def ask_biotact(user_id: int, message: str) -> str:
     """Send message to AskBiotact API and get response.
-    
+
     Args:
         user_id: Telegram user ID.
         message: User's message.
-        
+
     Returns:
         AI assistant response.
     """
     if not ASKBIOTACT_API_URL or not ASKBIOTACT_API_KEY:
         logger.error("AskBiotact API not configured")
         return "Сервис временно недоступен."
-    
+
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             response = await client.post(
@@ -37,7 +37,7 @@ async def ask_biotact(user_id: int, message: str) -> str:
                     "message": message,
                 },
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 return data.get("answer", "Не удалось получить ответ.")
@@ -47,7 +47,7 @@ async def ask_biotact(user_id: int, message: str) -> str:
             else:
                 logger.error(f"AskBiotact API error: {response.status_code}")
                 return "Произошла ошибка. Попробуйте позже."
-                
+
     except httpx.TimeoutException:
         logger.error("AskBiotact API timeout")
         return "Превышено время ожидания. Попробуйте позже."
@@ -58,16 +58,16 @@ async def ask_biotact(user_id: int, message: str) -> str:
 
 async def reset_history(user_id: int) -> bool:
     """Reset chat history for user.
-    
+
     Args:
         user_id: Telegram user ID.
-        
+
     Returns:
         True if successful.
     """
     if not ASKBIOTACT_API_URL or not ASKBIOTACT_API_KEY:
         return False
-        
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(

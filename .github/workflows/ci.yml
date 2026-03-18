@@ -117,8 +117,11 @@ jobs:
       - name: Lint with ruff
         run: ruff check src/
 
+      - name: Format check with ruff
+        run: ruff format --check src/
+
       - name: Type check with mypy
-        run: mypy src/ --ignore-missing-imports --allow-untyped-defs --allow-untyped-calls --no-strict-optional
+        run: mypy src/ --strict --ignore-missing-imports
 
       - name: Test with pytest
         run: pytest tests/ -v --no-header
@@ -152,6 +155,14 @@ jobs:
         run: |
           pip install ruff
           ruff check bot/
+
+      - name: Format check with ruff
+        run: ruff format --check bot/
+
+      - name: Type check with mypy
+        run: |
+          pip install mypy
+          mypy bot/ --strict --ignore-missing-imports
 
       - name: Test with pytest
         run: pytest tests/ -v --no-header

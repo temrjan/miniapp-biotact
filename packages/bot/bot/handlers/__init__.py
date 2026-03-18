@@ -1,7 +1,8 @@
 """Handlers module."""
+
 from aiogram import Router
 
-from bot.handlers import common, auth
+from bot.handlers import auth, common
 
 # Main router
 router = Router(name="main")

@@ -185,7 +185,7 @@ async def payment_callback(
 
 
 @router.get("/status/{payment_uuid}")
-async def get_payment_status(payment_uuid: str) -> Any:
+async def get_payment_status(payment_uuid: str) -> dict[str, Any]:
     """Get payment status from Multicard."""
     result = await multicard_client.get_invoice_status(payment_uuid)
     if not result:

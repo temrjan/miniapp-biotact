@@ -1,8 +1,10 @@
 """Notification service for sending orders to sales group."""
 
-import re
 import logging
+import re
+
 import httpx
+
 from bot.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -48,7 +50,7 @@ async def send_order_to_sales(
     )
 
     api_url = f"https://api.telegram.org/bot{settings.notification_bot_token}/sendMessage"
-    
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(

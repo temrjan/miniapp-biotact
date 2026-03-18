@@ -6,27 +6,27 @@ import logging
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.callbacks import LanguageCallback
 from bot.keyboards.inline import (
-    get_language_keyboard,
-    get_main_menu_keyboard,
-    get_webapp_keyboard,
     get_back_keyboard,
-    get_shop_or_order_keyboard,
+    get_cancel_order_keyboard,
     get_confirm_name_keyboard,
     get_confirm_phone_keyboard,
-    get_cancel_order_keyboard,
     get_contact_keyboard,
-    get_skip_phone_keyboard,
+    get_language_keyboard,
+    get_main_menu_keyboard,
     get_remove_keyboard,
+    get_shop_or_order_keyboard,
+    get_skip_phone_keyboard,
+    get_webapp_keyboard,
 )
+from bot.services.crm import sync_customer_full, sync_customer_to_crm
 from bot.services.user import UserService
-from bot.services.crm import sync_customer_to_crm, sync_customer_full
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +38,22 @@ router = Router(name="common")
 # FSM States
 # =============================================================================
 
+
 class RegistrationState(StatesGroup):
     """States for new user registration."""
+
     waiting_phone = State()
 
 
 class AIAssistantState(StatesGroup):
     """States for AI assistant conversation."""
+
     chatting = State()
 
 
 class OrderState(StatesGroup):
     """States for order flow with pre-filled data."""
+
     confirm_name = State()
     enter_name = State()
     confirm_phone = State()
@@ -393,7 +397,7 @@ async def callback_back_to_menu(
     await state.clear()
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
-    
+
     await callback.message.edit_text(
         t(user.language_code, "welcome").format(name=callback.from_user.first_name),
         reply_markup=get_webapp_keyboard(user.language_code),
@@ -457,10 +461,11 @@ async def callback_continue_ai(
     """Continue AI consultation after purchase suggestion."""
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
-    
+
     await state.set_state(AIAssistantState.chatting)
     await callback.message.edit_text(
-        "Продолжаем консультацию. Задайте следующий вопрос." if user.language_code == "ru" 
+        "Продолжаем консультацию. Задайте следующий вопрос."
+        if user.language_code == "ru"
         else "Maslahatni davom etamiz. Keyingi savolingizni bering.",
         reply_markup=get_back_keyboard(user.language_code),
     )
@@ -476,19 +481,19 @@ async def callback_start_order(
     """Start order flow - ask to confirm name."""
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
-    
+
     # Get data from state (AI history for order context)
     data = await state.get_data()
-    
+
     # Pre-fill name from Telegram
     name = callback.from_user.full_name
-    
+
     await state.set_state(OrderState.confirm_name)
     await state.update_data(
         order_name=name,
         ai_history=data.get("ai_history", []),
     )
-    
+
     await callback.message.edit_text(
         t(user.language_code, "confirm_name").format(name=name),
         reply_markup=get_confirm_name_keyboard(user.language_code),
@@ -505,15 +510,15 @@ async def callback_confirm_name_yes(
     """Name confirmed - proceed to phone."""
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
-    
+
     # Check if user has saved phone
     phone = user.phone
-    
+
     if phone:
         # Pre-fill phone from DB
         await state.set_state(OrderState.confirm_phone)
         await state.update_data(order_phone=phone)
-        
+
         await callback.message.edit_text(
             t(user.language_code, "confirm_phone").format(phone=phone),
             reply_markup=get_confirm_phone_keyboard(user.language_code),
@@ -525,7 +530,7 @@ async def callback_confirm_name_yes(
             t(user.language_code, "enter_phone"),
             reply_markup=get_cancel_order_keyboard(user.language_code),
         )
-    
+
     await callback.answer()
 
 
@@ -538,7 +543,7 @@ async def callback_confirm_name_change(
     """User wants to change name."""
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
-    
+
     await state.set_state(OrderState.enter_name)
     await callback.message.edit_text(
         t(user.language_code, "enter_name"),
@@ -556,7 +561,7 @@ async def callback_confirm_phone_yes(
     """Phone confirmed - proceed to details."""
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
-    
+
     await state.set_state(OrderState.enter_details)
     await callback.message.edit_text(
         t(user.language_code, "enter_details"),
@@ -574,7 +579,7 @@ async def callback_confirm_phone_change(
     """User wants to change phone."""
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
-    
+
     await state.set_state(OrderState.enter_phone)
     await callback.message.edit_text(
         t(user.language_code, "enter_phone"),
@@ -592,7 +597,7 @@ async def callback_cancel_order(
     """Cancel order flow."""
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
-    
+
     await state.clear()
     await callback.message.edit_text(
         t(user.language_code, "order_cancelled"),
@@ -615,17 +620,17 @@ async def handle_enter_name(
     """Handle name input."""
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(message.from_user)
-    
+
     name = message.text.strip()
     await state.update_data(order_name=name)
-    
+
     # Check if user has saved phone
     phone = user.phone
-    
+
     if phone:
         await state.set_state(OrderState.confirm_phone)
         await state.update_data(order_phone=phone)
-        
+
         await message.answer(
             t(user.language_code, "confirm_phone").format(phone=phone),
             reply_markup=get_confirm_phone_keyboard(user.language_code),
@@ -646,25 +651,25 @@ async def handle_enter_phone(
 ) -> None:
     """Handle phone input."""
     from bot.services.notification import extract_phone
-    
+
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(message.from_user)
-    
+
     phone = extract_phone(message.text)
-    
+
     if not phone:
         await message.answer(
             t(user.language_code, "invalid_phone"),
             reply_markup=get_cancel_order_keyboard(user.language_code),
         )
         return
-    
+
     # Save phone to DB for future orders
     await user_service.update_phone(message.from_user.id, phone)
-    
+
     await state.update_data(order_phone=phone)
     await state.set_state(OrderState.enter_details)
-    
+
     await message.answer(
         t(user.language_code, "enter_details"),
         reply_markup=get_cancel_order_keyboard(user.language_code),
@@ -679,27 +684,27 @@ async def handle_enter_details(
 ) -> None:
     """Handle details input - complete order."""
     from bot.services.notification import send_order_to_sales
-    
+
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(message.from_user)
-    
+
     data = await state.get_data()
     name = data.get("order_name", message.from_user.full_name)
     phone = data.get("order_phone", "")
     details = message.text.strip()
-    
+
     # Build conversation summary from AI history
     ai_history = data.get("ai_history", [])
     summary_parts = []
     for msg in ai_history[-6:]:
         if msg["role"] == "user":
             summary_parts.append(f"• {msg['text']}")
-    
+
     if details and details != "-":
         summary_parts.append(f"• Комментарий: {details}")
-    
+
     summary = "\n".join(summary_parts) if summary_parts else "Заявка через AI ассистента"
-    
+
     # Send order to sales
     order_sent = await send_order_to_sales(
         user_id=message.from_user.id,
@@ -708,9 +713,9 @@ async def handle_enter_details(
         phone=phone,
         conversation_summary=summary,
     )
-    
+
     await state.clear()
-    
+
     if order_sent:
         await message.answer(
             t(user.language_code, "order_sent").format(phone=phone),
@@ -718,7 +723,8 @@ async def handle_enter_details(
         )
     else:
         await message.answer(
-            "❌ Ошибка отправки заявки. Попробуйте позже." if user.language_code == "ru"
+            "❌ Ошибка отправки заявки. Попробуйте позже."
+            if user.language_code == "ru"
             else "❌ Ariza yuborishda xatolik. Keyinroq urinib ko'ring.",
             reply_markup=get_webapp_keyboard(user.language_code),
         )
@@ -738,29 +744,29 @@ async def handle_ai_message(
     """Handle messages in AI assistant mode."""
     from bot.services.askbiotact import ask_biotact
     from bot.services.notification import extract_phone, send_order_to_sales
-    
+
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(message.from_user)
-    
+
     # Get state data for conversation history
     data = await state.get_data()
     ai_history = data.get("ai_history", [])
-    
+
     # Add user message to history
     ai_history.append({"role": "user", "text": message.text[:500]})
-    
+
     await message.bot.send_chat_action(message.chat.id, "typing")
-    
+
     # Get AI response
     response = await ask_biotact(message.from_user.id, message.text)
-    
+
     # Add AI response to history
     ai_history.append({"role": "assistant", "text": response[:500]})
-    
+
     # Keep only last 10 messages
     ai_history = ai_history[-10:]
     await state.update_data(ai_history=ai_history)
-    
+
     # Check for phone number in user message (old flow - still works)
     phone = extract_phone(message.text)
     if phone:
@@ -770,10 +776,10 @@ async def handle_ai_message(
             if msg["role"] == "user":
                 summary_parts.append(f"• {msg['text']}")
         summary = "\n".join(summary_parts[-5:]) if summary_parts else "Консультация по продуктам"
-        
+
         # Save phone for future
         await user_service.update_phone(message.from_user.id, phone)
-        
+
         # Send order to sales group
         order_sent = await send_order_to_sales(
             user_id=message.from_user.id,
@@ -782,14 +788,14 @@ async def handle_ai_message(
             phone=phone,
             conversation_summary=summary,
         )
-        
+
         if order_sent:
             await message.answer(
                 t(user.language_code, "order_sent").format(phone=phone),
                 reply_markup=get_back_keyboard(user.language_code),
             )
             return
-    
+
     # Check for purchase trigger in AI response
     if has_purchase_trigger(response):
         await message.answer(response, reply_markup=get_shop_or_order_keyboard(user.language_code))
@@ -802,10 +808,9 @@ async def handle_message(message: Message) -> None:
     """Handle regular text messages - show menu hint."""
     if message.text and message.text.startswith("/"):
         return
-    
+
     # For messages outside AI mode, suggest using the button
     await message.answer(
-        "Откройте магазин для заказа 🛒\n"
-        "Do'konni ochish uchun tugmani bosing 🛒",
+        "Откройте магазин для заказа 🛒\nDo'konni ochish uchun tugmani bosing 🛒",
         reply_markup=get_webapp_keyboard("ru"),
     )

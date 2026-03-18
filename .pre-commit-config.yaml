@@ -1,0 +1,87 @@
+# ═══════════════════════════════════════════════════════════════════
+# Pre-commit Hooks — Monorepo Configuration
+# ═══════════════════════════════════════════════════════════════════
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+# Update hooks: pre-commit autoupdate
+
+repos:
+  # ─────────────────────────────────────────────────────────────────
+  # Ruff — Python linter & formatter (packages/api, packages/bot)
+  # ─────────────────────────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^packages/(api|bot)/
+      - id: ruff-format
+        files: ^packages/(api|bot)/
+
+  # ─────────────────────────────────────────────────────────────────
+  # MyPy — Static type checker (Python)
+  # ─────────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        args: [--strict, --ignore-missing-imports]
+        files: ^packages/api/src/
+        additional_dependencies:
+          - types-python-jose
+          - types-passlib
+
+  # ─────────────────────────────────────────────────────────────────
+  # ESLint — TypeScript/React linter (frontend, admin-panel-v2)
+  # ─────────────────────────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: eslint-frontend
+        name: ESLint (frontend)
+        entry: bash -c 'cd packages/frontend && npx eslint --max-warnings 0 "$@"' --
+        language: system
+        files: ^packages/frontend/src/.*\.(ts|tsx)$
+        types: [file]
+
+      - id: eslint-admin
+        name: ESLint (admin)
+        entry: bash -c 'cd admin-panel-v2 && npx eslint --max-warnings 0 "$@"' --
+        language: system
+        files: ^admin-panel-v2/src/.*\.(ts|tsx)$
+        types: [file]
+
+  # ─────────────────────────────────────────────────────────────────
+  # General pre-commit hooks
+  # ─────────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-toml
+      - id: check-json
+        exclude: ^(packages/frontend|admin-panel-v2)/tsconfig.*\.json$
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: no-commit-to-branch
+        args: [--branch, main, --branch, master]
+
+  # ─────────────────────────────────────────────────────────────────
+  # Security — detect accidentally committed secrets
+  # ─────────────────────────────────────────────────────────────────
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: (package-lock\.json|\.env\.example)
+
+ci:
+  autofix_commit_msg: "[pre-commit.ci] auto fixes"
+  autofix_prs: true
+  autoupdate_schedule: monthly
+  skip: [eslint-frontend, eslint-admin]

@@ -20,6 +20,9 @@ from src.products.schemas import (
     ProductUpdate,
 )
 
+ProductListUnion = ProductListResponse | ProductLocalizedListResponse
+ProductUnion = ProductResponse | ProductLocalizedResponse
+
 router = APIRouter()
 
 
@@ -101,7 +104,7 @@ async def get_products(
     sort_by: str | None = Query(
         None, description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc"
     ),
-) -> Any:
+) -> ProductListUnion:
     """Get paginated list of products (localized by Accept-Language or all fields for admin)."""
     result = await service.get_products_paginated(
         db,
@@ -152,7 +155,7 @@ async def get_product(
         alias="sort_by",
         description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc",
     ),
-) -> Any:
+) -> ProductUnion:
     """Get product by ID (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_id(db, product_id)
     if not product:
@@ -180,7 +183,7 @@ async def get_product_by_slug(
         alias="sort_by",
         description="Sort by: id_desc, id_asc, name_asc, name_desc, price_asc, price_desc",
     ),
-) -> Any:
+) -> ProductUnion:
     """Get product by slug (localized by Accept-Language or all fields for admin)."""
     product = await service.get_product_by_slug(db, slug)
     if not product:
@@ -204,7 +207,7 @@ async def get_product_by_slug(
 async def create_product(
     product_data: ProductCreate,
     db: DbSession,
-) -> Any:
+) -> Product:
     """Create new product."""
     existing = await service.get_product_by_slug(db, product_data.slug)
     if existing:
@@ -222,7 +225,7 @@ async def update_product(
     product_id: int,
     update_data: ProductUpdate,
     db: DbSession,
-) -> Any:
+) -> Product:
     """Update product."""
     product = await service.update_product(db, product_id, update_data)
     if not product:

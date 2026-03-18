@@ -72,8 +72,9 @@ async def verify_admin_jwt(
     ]:
         try:
             payload = jwt.decode(token, secret, algorithms=[settings.jwt_algorithm])
-            if payload.get("type") == allowed_type:
-                return int(payload.get("sub"))
+            sub = payload.get("sub")
+            if payload.get("type") == allowed_type and sub is not None:
+                return int(sub)
         except (JWTError, ValueError, TypeError):
             continue
     raise HTTPException(status_code=401, detail="Invalid token")

@@ -21,9 +21,7 @@ class UserService:
 
     async def get_by_telegram_id(self, telegram_id: int) -> User | None:
         """Get user by telegram_id."""
-        result = await self.session.execute(
-            select(User).where(User.telegram_id == telegram_id)
-        )
+        result = await self.session.execute(select(User).where(User.telegram_id == telegram_id))
         return result.scalar_one_or_none()
 
     async def create(self, telegram_user: TelegramUser) -> User:

@@ -82,7 +82,7 @@ async def get_category(
     category_id: int,
     db: DbSession,
     lang: CurrentLanguage,
-) -> Any:
+) -> dict[str, Any]:
     """Get category by ID (localized by Accept-Language)."""
     category = await service.get_category_by_id(db, category_id)
     if not category:
@@ -98,7 +98,7 @@ async def get_category_by_slug(
     slug: str,
     db: DbSession,
     lang: CurrentLanguage,
-) -> Any:
+) -> dict[str, Any]:
     """Get category by slug (localized by Accept-Language)."""
     category = await service.get_category_by_slug(db, slug)
     if not category:
@@ -118,7 +118,7 @@ async def get_category_by_slug(
 async def create_category(
     category_data: CategoryCreate,
     db: DbSession,
-) -> Any:
+) -> Category:
     """Create new category."""
     # Check if slug already exists
     existing = await service.get_category_by_slug(db, category_data.slug)
@@ -137,7 +137,7 @@ async def update_category(
     category_id: int,
     update_data: CategoryUpdate,
     db: DbSession,
-) -> Any:
+) -> Category:
     """Update category."""
     category = await service.update_category(db, category_id, update_data)
     if not category:

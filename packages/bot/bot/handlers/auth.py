@@ -1,13 +1,13 @@
 """Admin auth handler - verify codes from admin panel."""
 
 import re
+
 import httpx
-from aiogram import Router, F
-from aiogram.filters import CommandStart, CommandObject
+from aiogram import F, Router
+from aiogram.filters import CommandObject, CommandStart
 from aiogram.types import Message
 
 from bot.core.config import settings
-
 
 router = Router(name="auth")
 
@@ -15,7 +15,7 @@ router = Router(name="auth")
 API_URL = "https://app.biotact.uz/api/v1/admin/auth/verify"
 
 # Regex for 6-character hex code
-CODE_PATTERN = re.compile(r'^[A-Fa-f0-9]{6}$')
+CODE_PATTERN = re.compile(r"^[A-Fa-f0-9]{6}$")
 
 
 async def verify_auth_code(code: str, user: dict) -> tuple[bool, str]:
@@ -63,9 +63,7 @@ async def cmd_start_with_code(message: Message, command: CommandObject) -> None:
     code = args.replace("auth_", "")
 
     if not CODE_PATTERN.match(code):
-        await message.answer(
-            "❌ Неверный формат кода авторизации."
-        )
+        await message.answer("❌ Неверный формат кода авторизации.")
         return
 
     user_data = {
@@ -79,14 +77,10 @@ async def cmd_start_with_code(message: Message, command: CommandObject) -> None:
 
     if success:
         await message.answer(
-            "✅ <b>Авторизация успешна!</b>\n\n"
-            "Вернитесь в браузер — вход выполнен автоматически."
+            "✅ <b>Авторизация успешна!</b>\n\nВернитесь в браузер — вход выполнен автоматически."
         )
     elif status == "not_admin":
-        await message.answer(
-            "❌ <b>Доступ запрещён</b>\n\n"
-            "У вас нет прав администратора."
-        )
+        await message.answer("❌ <b>Доступ запрещён</b>\n\nУ вас нет прав администратора.")
     elif status == "not_found":
         await message.answer(
             "❌ <b>Код не найден</b>\n\n"
@@ -94,10 +88,7 @@ async def cmd_start_with_code(message: Message, command: CommandObject) -> None:
             "Запросите новый код на странице входа."
         )
     else:
-        await message.answer(
-            "❌ <b>Ошибка</b>\n\n"
-            "Не удалось проверить код. Попробуйте позже."
-        )
+        await message.answer("❌ <b>Ошибка</b>\n\nНе удалось проверить код. Попробуйте позже.")
 
 
 @router.message(F.text.regexp(CODE_PATTERN))
@@ -116,14 +107,10 @@ async def handle_auth_code_message(message: Message) -> None:
 
     if success:
         await message.answer(
-            "✅ <b>Авторизация успешна!</b>\n\n"
-            "Вернитесь в браузер — вход выполнен автоматически."
+            "✅ <b>Авторизация успешна!</b>\n\nВернитесь в браузер — вход выполнен автоматически."
         )
     elif status == "not_admin":
-        await message.answer(
-            "❌ <b>Доступ запрещён</b>\n\n"
-            "У вас нет прав администратора."
-        )
+        await message.answer("❌ <b>Доступ запрещён</b>\n\nУ вас нет прав администратора.")
     elif status == "not_found":
         await message.answer(
             "❌ <b>Код не найден</b>\n\n"
@@ -131,7 +118,4 @@ async def handle_auth_code_message(message: Message) -> None:
             "Запросите новый код на странице входа."
         )
     else:
-        await message.answer(
-            "❌ <b>Ошибка</b>\n\n"
-            "Не удалось проверить код. Попробуйте позже."
-        )
+        await message.answer("❌ <b>Ошибка</b>\n\nНе удалось проверить код. Попробуйте позже.")
