@@ -2,7 +2,8 @@
 
 import pytest
 from pydantic import ValidationError
-from src.users.schemas import PhoneUpdate, AddressUpdate
+
+from src.users.schemas import AddressUpdate, PhoneUpdate
 
 
 class TestPhoneUpdate:

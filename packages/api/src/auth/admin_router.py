@@ -462,7 +462,7 @@ async def admin_login(
 
     creds = ADMIN_CREDENTIALS[request.username]
 
-    if not _hmac.compare_digest(request.password, creds["password"]):
+    if not _hmac.compare_digest(request.password, str(creds["password"])):
         record_login_attempt(client_ip, success=False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

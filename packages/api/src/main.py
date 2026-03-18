@@ -51,7 +51,6 @@ def create_app() -> FastAPI:
         level=logging.DEBUG if settings.debug else logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    logger = logging.getLogger(__name__)
 
     # Initialize Sentry (if DSN provided)
     if settings.sentry_dsn:
@@ -223,13 +222,13 @@ app = create_app()
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy", "app": settings.app_name}
 
 
 @app.get("/")
-async def root():
+async def root() -> dict[str, str]:
     """Root endpoint."""
     return {
         "message": "Biotact API",

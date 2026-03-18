@@ -1,9 +1,11 @@
 """Multicard payment service."""
 
+from __future__ import annotations
+
 import hashlib
 import logging
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -14,13 +16,16 @@ from src.payments.schemas import (
     PaymentCreateData,
 )
 
+if TYPE_CHECKING:
+    from src.orders.models import OrderItem
+
 logger = logging.getLogger(__name__)
 
 
 class MultiCardClient:
     """Multicard API client."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_url = settings.multicard_base_url
         self.application_id = settings.multicard_application_id
         self.secret = settings.multicard_secret.get_secret_value()
@@ -178,7 +183,7 @@ class MultiCardClient:
 multicard_client = MultiCardClient()
 
 
-def build_ofd_items(order_items: list[Any]) -> list[OFDItem]:
+def build_ofd_items(order_items: list[OrderItem]) -> list[OFDItem]:
     """Build OFD items from order items."""
     ofd_items = []
 

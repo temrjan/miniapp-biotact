@@ -10,6 +10,7 @@ from src.auth.dependencies import CurrentUser
 from src.config import settings
 from src.database import get_db
 from src.users import service
+from src.users.models import User
 from src.users.schemas import (
     AddressUpdate,
     LanguageUpdate,
@@ -98,7 +99,7 @@ async def update_my_language(
 async def get_user_by_telegram_id(
     telegram_id: int,
     db: DbSession,
-) -> UserResponse:
+) -> User:
     """Get user by Telegram ID (for bot)."""
     user = await service.get_by_telegram_id(db, telegram_id)
     if not user:
@@ -106,7 +107,7 @@ async def get_user_by_telegram_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-    return user  # type: ignore[return-value]
+    return user
 
 
 @router.post(
@@ -118,14 +119,13 @@ async def get_user_by_telegram_id(
 async def create_telegram_user(
     data: TelegramUserCreate,
     db: DbSession,
-) -> UserResponse:
+) -> User:
     """Create user from Telegram (for bot)."""
     existing = await service.get_by_telegram_id(db, data.telegram_id)
     if existing:
-        return existing  # type: ignore[return-value]
+        return existing
 
-    user = await service.create_from_telegram(db, data)
-    return user  # type: ignore[return-value]
+    return await service.create_from_telegram(db, data)
 
 
 @router.patch(
@@ -137,7 +137,7 @@ async def update_telegram_user_language(
     telegram_id: int,
     data: LanguageUpdate,
     db: DbSession,
-) -> UserResponse:
+) -> User:
     """Update user language (for bot)."""
     user = await service.get_by_telegram_id(db, telegram_id)
     if not user:
@@ -147,4 +147,4 @@ async def update_telegram_user_language(
         )
 
     user = await service.update_language(db, user, data.language_code)
-    return user  # type: ignore[return-value]
+    return user

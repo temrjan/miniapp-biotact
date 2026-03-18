@@ -1,6 +1,6 @@
 """Order API router."""
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from src.auth.telegram import InitDataValidationError, validate_init_data
 from src.config import settings
 from src.database import get_db
 from src.orders import service
+from src.orders.models import Order
 from src.orders.schemas import (
     OrderCreate,
     OrderListResponse,
@@ -45,7 +46,7 @@ async def create_order(
     order_data: OrderCreate,
     db: DbSession,
     user: User | None = Depends(get_optional_user),
-) -> Any:
+) -> Order:
     """Create new order."""
     user_id = user.id if user else 1
     return await service.create_order(db, order_data, user_id=user_id)
@@ -57,7 +58,7 @@ async def get_orders(
     user: User | None = Depends(get_optional_user),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-) -> Any:
+) -> OrderListResponse:
     """Get user orders."""
     user_id = user.id if user else 1
     return await service.get_user_orders(db, user_id=user_id, page=page, size=size)
@@ -68,7 +69,7 @@ async def get_order(
     order_id: int,
     db: DbSession,
     user: User | None = Depends(get_optional_user),
-) -> Any:
+) -> Order:
     """Get order by ID."""
     order = await service.get_order_with_items(db, order_id)
     if not order:
@@ -91,7 +92,7 @@ async def update_order_status(
     order_id: int,
     status_data: OrderStatusUpdate,
     db: DbSession,
-) -> Any:
+) -> Order:
     """Update order status (admin only)."""
     order = await service.update_order_status(db, order_id, status_data.status)
     if not order:

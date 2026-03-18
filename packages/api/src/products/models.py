@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -37,8 +37,8 @@ class Product(Base):
 
     # Media
     image_url: Mapped[str | None] = mapped_column(String(500))
-    # JSONB stores as dict/list in Python - using dict for type hints but it will be list
-    images: Mapped[Any | None] = mapped_column(
+    # JSONB stores as list in Python
+    images: Mapped[list[str] | None] = mapped_column(
         JSONB, default=list, comment="Array of image URLs for product gallery"
     )
 
@@ -55,7 +55,7 @@ class Product(Base):
     vat: Mapped[int | None] = mapped_column(Integer)  # НДС в процентах (0, 12, 15)
 
     # Additional info - JSONB array of advantages
-    advantages: Mapped[Any | None] = mapped_column(
+    advantages: Mapped[list[str] | None] = mapped_column(
         JSONB, default=list, comment="Array of product benefits/advantages"
     )
     video_url: Mapped[str | None] = mapped_column(String(500))  # YouTube video URL

@@ -15,7 +15,7 @@ async def test_get_products_empty(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_product(client: AsyncClient):
+async def test_create_product(client: AsyncClient, admin_headers: dict[str, str]):
     """Test creating a product."""
     product_data = {
         "name": "iPhone 15",
@@ -26,7 +26,7 @@ async def test_create_product(client: AsyncClient):
         "currency": "UZS",
         "is_active": True,
     }
-    response = await client.post("/api/v1/products", json=product_data)
+    response = await client.post("/api/v1/products", json=product_data, headers=admin_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "iPhone 15"
@@ -35,27 +35,27 @@ async def test_create_product(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_create_product_duplicate_slug(client: AsyncClient):
+async def test_create_product_duplicate_slug(client: AsyncClient, admin_headers: dict[str, str]):
     """Test creating product with duplicate slug."""
     product_data = {
         "name": "Test Product",
         "slug": "test-product",
         "price": "100.00",
     }
-    # Create first
-    response = await client.post("/api/v1/products", json=product_data)
+    response = await client.post("/api/v1/products", json=product_data, headers=admin_headers)
     assert response.status_code == 201
 
-    # Try to create duplicate
-    response = await client.post("/api/v1/products", json=product_data)
+    response = await client.post("/api/v1/products", json=product_data, headers=admin_headers)
     assert response.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_get_product_by_id(client: AsyncClient):
+async def test_get_product_by_id(client: AsyncClient, admin_headers: dict[str, str]):
     """Test getting product by ID."""
     product_data = {"name": "Samsung", "slug": "samsung", "price": "5000000.00"}
-    create_response = await client.post("/api/v1/products", json=product_data)
+    create_response = await client.post(
+        "/api/v1/products", json=product_data, headers=admin_headers
+    )
     created = create_response.json()
 
     response = await client.get(f"/api/v1/products/{created['id']}")
@@ -72,14 +72,18 @@ async def test_get_product_not_found(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_update_product(client: AsyncClient):
+async def test_update_product(client: AsyncClient, admin_headers: dict[str, str]):
     """Test updating a product."""
     product_data = {"name": "Original", "slug": "original-product", "price": "1000.00"}
-    create_response = await client.post("/api/v1/products", json=product_data)
+    create_response = await client.post(
+        "/api/v1/products", json=product_data, headers=admin_headers
+    )
     created = create_response.json()
 
     update_data = {"name": "Updated", "price": "2000.00"}
-    response = await client.patch(f"/api/v1/products/{created['id']}", json=update_data)
+    response = await client.patch(
+        f"/api/v1/products/{created['id']}", json=update_data, headers=admin_headers
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Updated"
@@ -87,13 +91,15 @@ async def test_update_product(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_delete_product(client: AsyncClient):
+async def test_delete_product(client: AsyncClient, admin_headers: dict[str, str]):
     """Test deleting a product."""
     product_data = {"name": "ToDelete", "slug": "to-delete-product", "price": "100.00"}
-    create_response = await client.post("/api/v1/products", json=product_data)
+    create_response = await client.post(
+        "/api/v1/products", json=product_data, headers=admin_headers
+    )
     created = create_response.json()
 
-    response = await client.delete(f"/api/v1/products/{created['id']}")
+    response = await client.delete(f"/api/v1/products/{created['id']}", headers=admin_headers)
     assert response.status_code == 204
 
     get_response = await client.get(f"/api/v1/products/{created['id']}")
@@ -101,17 +107,19 @@ async def test_delete_product(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_search_products(client: AsyncClient):
+async def test_search_products(client: AsyncClient, admin_headers: dict[str, str]):
     """Test searching products."""
-    # Create products
-    await client.post("/api/v1/products", json={
-        "name": "Apple iPhone", "slug": "apple-iphone", "price": "1000.00"
-    })
-    await client.post("/api/v1/products", json={
-        "name": "Samsung Galaxy", "slug": "samsung-galaxy", "price": "800.00"
-    })
+    await client.post(
+        "/api/v1/products",
+        json={"name": "Apple iPhone", "slug": "apple-iphone", "price": "1000.00"},
+        headers=admin_headers,
+    )
+    await client.post(
+        "/api/v1/products",
+        json={"name": "Samsung Galaxy", "slug": "samsung-galaxy", "price": "800.00"},
+        headers=admin_headers,
+    )
 
-    # Search
     response = await client.get("/api/v1/products?search=Apple")
     assert response.status_code == 200
     data = response.json()

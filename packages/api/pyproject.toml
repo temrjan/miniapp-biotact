@@ -53,7 +53,7 @@ where = ["src"]
 biotact_api = ["py.typed"]
 
 # ═══════════════════════════════════════════════════════════════════
-# Ruff - Fast Python linter (замена flake8, isort, pydocstyle)
+# Ruff - Fast Python linter & formatter (замена flake8, isort, black)
 # ═══════════════════════════════════════════════════════════════════
 [tool.ruff]
 line-length = 100
@@ -70,36 +70,31 @@ select = [
     "UP",     # pyupgrade
     "ARG",    # flake8-unused-arguments
     "SIM",    # flake8-simplify
+    "ASYNC",  # flake8-async
+    "S",      # flake8-bandit (security)
+    "PT",     # flake8-pytest-style
+    "RUF",    # Ruff-specific rules
 ]
 ignore = [
-    "E501",   # line too long (handled by black)
-    "B008",   # do not perform function calls in argument defaults
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults (FastAPI Depends)
+    "S101",   # assert used (ok in tests)
+    "S104",   # binding to all interfaces (ok for containers)
+    "S105",   # hardcoded password (false positives on field names)
+    "S106",   # hardcoded password (false positives on field names)
+    "RUF001", # ambiguous unicode (Cyrillic in Russian-language strings)
+    "RUF003", # ambiguous unicode in comments (Cyrillic)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]  # unused imports
-"tests/**/*.py" = ["ARG"]  # unused arguments in tests
+"__init__.py" = ["F401"]
+"tests/**/*.py" = ["ARG", "S101", "S105", "S106"]
+"alembic/**/*.py" = ["UP"]
+"src/payments/service.py" = ["S324"]  # md5/sha1 required by Multicard API
 
-# ═══════════════════════════════════════════════════════════════════
-# Black - Code formatter
-# ═══════════════════════════════════════════════════════════════════
-[tool.black]
-line-length = 100
-target-version = ["py311"]
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-  | \.venv
-  | \.mypy_cache
-  | \.pytest_cache
-  | \.ruff_cache
-  | __pycache__
-  | alembic/versions
-  | dist
-  | build
-)/
-'''
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 # ═══════════════════════════════════════════════════════════════════
 # MyPy - Static type checker
@@ -117,11 +112,21 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
+# Practical relaxations for FastAPI
+allow_untyped_decorators = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
 
 [[tool.mypy.overrides]]
 module = [
     "passlib.*",
     "jose.*",
+    "sentry_sdk.*",
 ]
 ignore_missing_imports = true
 

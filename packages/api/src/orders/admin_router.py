@@ -138,7 +138,7 @@ async def get_all_orders(
 async def get_order_details(
     order_id: int,
     db: DbSession,
-) -> OrderResponse:
+) -> Order:
     """Get order details by ID (admin only)."""
     query = select(Order).options(selectinload(Order.items)).where(Order.id == order_id)
 
@@ -151,7 +151,7 @@ async def get_order_details(
             detail="Order not found",
         )
 
-    return order  # type: ignore[return-value]
+    return order
 
 
 @router.patch(
@@ -161,7 +161,7 @@ async def update_order_status_admin(
     order_id: int,
     status_data: OrderStatusUpdate,
     db: DbSession,
-) -> OrderResponse:
+) -> Order:
     """Update order status (admin only)."""
     query = select(Order).options(selectinload(Order.items)).where(Order.id == order_id)
 
@@ -192,4 +192,4 @@ async def update_order_status_admin(
             detail=f"Invalid status: {status_data.status}",
         ) from exc
 
-    return order  # type: ignore[return-value]
+    return order

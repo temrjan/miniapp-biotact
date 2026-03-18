@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class EmailService:
-    def __init__(self):
+    def __init__(self) -> None:
         self.smtp_host = settings.smtp_host
         self.smtp_port = settings.smtp_port
         self.smtp_user = settings.smtp_user

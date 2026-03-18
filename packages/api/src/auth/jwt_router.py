@@ -112,10 +112,11 @@ async def get_current_user(
         payload = jwt.decode(
             token, settings.jwt_secret.get_secret_value(), algorithms=[settings.jwt_algorithm]
         )
-        user_id = int(payload.get("sub"))
+        sub = payload.get("sub")
         token_type = payload.get("type")
-        if user_id is None or token_type != "access":
+        if sub is None or token_type != "access":
             raise HTTPException(status_code=401, detail="Invalid token")
+        user_id = int(sub)
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid token") from exc
 
@@ -191,11 +192,12 @@ async def refresh_token(
             settings.jwt_secret.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
         )
-        user_id = int(payload.get("sub"))
+        sub = payload.get("sub")
         token_type = payload.get("type")
 
-        if token_type != "refresh":
+        if token_type != "refresh" or sub is None:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
+        user_id = int(sub)
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token") from exc
 

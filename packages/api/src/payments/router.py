@@ -69,6 +69,8 @@ async def create_payment(
 
     try:
         result = await multicard_client.create_invoice(payment_data)
+        if not result:
+            raise HTTPException(status_code=502, detail="Payment service returned no result")
 
         # Save payment UUID to order
         await orders_service.update_order_payment(
@@ -185,7 +187,7 @@ async def payment_callback(
 
 
 @router.get("/status/{payment_uuid}")
-async def get_payment_status(payment_uuid: str) -> Any:
+async def get_payment_status(payment_uuid: str) -> dict[str, Any]:
     """Get payment status from Multicard."""
     result = await multicard_client.get_invoice_status(payment_uuid)
     if not result:
