@@ -1,17 +1,18 @@
 """Pytest configuration and fixtures."""
 
 import asyncio
-from typing import AsyncGenerator
+import time
+from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from httpx import ASGITransport, AsyncClient
+from jose import jwt
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.main import app
-from src.database import Base, get_db
 from src.config import settings
-
+from src.database import Base, get_db
+from src.main import app
 
 # Test database URL
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
@@ -61,3 +62,19 @@ async def client(test_db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def admin_headers() -> dict[str, str]:
+    """Auth headers with admin JWT for protected endpoints."""
+    payload = {
+        "sub": "1",
+        "type": "admin",
+        "exp": int(time.time()) + 3600,
+    }
+    token = jwt.encode(
+        payload,
+        settings.secret_key.get_secret_value(),
+        algorithm=settings.algorithm,
+    )
+    return {"Authorization": f"Bearer {token}"}

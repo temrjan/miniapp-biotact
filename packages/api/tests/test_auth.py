@@ -1,7 +1,8 @@
 """Tests for auth module."""
 
 import pytest
-from src.auth.telegram import validate_init_data, InitDataValidationError
+
+from src.auth.telegram import InitDataValidationError, validate_init_data
 
 
 class TestValidateInitData:
@@ -20,7 +21,4 @@ class TestValidateInitData:
     def test_invalid_hash_raises_error(self):
         """Invalid hash should raise error."""
         with pytest.raises(InitDataValidationError, match="Invalid hash"):
-            validate_init_data(
-                "user=test&auth_date=123&hash=invalid",
-                "bot_token"
-            )
+            validate_init_data("user=test&auth_date=123&hash=invalid", "bot_token")
