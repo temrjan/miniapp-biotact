@@ -1,73 +1,73 @@
-# React + TypeScript + Vite
+# Biotact Frontend — Telegram Mini App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Telegram Mini App для продажи БАДов и товаров ЗОЖ. Работает внутри Telegram через WebApp SDK.
 
-Currently, two official plugins are available:
+## Стек
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+| Технология | Версия | Назначение |
+|------------|--------|------------|
+| React | 19 | UI |
+| Vite | 7 | Сборка |
+| TypeScript | 5.9 | Типизация (strict) |
+| Zustand | 5 | Состояние (persist + devtools) |
+| TanStack Query | 5 | Серверный кеш |
+| Tailwind CSS | 4.1 | Стили |
+| Framer Motion | 12 | Анимации |
+| Telegram WebApp SDK | 8.0 | Интеграция с Telegram |
 
-## React Compiler
+## Страницы
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Страница | Путь | Описание |
+|----------|------|----------|
+| Главная | `/` | Баннеры, товары по категориям, FAQ |
+| Каталог | `/catalog` | Фильтр по категориям, пагинация |
+| Товар | `/product/:id` | Галерея, описание, добавление в корзину |
+| Корзина | `/cart` | Список товаров, изменение количества |
+| Оформление | `/checkout` | Геолокация, телефон, адрес, оплата |
+| Заказы | `/orders` | История заказов со статусами |
+| Профиль | `/profile` | Данные пользователя, язык |
 
-## Expanding the ESLint configuration
+## Структура
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+├── pages/           # 9 страниц
+├── components/
+│   ├── ui/          # Button, Card, BottomSheet, Skeleton, ErrorBoundary
+│   ├── features/    # ProductBottomSheet, LocationModal, PhoneInput
+│   └── layouts/     # MainLayout (навигация, хедер)
+├── stores/          # appStore, cartStore, userStore, locationStore, languageStore
+├── api/             # HTTP-клиент с X-Init-Data авторизацией
+├── hooks/           # useTelegram, useBackButton, useMainButton, useGeolocation
+├── i18n/            # Переводы (русский + узбекский)
+├── utils/           # Константы, геокодинг, валидация
+└── types/           # TypeScript типы
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Команды
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm ci               # Установка зависимостей
+npm run dev          # Dev-сервер (порт 5173)
+npm run build        # Сборка (tsc + vite build)
+npm run test         # Тесты (vitest, 129 тестов)
+npm run lint         # ESLint
+npm run type-check   # tsc --noEmit
+npm run format       # Prettier
 ```
+
+## Авторизация
+
+Все API-запросы отправляют заголовок `X-Init-Data` с данными Telegram WebApp. Бэкенд валидирует подпись через HMAC-SHA256.
+
+## Локализация
+
+Поддержка русского и узбекского языков. Переключение через профиль. Заголовок `Accept-Language` передаётся в API.
+
+## Особенности
+
+- Корзина сохраняется в localStorage через Zustand persist
+- Геолокация через браузер + Nominatim для обратного геокодинга
+- Haptic feedback через Telegram SDK
+- Neumorphic дизайн-система с поддержкой тёмной темы
+- Code splitting: vendor, state, ui чанки

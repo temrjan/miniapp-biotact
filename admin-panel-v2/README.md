@@ -1,73 +1,75 @@
-# React + TypeScript + Vite
+# Biotact Admin Panel
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Панель управления магазином Biotact. Управление товарами, заказами, пользователями и аналитика.
 
-Currently, two official plugins are available:
+## Стек
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+| Технология | Версия | Назначение |
+|------------|--------|------------|
+| React | 19 | UI |
+| Vite | 7 | Сборка |
+| TypeScript | 5.9 | Типизация (strict) |
+| Radix UI | — | Компоненты (Dialog, Select, Toast и др.) |
+| Tailwind CSS | 3.4 | Стили |
+| React Hook Form + Zod | 7 / 4 | Формы и валидация |
+| TanStack Query | 5 | Серверный кеш |
+| Zustand | 5 | Авторизация (persist) |
+| Recharts | 3.6 | Графики |
+| Axios | 1.13 | HTTP-клиент |
 
-## React Compiler
+## Функции
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Раздел | Возможности |
+|--------|-------------|
+| Dashboard | Статистика, график выручки, последние заказы |
+| Товары | CRUD, мультиязычность (рус/узб), загрузка изображений, drag-reorder, OFD-поля |
+| Категории | CRUD, изображения, сортировка |
+| Баннеры | CRUD, загрузка изображений, интервал ротации |
+| Заказы | Список с фильтрами, детали заказа, смена статуса |
+| Пользователи | Список, детали, управление ролями |
+| CRM | Клиентская база, статистика, история покупок |
+| Настройки | Название магазина, контакты, доставка, валюта |
 
-## Expanding the ESLint configuration
+## Структура
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+├── app/
+│   ├── layouts/     # MainLayout (сайдбар, тема, логаут)
+│   ├── providers/   # QueryProvider, ThemeProvider
+│   └── routes/      # PrivateRoute (auth guard)
+├── features/        # Domain-driven модули
+│   ├── auth/        # Логин, JWT-хранилище
+│   ├── dashboard/   # Графики, статистика
+│   ├── products/    # Список, создание, редактирование
+│   ├── categories/  # CRUD
+│   ├── banners/     # CRUD + upload
+│   ├── orders/      # Список, детали, статусы
+│   ├── users/       # Управление пользователями
+│   ├── customers/   # CRM
+│   └── settings/    # Настройки магазина
+└── shared/
+    ├── api/         # Axios клиент + JWT interceptor
+    ├── components/  # UI (Radix), ImageUploader, ErrorBoundary
+    └── types/       # Общие TypeScript типы
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Команды
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm ci               # Установка зависимостей
+npm run dev          # Dev-сервер
+npm run build        # Сборка (tsc + vite build)
+npm run test         # Тесты (vitest)
+npm run lint         # ESLint
 ```
+
+## Авторизация
+
+JWT Bearer Token. Логин по email/паролю через `/api/v1/auth/login`. Токен хранится в Zustand (localStorage). Axios interceptor добавляет `Authorization` заголовок. При 401 — редирект на логин.
+
+## Переменные окружения
+
+| Переменная | По умолчанию | Описание |
+|------------|-------------|----------|
+| `VITE_API_URL` | `/api/v1` | Базовый URL API |
