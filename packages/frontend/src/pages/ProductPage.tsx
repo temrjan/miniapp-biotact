@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingCart, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react';
@@ -10,6 +10,17 @@ import { useTranslation } from '@/i18n';
 import { useLanguage } from '@/stores/languageStore';
 import { productsApi } from '@/api';
 import type { Product } from '@/types';
+
+/** Parse **bold** markdown into React nodes */
+function parseBold(text: string): ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
 
 interface ApiProduct {
   id: number;
@@ -243,7 +254,7 @@ export function ProductPage() {
             <>
               <div>
                 <h2 className="text-lg font-semibold mb-2">{t('product.description')}</h2>
-                <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{product.description}</p>
+                <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{parseBold(product.description)}</p>
               </div>
               <div className="h-px bg-[var(--border)]" />
             </>
@@ -257,7 +268,7 @@ export function ProductPage() {
           <>
             <div>
               <h2 className="text-lg font-semibold mb-2">{product.additionalInfoTitle || t('product.information')}</h2>
-              <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{product.additionalInfo}</p>
+              <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{parseBold(product.additionalInfo)}</p>
             </div>
             <div className="h-px bg-[var(--border)]" />
           </>
