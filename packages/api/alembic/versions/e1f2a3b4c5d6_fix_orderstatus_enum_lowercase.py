@@ -17,20 +17,42 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Rename orderstatus enum values from UPPERCASE to lowercase."""
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'PENDING' TO 'pending'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'CONFIRMED' TO 'confirmed'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'PROCESSING' TO 'processing'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'SHIPPED' TO 'shipped'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'DELIVERED' TO 'delivered'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'CANCELLED' TO 'cancelled'")
+    """Rename orderstatus enum values from UPPERCASE to lowercase (idempotent)."""
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_enum e
+                JOIN pg_type t ON e.enumtypid = t.oid
+                WHERE t.typname = 'orderstatus' AND e.enumlabel = 'PENDING'
+            ) THEN
+                ALTER TYPE orderstatus RENAME VALUE 'PENDING' TO 'pending';
+                ALTER TYPE orderstatus RENAME VALUE 'CONFIRMED' TO 'confirmed';
+                ALTER TYPE orderstatus RENAME VALUE 'PROCESSING' TO 'processing';
+                ALTER TYPE orderstatus RENAME VALUE 'SHIPPED' TO 'shipped';
+                ALTER TYPE orderstatus RENAME VALUE 'DELIVERED' TO 'delivered';
+                ALTER TYPE orderstatus RENAME VALUE 'CANCELLED' TO 'cancelled';
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:
-    """Revert orderstatus enum values back to UPPERCASE."""
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'pending' TO 'PENDING'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'confirmed' TO 'CONFIRMED'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'processing' TO 'PROCESSING'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'shipped' TO 'SHIPPED'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'delivered' TO 'DELIVERED'")
-    op.execute("ALTER TYPE orderstatus RENAME VALUE 'cancelled' TO 'CANCELLED'")
+    """Revert orderstatus enum values back to UPPERCASE (idempotent)."""
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_enum e
+                JOIN pg_type t ON e.enumtypid = t.oid
+                WHERE t.typname = 'orderstatus' AND e.enumlabel = 'pending'
+            ) THEN
+                ALTER TYPE orderstatus RENAME VALUE 'pending' TO 'PENDING';
+                ALTER TYPE orderstatus RENAME VALUE 'confirmed' TO 'CONFIRMED';
+                ALTER TYPE orderstatus RENAME VALUE 'processing' TO 'PROCESSING';
+                ALTER TYPE orderstatus RENAME VALUE 'shipped' TO 'SHIPPED';
+                ALTER TYPE orderstatus RENAME VALUE 'delivered' TO 'DELIVERED';
+                ALTER TYPE orderstatus RENAME VALUE 'cancelled' TO 'CANCELLED';
+            END IF;
+        END $$;
+    """)
