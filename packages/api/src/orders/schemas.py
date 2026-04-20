@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 class OrderItemBase(BaseModel):
     """Base order item schema."""
 
-    product_id: int
+    product_id: int | None = None
     product_name: str
     product_price: Decimal
     quantity: int = Field(ge=1)
