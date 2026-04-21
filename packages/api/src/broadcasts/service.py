@@ -88,7 +88,7 @@ async def cancel_broadcast(
 def _build_reply_markup(
     button_text: str | None,
     button_url: str | None,
-) -> dict | None:
+) -> dict[str, object] | None:
     """Build InlineKeyboardMarkup if button is configured."""
     if not button_text or not button_url:
         return None
@@ -121,7 +121,7 @@ async def _send_to_user(
     photo = broadcast.photo_file_id or broadcast.photo_url
 
     if photo:
-        payload: dict = {
+        payload: dict[str, object] = {
             "chat_id": chat_id,
             "photo": photo,
             "caption": broadcast.text,
