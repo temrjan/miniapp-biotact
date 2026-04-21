@@ -60,10 +60,7 @@ async def get_broadcasts_paginated(
 
     offset = (page - 1) * size
     result = await db.execute(
-        select(Broadcast)
-        .order_by(Broadcast.created_at.desc())
-        .offset(offset)
-        .limit(size)
+        select(Broadcast).order_by(Broadcast.created_at.desc()).offset(offset).limit(size)
     )
     items = list(result.scalars().all())
     pages = (total + size - 1) // size if total > 0 else 0
@@ -96,10 +93,14 @@ def _build_reply_markup(
     if not button_text or not button_url:
         return None
     return {
-        "inline_keyboard": [[{
-            "text": button_text,
-            "url": button_url,
-        }]]
+        "inline_keyboard": [
+            [
+                {
+                    "text": button_text,
+                    "url": button_url,
+                }
+            ]
+        ]
     }
 
 
@@ -174,7 +175,9 @@ async def _send_to_user(
         # Chat not found or other client error
         logger.warning(
             "Failed to send to %d: [%d] %s",
-            chat_id, error_code, description,
+            chat_id,
+            error_code,
+            description,
         )
         return False, "failed"
 
@@ -208,7 +211,9 @@ async def execute_broadcast(broadcast_id: int) -> None:
 
             logger.info(
                 "Starting broadcast %d %s to %d users",
-                broadcast_id, broadcast.title, len(telegram_ids),
+                broadcast_id,
+                broadcast.title,
+                len(telegram_ids),
             )
 
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -224,9 +229,7 @@ async def execute_broadcast(broadcast_id: int) -> None:
                     elif error_type == "blocked":
                         broadcast.blocked_count += 1
                         # Mark user as inactive
-                        user_result = await db.execute(
-                            select(User).where(User.telegram_id == tid)
-                        )
+                        user_result = await db.execute(select(User).where(User.telegram_id == tid))
                         user = user_result.scalar_one_or_none()
                         if user:
                             user.is_active = False

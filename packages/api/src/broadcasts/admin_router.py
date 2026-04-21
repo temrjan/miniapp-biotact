@@ -53,9 +53,7 @@ async def require_admin(
         )
 
     user_id = int(payload.get("sub", 0))
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_admin:
@@ -117,15 +115,11 @@ async def send_broadcast(
         raise NotFoundException("Broadcast not found")
 
     if broadcast.status not in (BroadcastStatus.DRAFT, BroadcastStatus.CANCELLED):
-        raise BadRequestException(
-            f"Cannot send broadcast with status {broadcast.status}"
-        )
+        raise BadRequestException(f"Cannot send broadcast with status {broadcast.status}")
 
     # Prevent concurrent broadcasts
     result = await db.execute(
-        select(Broadcast.id)
-        .where(Broadcast.status == BroadcastStatus.SENDING)
-        .limit(1)
+        select(Broadcast.id).where(Broadcast.status == BroadcastStatus.SENDING).limit(1)
     )
     if result.scalar_one_or_none() is not None:
         raise BadRequestException("Another broadcast is currently sending")
@@ -159,8 +153,6 @@ async def cancel_broadcast(
         raise NotFoundException("Broadcast not found")
 
     if broadcast.status not in (BroadcastStatus.DRAFT, BroadcastStatus.SENDING):
-        raise BadRequestException(
-            f"Cannot cancel broadcast with status {broadcast.status}"
-        )
+        raise BadRequestException(f"Cannot cancel broadcast with status {broadcast.status}")
 
     return await service.cancel_broadcast(db, broadcast)
