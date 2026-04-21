@@ -99,6 +99,7 @@ export function BannersListPage() {
     if (newIndex < 0 || newIndex >= banners.length) return
 
     const otherBanner = banners[newIndex]
+    if (!otherBanner) return
 
     // Swap sort_order values
     await Promise.all([

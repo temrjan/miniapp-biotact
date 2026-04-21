@@ -49,13 +49,13 @@ export interface OrderListResponse {
 }
 
 export interface OrdersParams {
-  page?: number;
-  size?: number;
-  status?: OrderStatus;
-  search?: string;
-  date_from?: string;
-  date_to?: string;
-  payment_status?: PaymentStatus;
+  page?: number | undefined;
+  size?: number | undefined;
+  status?: OrderStatus | undefined;
+  search?: string | undefined;
+  date_from?: string | undefined;
+  date_to?: string | undefined;
+  payment_status?: PaymentStatus | undefined;
 }
 
 export interface OrderStatusUpdateData {

@@ -235,7 +235,7 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
                   <Select
                     value={field.value?.toString() || '__none__'}
                     onValueChange={(val) => field.onChange(val && val !== '__none__' ? Number(val) : null)}
-                    disabled={isLoading}
+                    disabled={isLoading ?? false}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Выберите категорию..." />
@@ -288,7 +288,7 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
                 value={field.value || []}
                 onChange={field.onChange}
                 maxFiles={5}
-                disabled={isLoading}
+                disabled={isLoading ?? false}
               />
             )}
           />
@@ -390,7 +390,7 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="is_active"
-                checked={isActive}
+                checked={isActive ?? false}
                 onCheckedChange={(checked) => setValue('is_active', !!checked)}
               />
               <Label htmlFor="is_active" className="cursor-pointer">
@@ -401,7 +401,7 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="is_in_stock"
-                checked={isInStock}
+                checked={isInStock ?? false}
                 onCheckedChange={(checked) => setValue('is_in_stock', !!checked)}
               />
               <Label htmlFor="is_in_stock" className="cursor-pointer">
@@ -412,7 +412,7 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="is_featured"
-                checked={isFeatured}
+                checked={isFeatured ?? false}
                 onCheckedChange={(checked) => setValue('is_featured', !!checked)}
               />
               <Label htmlFor="is_featured" className="cursor-pointer">

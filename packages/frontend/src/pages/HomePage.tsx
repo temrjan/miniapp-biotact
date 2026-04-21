@@ -57,8 +57,8 @@ interface ProductCardProps {
 
 interface SectionHeaderProps {
   title: string;
-  categoryId?: string;
-  onViewAll?: (categoryId: string) => void;
+  categoryId?: string | undefined;
+  onViewAll?: ((categoryId: string) => void) | undefined;
   viewAllText: string;
 }
 

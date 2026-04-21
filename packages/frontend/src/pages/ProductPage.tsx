@@ -46,10 +46,10 @@ interface ApiProduct {
 }
 
 interface ExtendedProduct extends Product {
-  additionalInfoTitle?: string;
-  additionalInfo?: string;
-  disclaimer?: string;
-  youtubeVideoUrl?: string;
+  additionalInfoTitle?: string | undefined;
+  additionalInfo?: string | undefined;
+  disclaimer?: string | undefined;
+  youtubeVideoUrl?: string | undefined;
 }
 
 function mapProduct(api: ApiProduct, lang: string): ExtendedProduct {

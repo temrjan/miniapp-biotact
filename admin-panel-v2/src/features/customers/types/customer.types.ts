@@ -23,10 +23,10 @@ export interface Customer {
 }
 
 export interface CustomersParams {
-  page?: number
-  size?: number
-  search?: string
-  problem?: ProblemTag
+  page?: number | undefined
+  size?: number | undefined
+  search?: string | undefined
+  problem?: ProblemTag | undefined
 }
 
 export interface PaginatedCustomers {

@@ -5,11 +5,11 @@
 export interface TelegramUser {
   id: number;
   firstName: string;
-  lastName?: string;
-  username?: string;
-  languageCode?: string;
-  isPremium?: boolean;
-  photoUrl?: string;
+  lastName?: string | undefined;
+  username?: string | undefined;
+  languageCode?: string | undefined;
+  isPremium?: boolean | undefined;
+  photoUrl?: string | undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -21,23 +21,23 @@ export interface Product {
   name: string;
   description: string;
   price: number;
-  oldPrice?: number;
+  oldPrice?: number | undefined;
   imageUrl: string;
-  images?: string[];
+  images?: string[] | undefined;
   categoryId: string;
   inStock: boolean;
-  isPurchasable?: boolean;
-  quantity?: number;
-  weight?: string;
-  tags?: string[];
+  isPurchasable?: boolean | undefined;
+  quantity?: number | undefined;
+  weight?: string | undefined;
+  tags?: string[] | undefined;
 }
 
 export interface Category {
   id: string;
   name: string;
   slug: string;
-  imageUrl?: string;
-  parentId?: string;
+  imageUrl?: string | undefined;
+  parentId?: string | undefined;
   order: number;
 }
 
@@ -75,9 +75,9 @@ export interface Order {
   items: CartItem[];
   totalAmount: number;
   status: OrderStatus;
-  address?: string;
-  phone?: string;
-  comment?: string;
+  address?: string | undefined;
+  phone?: string | undefined;
+  comment?: string | undefined;
   createdAt: string;
   updatedAt: string;
 }
@@ -88,9 +88,9 @@ export interface Order {
 
 export interface ApiResponse<T> {
   success: boolean;
-  data?: T;
-  error?: string;
-  message?: string;
+  data?: T | undefined;
+  error?: string | undefined;
+  message?: string | undefined;
 }
 
 export interface PaginatedResponse<T> {

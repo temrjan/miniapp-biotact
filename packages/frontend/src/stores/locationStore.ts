@@ -8,8 +8,8 @@ export interface DeliveryAddress {
   entrance: string;
   floor: string;
   comment: string;
-  lat?: number;
-  lng?: number;
+  lat?: number | undefined;
+  lng?: number | undefined;
 }
 
 interface LocationState {

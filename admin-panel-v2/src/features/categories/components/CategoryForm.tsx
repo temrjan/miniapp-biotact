@@ -37,9 +37,9 @@ const categorySchema = z.object({
 export type CategoryFormData = z.infer<typeof categorySchema>;
 
 interface CategoryFormProps {
-  category?: Category;
+  category?: Category | undefined;
   onSubmit: (data: CategoryFormData) => void;
-  isLoading?: boolean;
+  isLoading?: boolean | undefined;
 }
 
 export function CategoryForm({ category, onSubmit, isLoading }: CategoryFormProps) {
@@ -192,7 +192,7 @@ export function CategoryForm({ category, onSubmit, isLoading }: CategoryFormProp
                 value={field.value ? [field.value] : []}
                 onChange={(urls) => field.onChange(urls[0] || null)}
                 maxFiles={1}
-                disabled={isLoading}
+                disabled={isLoading ?? false}
               />
             )}
           />
@@ -227,7 +227,7 @@ export function CategoryForm({ category, onSubmit, isLoading }: CategoryFormProp
               render={({ field }) => (
                 <Checkbox
                   id="is_active"
-                  checked={field.value}
+                  checked={field.value ?? false}
                   onCheckedChange={field.onChange}
                 />
               )}
