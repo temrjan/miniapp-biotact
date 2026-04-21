@@ -44,7 +44,7 @@ async def require_admin(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
+        ) from None
 
     if payload.get("type") != "admin":
         raise HTTPException(
@@ -83,7 +83,7 @@ async def create_broadcast(
 @router.get("", response_model=BroadcastListResponse)
 async def list_broadcasts(
     db: DbSession,
-    admin: AdminUser,
+    _admin: AdminUser,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
 ) -> BroadcastListResponse:
@@ -95,7 +95,7 @@ async def list_broadcasts(
 async def get_broadcast(
     broadcast_id: int,
     db: DbSession,
-    admin: AdminUser,
+    _admin: AdminUser,
 ) -> Broadcast:
     """Get broadcast details."""
     broadcast = await service.get_broadcast(db, broadcast_id)
@@ -108,7 +108,7 @@ async def get_broadcast(
 async def send_broadcast(
     broadcast_id: int,
     db: DbSession,
-    admin: AdminUser,
+    _admin: AdminUser,
     background_tasks: BackgroundTasks,
 ) -> Broadcast:
     """Start sending a broadcast to all active users."""
@@ -151,7 +151,7 @@ async def send_broadcast(
 async def cancel_broadcast(
     broadcast_id: int,
     db: DbSession,
-    admin: AdminUser,
+    _admin: AdminUser,
 ) -> Broadcast:
     """Cancel a broadcast."""
     broadcast = await service.get_broadcast(db, broadcast_id)
