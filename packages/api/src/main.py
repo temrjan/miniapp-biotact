@@ -18,6 +18,7 @@ from src.auth.admin_router import router as admin_auth_router
 from src.auth.jwt_router import router as jwt_auth_router
 from src.banners.router import router as banners_router
 from src.banners.router import settings_router
+from src.broadcasts.admin_router import router as admin_broadcasts_router
 from src.categories.router import router as categories_router
 from src.config import settings
 from src.crm.admin_router import router as crm_admin_router
@@ -188,6 +189,13 @@ def create_app() -> FastAPI:
         crm_bot_router,
         prefix=f"{settings.api_v1_prefix}/bot",
         tags=["bot-crm"],
+    )
+
+    # Admin Broadcasts router
+    app.include_router(
+        admin_broadcasts_router,
+        prefix=f"{settings.api_v1_prefix}/admin/broadcasts",
+        tags=["admin-broadcasts"],
     )
 
     # Global exception handlers
