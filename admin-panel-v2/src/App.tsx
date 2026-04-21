@@ -23,6 +23,7 @@ const UsersListPage = lazy(() => import('./features/users/pages/UsersListPage').
 const UserDetailPage = lazy(() => import('./features/users/pages/UserDetailPage').then(m => ({ default: m.UserDetailPage })))
 const SettingsPage = lazy(() => import('./features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const CustomersPage = lazy(() => import('./features/customers/pages/CustomersPage').then(m => ({ default: m.CustomersPage })))
+const BroadcastsPage = lazy(() => import('./features/broadcasts/pages/BroadcastsPage').then(m => ({ default: m.BroadcastsPage })))
 
 function App() {
   return (
@@ -183,6 +184,17 @@ function App() {
                     <PrivateRoute>
                       <MainLayout>
                         <CustomersPage />
+                      </MainLayout>
+                    </PrivateRoute>
+                  }
+                />
+
+                <Route
+                  path='/broadcasts'
+                  element={
+                    <PrivateRoute>
+                      <MainLayout>
+                        <BroadcastsPage />
                       </MainLayout>
                     </PrivateRoute>
                   }
