@@ -16,11 +16,11 @@ export interface User {
 }
 
 export interface UsersParams {
-  page?: number
-  size?: number
-  search?: string
-  role?: UserRole
-  is_active?: boolean
+  page?: number | undefined
+  size?: number | undefined
+  search?: string | undefined
+  role?: UserRole | undefined
+  is_active?: boolean | undefined
 }
 
 export interface PaginatedUsers {

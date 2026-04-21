@@ -70,7 +70,9 @@ describe('ImageUploader', () => {
     render(<ImageUploader value={urls} onChange={onChange} />);
 
     const removeButtons = screen.getAllByRole('button');
-    await user.click(removeButtons[0]);
+    const firstButton = removeButtons[0];
+    if (!firstButton) throw new Error('Remove button not found');
+    await user.click(firstButton);
 
     expect(onChange).toHaveBeenCalledWith(['https://example.com/img2.jpg']);
   });

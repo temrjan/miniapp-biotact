@@ -14,32 +14,32 @@ export interface ProductsParams {
 
 export interface ProductCreateData {
   name: string
-  name_uz?: string | null
+  name_uz?: string | null | undefined
   slug: string
-  description?: string | null
-  description_uz?: string | null
+  description?: string | null | undefined
+  description_uz?: string | null | undefined
   price: number
-  old_price?: number | null
-  currency?: string
-  stock_quantity?: number
-  is_in_stock?: boolean
-  image_url?: string | null
-  images?: string[]
-  category_id?: number | null
-  mxik?: string | null
-  package_code?: string | null
-  vat?: number | null
-  advantages?: string[]
-  video_url?: string | null
-  additional_info_title?: string | null
-  additional_info_title_uz?: string | null
-  additional_info?: string | null
-  additional_info_uz?: string | null
-  disclaimer?: string | null
-  disclaimer_uz?: string | null
-  sort_order?: number
-  is_active?: boolean
-  is_featured?: boolean
+  old_price?: number | null | undefined
+  currency?: string | undefined
+  stock_quantity?: number | undefined
+  is_in_stock?: boolean | undefined
+  image_url?: string | null | undefined
+  images?: string[] | undefined
+  category_id?: number | null | undefined
+  mxik?: string | null | undefined
+  package_code?: string | null | undefined
+  vat?: number | null | undefined
+  advantages?: string[] | undefined
+  video_url?: string | null | undefined
+  additional_info_title?: string | null | undefined
+  additional_info_title_uz?: string | null | undefined
+  additional_info?: string | null | undefined
+  additional_info_uz?: string | null | undefined
+  disclaimer?: string | null | undefined
+  disclaimer_uz?: string | null | undefined
+  sort_order?: number | undefined
+  is_active?: boolean | undefined
+  is_featured?: boolean | undefined
 }
 
 export type ProductUpdateData = Partial<ProductCreateData>

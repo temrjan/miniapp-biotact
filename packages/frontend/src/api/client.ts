@@ -86,21 +86,21 @@ export const api = {
     fetchWithAuth<T>(endpoint, {
       ...config,
       method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
+      body: data ? JSON.stringify(data) : null,
     }),
 
   put: <T>(endpoint: string, data?: unknown, config?: RequestConfig) =>
     fetchWithAuth<T>(endpoint, {
       ...config,
       method: 'PUT',
-      body: data ? JSON.stringify(data) : undefined,
+      body: data ? JSON.stringify(data) : null,
     }),
 
   patch: <T>(endpoint: string, data?: unknown, config?: RequestConfig) =>
     fetchWithAuth<T>(endpoint, {
       ...config,
       method: 'PATCH',
-      body: data ? JSON.stringify(data) : undefined,
+      body: data ? JSON.stringify(data) : null,
     }),
 
   delete: <T>(endpoint: string, config?: RequestConfig) =>

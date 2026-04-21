@@ -17,26 +17,26 @@ export interface Category {
 
 export interface CategoryCreateData {
   name: string;
-  name_uz?: string;
+  name_uz?: string | undefined;
   slug: string;
-  description?: string;
-  description_uz?: string;
-  image_url?: string;
-  sort_order?: number;
-  is_active?: boolean;
-  is_purchasable?: boolean;
+  description?: string | undefined;
+  description_uz?: string | undefined;
+  image_url?: string | undefined;
+  sort_order?: number | undefined;
+  is_active?: boolean | undefined;
+  is_purchasable?: boolean | undefined;
 }
 
 export interface CategoryUpdateData {
-  name?: string;
-  name_uz?: string;
-  slug?: string;
-  description?: string;
-  description_uz?: string;
-  image_url?: string;
-  sort_order?: number;
-  is_active?: boolean;
-  is_purchasable?: boolean;
+  name?: string | undefined;
+  name_uz?: string | undefined;
+  slug?: string | undefined;
+  description?: string | undefined;
+  description_uz?: string | undefined;
+  image_url?: string | undefined;
+  sort_order?: number | undefined;
+  is_active?: boolean | undefined;
+  is_purchasable?: boolean | undefined;
 }
 
 export interface CategoryListResponse {
