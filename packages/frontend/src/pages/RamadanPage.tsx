@@ -290,7 +290,7 @@ export function RamadanPage() {
   }
 
   return (
-    <div className="p-4 pt-2 space-y-4 max-w-4xl mx-auto pb-8">
+    <div className="p-3 pt-2 space-y-4 max-w-4xl mx-auto pb-8">
       <RamadanBanner t={t} />
       <PromoStrip t={t} />
 

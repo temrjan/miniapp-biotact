@@ -107,7 +107,7 @@ export function OrdersPage() {
 
   if (isLoading) {
     return (
-      <div className="p-4 flex items-center justify-center min-h-[50vh] max-w-2xl mx-auto">
+      <div className="p-3 flex items-center justify-center min-h-[50vh] max-w-2xl mx-auto">
         <div className="animate-spin w-8 h-8 border-2 border-[var(--primary)] border-t-transparent rounded-full" />
       </div>
     );
@@ -116,7 +116,7 @@ export function OrdersPage() {
   // Show empty state when no orders
   if (orders.length === 0) {
     return (
-      <div className="p-4 flex flex-col items-center justify-center min-h-[60vh] max-w-2xl mx-auto">
+      <div className="p-3 flex flex-col items-center justify-center min-h-[60vh] max-w-2xl mx-auto">
         <div className="neumorphic w-24 h-24 rounded-full flex items-center justify-center mb-4">
           <ShoppingBag size={40} className="text-[var(--text-muted)]" />
         </div>
@@ -133,7 +133,7 @@ export function OrdersPage() {
   }
 
   return (
-    <div className="p-4 space-y-4 max-w-2xl mx-auto">
+    <div className="p-3 space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">{t('orders.title')}</h1>
 
       {orders.map((order, index) => {
