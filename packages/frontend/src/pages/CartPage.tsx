@@ -47,7 +47,7 @@ export function CartPage() {
 
   if (items.length === 0) {
     return (
-      <div className="p-4 flex flex-col items-center justify-center min-h-[60vh] max-w-2xl mx-auto">
+      <div className="p-3 flex flex-col items-center justify-center min-h-[60vh] max-w-2xl mx-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -72,7 +72,7 @@ export function CartPage() {
   }
 
   return (
-    <div className="p-4 space-y-4 pb-6 max-w-2xl mx-auto">
+    <div className="p-3 space-y-4 pb-6 max-w-2xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">{t('cart.title')}</h1>
