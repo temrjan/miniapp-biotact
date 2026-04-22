@@ -30,6 +30,11 @@ export const broadcastsApi = {
     return response.data
   },
 
+  testSend: async (id: number): Promise<Broadcast> => {
+    const response = await apiClient.post<Broadcast>(`${BASE}/${id}/test-send`)
+    return response.data
+  },
+
   cancel: async (id: number): Promise<Broadcast> => {
     const response = await apiClient.post<Broadcast>(`${BASE}/${id}/cancel`)
     return response.data
