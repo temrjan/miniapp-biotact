@@ -246,7 +246,7 @@ export function CheckoutPage() {
 
   return (
     <div className="min-h-screen pb-24 md:pb-4">
-      <div className="p-4 space-y-4 max-w-7xl mx-auto">
+      <div className="p-3 space-y-4 max-w-4xl mx-auto">
         {/* Progress dots */}
         <div className="flex items-center justify-center gap-2 mb-4">
           {(['phone', 'delivery', 'address', 'confirm'] as CheckoutStep[]).map((s, i) => (
@@ -429,7 +429,7 @@ export function CheckoutPage() {
             <motion.div
               key="confirm"
               initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, y: 0 }}
+              animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               className="space-y-3"
             >
@@ -452,7 +452,7 @@ export function CheckoutPage() {
                   {deliveryType === 'delivery' && address && (
                     <div className="flex justify-between">
                       <span className="text-[var(--text-muted)]">{t('checkout.address')}</span>
-                      <span className="text-right max-w-[200px]">{getDisplayAddress(address)}</span>
+                      <span className="text-right ml-4">{getDisplayAddress(address)}</span>
                     </div>
                   )}
                   <hr className="border-[var(--border)]" />
