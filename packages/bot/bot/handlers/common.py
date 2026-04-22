@@ -803,6 +803,16 @@ async def handle_ai_message(
         await message.answer(response, reply_markup=get_back_keyboard(user.language_code))
 
 
+@router.message(F.video, F.chat.type == "private")
+async def handle_video_file_id(message: Message) -> None:
+    """Reply with video file_id — admin utility for broadcasts."""
+    if message.from_user and message.from_user.id == 5224375023:
+        await message.reply(
+            f"<code>{message.video.file_id}</code>",
+            parse_mode="HTML",
+        )
+
+
 @router.message(F.text)
 async def handle_message(message: Message) -> None:
     """Handle regular text messages - show menu hint."""
