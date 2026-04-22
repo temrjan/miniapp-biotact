@@ -9,12 +9,14 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
+  FlaskConical,
 } from 'lucide-react'
 import {
   useBroadcasts,
   useBroadcast,
   useCreateBroadcast,
   useSendBroadcast,
+  useTestSendBroadcast,
   useCancelBroadcast,
 } from '../hooks/useBroadcasts'
 import {
@@ -117,6 +119,7 @@ export function BroadcastsPage() {
   // Mutations
   const createBroadcast = useCreateBroadcast()
   const sendBroadcast = useSendBroadcast()
+  const testSendBroadcast = useTestSendBroadcast()
   const cancelBroadcast = useCancelBroadcast()
 
   const broadcasts = data?.items ?? []
@@ -177,6 +180,16 @@ export function BroadcastsPage() {
       return
     }
     await sendBroadcast.mutateAsync(broadcast.id)
+  }
+
+  async function handleTestSend(broadcast: Broadcast) {
+    try {
+      await testSendBroadcast.mutateAsync(broadcast.id)
+      window.alert('Тестовая отправка запущена — проверь свой Telegram')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Ошибка тестовой отправки'
+      window.alert(msg)
+    }
   }
 
   async function handleCancel(broadcast: Broadcast) {
@@ -250,7 +263,7 @@ export function BroadcastsPage() {
               id="text"
               value={form.text}
               onChange={(e) => handleFormChange('text', e.target.value)}
-              placeholder="Текст рассылки (поддерживает HTML: <b>, <i>, <a>)"
+              placeholder="Текст рассылки. **жирный** или HTML: <b>, <i>, <a>"
               rows={5}
             />
           </div>
@@ -357,18 +370,34 @@ export function BroadcastsPage() {
 
                   <div className="flex items-center gap-2">
                     {broadcast.status === 'draft' && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleSend(broadcast)}
-                        disabled={sendBroadcast.isPending}
-                      >
-                        {sendBroadcast.isPending ? (
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        ) : (
-                          <Send className="mr-1 h-3 w-3" />
-                        )}
-                        Отправить
-                      </Button>
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleTestSend(broadcast)}
+                          disabled={testSendBroadcast.isPending}
+                          title="Отправить только себе — проверить как выглядит"
+                        >
+                          {testSendBroadcast.isPending ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <FlaskConical className="mr-1 h-3 w-3" />
+                          )}
+                          Тест (мне)
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleSend(broadcast)}
+                          disabled={sendBroadcast.isPending}
+                        >
+                          {sendBroadcast.isPending ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <Send className="mr-1 h-3 w-3" />
+                          )}
+                          Отправить
+                        </Button>
+                      </>
                     )}
                     {broadcast.status === 'sending' && (
                       <Button

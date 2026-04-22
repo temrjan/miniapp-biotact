@@ -142,6 +142,31 @@ async def send_broadcast(
     return broadcast
 
 
+@router.post("/{broadcast_id}/test-send", response_model=BroadcastResponse)
+async def test_send_broadcast(
+    broadcast_id: int,
+    db: DbSession,
+    admin: AdminUser,
+    background_tasks: BackgroundTasks,
+) -> Broadcast:
+    """Send broadcast as a dry-run to the admin's own Telegram only.
+
+    Does NOT change broadcast status or counters — safe preview before mass send.
+    """
+    broadcast = await service.get_broadcast(db, broadcast_id)
+    if not broadcast:
+        raise NotFoundException("Broadcast not found")
+
+    if admin.telegram_id is None:
+        raise BadRequestException("Admin has no linked Telegram account")
+
+    background_tasks.add_task(
+        service.execute_test_send, broadcast_id, admin.telegram_id
+    )
+
+    return broadcast
+
+
 @router.post("/{broadcast_id}/cancel", response_model=BroadcastResponse)
 async def cancel_broadcast(
     broadcast_id: int,

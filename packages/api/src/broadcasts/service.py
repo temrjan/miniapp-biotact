@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime
 
 import httpx
@@ -18,6 +19,13 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_API = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
 RATE_LIMIT_DELAY = 0.05  # 20 msg/sec (safe margin under 30 limit)
+
+_BOLD_MARKDOWN = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+
+
+def _render_message_text(text: str) -> str:
+    """Convert **text** Markdown shorthand to <b>text</b> for Telegram HTML parse mode."""
+    return _BOLD_MARKDOWN.sub(r"<b>\1</b>", text)
 
 
 async def create_broadcast(
@@ -120,12 +128,13 @@ async def _send_to_user(
 
     photo = broadcast.photo_file_id or broadcast.photo_url
     video = broadcast.video_file_id or broadcast.video_url
+    rendered_text = _render_message_text(broadcast.text)
 
     if photo:
         payload: dict[str, object] = {
             "chat_id": chat_id,
             "photo": photo,
-            "caption": broadcast.text,
+            "caption": rendered_text,
             "parse_mode": "HTML",
         }
         if reply_markup:
@@ -135,7 +144,7 @@ async def _send_to_user(
         payload = {
             "chat_id": chat_id,
             "video": video,
-            "caption": broadcast.text,
+            "caption": rendered_text,
             "parse_mode": "HTML",
         }
         if reply_markup:
@@ -144,7 +153,7 @@ async def _send_to_user(
     else:
         payload = {
             "chat_id": chat_id,
-            "text": broadcast.text,
+            "text": rendered_text,
             "parse_mode": "HTML",
         }
         if reply_markup:
@@ -199,6 +208,32 @@ async def _send_to_user(
     except Exception as e:
         logger.error("HTTP error sending to %d: %s", chat_id, e)
         return False, "failed"
+
+
+async def execute_test_send(broadcast_id: int, target_telegram_id: int) -> None:
+    """Send broadcast to a single test recipient without touching counters/status.
+
+    Used by admin "Тест (мне)" button to preview the message before mass send.
+    """
+    async with async_session_maker() as db:
+        broadcast = await db.get(Broadcast, broadcast_id)
+        if not broadcast:
+            logger.warning("Test-send: broadcast %d not found", broadcast_id)
+            return
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            success, error_type = await _send_to_user(client, target_telegram_id, broadcast)
+
+        # Persist photo_file_id / video_file_id cache if populated during the test send
+        await db.commit()
+
+        logger.info(
+            "Test-send broadcast %d to %d: success=%s error=%s",
+            broadcast_id,
+            target_telegram_id,
+            success,
+            error_type or "-",
+        )
 
 
 async def execute_broadcast(broadcast_id: int) -> None:

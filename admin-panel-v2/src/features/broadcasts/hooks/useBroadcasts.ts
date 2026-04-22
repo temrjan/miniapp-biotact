@@ -56,6 +56,12 @@ export function useSendBroadcast() {
   })
 }
 
+export function useTestSendBroadcast() {
+  return useMutation<Broadcast, Error, number>({
+    mutationFn: broadcastsApi.testSend,
+  })
+}
+
 export function useCancelBroadcast() {
   const queryClient = useQueryClient()
 
