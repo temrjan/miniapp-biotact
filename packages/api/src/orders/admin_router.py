@@ -3,68 +3,22 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from jose import JWTError, jwt
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.config import settings
+from src.auth.dependencies import verify_admin_jwt
 from src.database import get_db
 from src.orders.models import Order, OrderStatus
 from src.orders.schemas import OrderListResponse, OrderResponse, OrderStatusUpdate
-from src.users.models import User
 
 router = APIRouter()
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
-async def require_admin(
-    db: Annotated[AsyncSession, Depends(get_db)],
-    authorization: Annotated[str | None, Header()] = None,
-) -> User:
-    """Dependency to require admin authentication."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization header",
-        )
-
-    token = authorization.replace("Bearer ", "")
-
-    try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key.get_secret_value(),
-            algorithms=[settings.algorithm],
-        )
-    except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        ) from exc
-
-    if payload.get("type") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not an admin token",
-        )
-
-    user_id = int(payload.get("sub", 0))
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-
-    if not user or not user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-
-    return user
-
-
-@router.get("", response_model=OrderListResponse, dependencies=[Depends(require_admin)])
+@router.get("", response_model=OrderListResponse, dependencies=[Depends(verify_admin_jwt)])
 async def get_all_orders(
     db: DbSession,
     page: int = Query(1, ge=1),
@@ -134,7 +88,7 @@ async def get_all_orders(
     )
 
 
-@router.get("/{order_id}", response_model=OrderResponse, dependencies=[Depends(require_admin)])
+@router.get("/{order_id}", response_model=OrderResponse, dependencies=[Depends(verify_admin_jwt)])
 async def get_order_details(
     order_id: int,
     db: DbSession,
@@ -155,7 +109,7 @@ async def get_order_details(
 
 
 @router.patch(
-    "/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(require_admin)]
+    "/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(verify_admin_jwt)]
 )
 async def update_order_status_admin(
     order_id: int,
