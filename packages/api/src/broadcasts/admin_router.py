@@ -131,6 +131,7 @@ async def send_broadcast(
     broadcast.blocked_count = 0
     broadcast.total_users = 0
     broadcast.photo_file_id = None
+    broadcast.video_file_id = None
     broadcast.started_at = datetime.now(UTC)
     broadcast.completed_at = None
     await db.commit()

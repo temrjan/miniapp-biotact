@@ -35,6 +35,7 @@ interface BroadcastFormState {
   title: string
   text: string
   photo_url: string
+  video_url: string
   button_text: string
   button_url: string
 }
@@ -43,6 +44,7 @@ const INITIAL_FORM: BroadcastFormState = {
   title: '',
   text: '',
   photo_url: '',
+  video_url: '',
   button_text: '',
   button_url: '',
 }
@@ -128,8 +130,11 @@ export function BroadcastsPage() {
     if (!form.text.trim()) {
       errors.push('Текст сообщения обязателен')
     }
-    if (form.photo_url && form.text.length > 1024) {
-      errors.push('Текст с фото не может быть длиннее 1024 символов')
+    if (form.photo_url && form.video_url) {
+      errors.push('Нельзя одновременно указать фото и видео')
+    }
+    if ((form.photo_url || form.video_url) && form.text.length > 1024) {
+      errors.push('Текст с медиа не может быть длиннее 1024 символов')
     }
     if ((form.button_text && !form.button_url) || (!form.button_text && form.button_url)) {
       errors.push('Текст кнопки и URL кнопки должны быть заполнены вместе')
@@ -151,6 +156,7 @@ export function BroadcastsPage() {
       title: form.title.trim(),
       text: form.text.trim(),
       photo_url: form.photo_url.trim() || null,
+      video_url: form.video_url.trim() || null,
       button_text: form.button_text.trim() || null,
       button_url: form.button_url.trim() || null,
     }
@@ -188,7 +194,7 @@ export function BroadcastsPage() {
   }
 
   const textCharCount = form.text.length
-  const textLimit = form.photo_url ? 1024 : 4096
+  const textLimit = (form.photo_url || form.video_url) ? 1024 : 4096
 
   return (
     <div className="p-6 space-y-6">
@@ -256,6 +262,16 @@ export function BroadcastsPage() {
               value={form.photo_url}
               onChange={(e) => handleFormChange('photo_url', e.target.value)}
               placeholder="https://example.com/image.jpg"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="video_url">URL видео (необязательно, нельзя вместе с фото)</Label>
+            <Input
+              id="video_url"
+              value={form.video_url}
+              onChange={(e) => handleFormChange('video_url', e.target.value)}
+              placeholder="Прямая ссылка на .mp4 (до 5MB)"
             />
           </div>
 
@@ -393,6 +409,9 @@ export function BroadcastsPage() {
                   )}
                   {broadcast.photo_url && (
                     <span>С фото</span>
+                  )}
+                  {broadcast.video_url && (
+                    <span>С видео</span>
                   )}
                   {broadcast.button_text && (
                     <span>С кнопкой: {broadcast.button_text}</span>

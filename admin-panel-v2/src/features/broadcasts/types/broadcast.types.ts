@@ -7,6 +7,7 @@ export interface Broadcast {
   title: string
   text: string
   photo_url?: string | null
+  video_url?: string | null
   button_text?: string | null
   button_url?: string | null
   status: BroadcastStatus
@@ -24,6 +25,7 @@ export interface BroadcastCreateData {
   title: string
   text: string
   photo_url?: string | null
+  video_url?: string | null
   button_text?: string | null
   button_url?: string | null
 }
