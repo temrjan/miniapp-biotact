@@ -535,7 +535,7 @@ export function HomePage() {
   return (
     <div className="p-4 pt-2 space-y-6 max-w-4xl mx-auto">
       {/* Banner Slider */}
-      <div className="relative h-32 md:h-72 lg:h-72 overflow-hidden rounded-xl">
+      <div className="relative h-32 md:h-72 lg:h-72 overflow-hidden rounded-md">
         {displayBanners.length === 0 ? (
           /* Skeleton while banners are loading */
           <div className="absolute inset-0 bg-[var(--bg-tertiary)] animate-pulse" />
