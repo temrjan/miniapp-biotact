@@ -30,6 +30,7 @@ async def create_broadcast(
         title=data.title,
         text=data.text,
         photo_url=data.photo_url,
+        video_url=data.video_url,
         button_text=data.button_text,
         button_url=data.button_url,
         status=BroadcastStatus.DRAFT,
