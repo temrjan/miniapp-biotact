@@ -625,14 +625,12 @@ export function HomePage() {
                 )}
                 {/* Gradient fallback or loaded image */}
                 <div
-                  className="absolute inset-0"
+                  className="absolute inset-0 bg-center md:bg-bottom"
                   style={{
-                    background: banner.gradient || 'transparent',
                     backgroundImage: banner.image_url
                       ? `url(${banner.image_url})`
-                      : undefined,
+                      : banner.gradient || undefined,
                     backgroundSize: 'cover',
-                    backgroundPosition: 'center',
                   }}
                 />
                 {/* Hidden img to track load */}
