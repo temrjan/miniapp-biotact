@@ -160,9 +160,7 @@ async def test_send_broadcast(
     if admin.telegram_id is None:
         raise BadRequestException("Admin has no linked Telegram account")
 
-    background_tasks.add_task(
-        service.execute_test_send, broadcast_id, admin.telegram_id
-    )
+    background_tasks.add_task(service.execute_test_send, broadcast_id, admin.telegram_id)
 
     return broadcast
 
