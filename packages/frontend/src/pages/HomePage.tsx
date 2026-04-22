@@ -203,72 +203,6 @@ function SectionHeader({ title, categoryId, onViewAll, viewAllText }: SectionHea
   );
 }
 
-function AboutSection() {
-  const { t } = useTranslation();
-
-  const stats = [
-    { value: t('about.statYears'), label: t('about.statYearsLabel') },
-    { value: t('about.statProducts'), label: t('about.statProductsLabel') },
-    { value: t('about.statSold'), label: t('about.statSoldLabel') },
-  ];
-
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.05 }}
-      className="py-6"
-    >
-      {/* Header with description - 2 columns on tablet+ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8 mb-8">
-        {/* Left: Title */}
-        <div>
-          <h2 className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] leading-tight mb-2">
-            {t('about.title')}
-          </h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {t('about.subtitle')}
-          </p>
-        </div>
-
-        {/* Right: Description */}
-        <div className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
-          <p>
-            {t('about.description1').split('BIOTACT DEUTSCHLAND')[0]}
-            <span className="font-semibold text-[var(--text-primary)]">BIOTACT DEUTSCHLAND</span>
-            {t('about.description1').split('BIOTACT DEUTSCHLAND')[1]}
-          </p>
-          <p className="mt-2">
-            {t('about.description2')}
-          </p>
-        </div>
-      </div>
-
-      {/* Stats - vertical on mobile, horizontal on tablet+ */}
-      <div className="flex flex-col sm:flex-row sm:justify-between gap-6 sm:gap-4">
-        {stats.map((stat, index) => (
-          <motion.div
-            key={index}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 + index * 0.05 }}
-            className="flex-1 text-center sm:text-left"
-          >
-            <div className="text-3xl sm:text-4xl font-bold text-[var(--text-primary)] mb-2">
-              {stat.value}
-            </div>
-            <div className="border-t border-[var(--border)] pt-2">
-              <span className="text-sm text-[var(--text-secondary)]">
-                {stat.label}
-              </span>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    </motion.section>
-  );
-}
-
 const FAQ_KEYS = [1, 2, 3, 4, 5, 6];
 
 function FAQSection() {
@@ -662,9 +596,6 @@ export function HomePage() {
           </>
         )}
       </div>
-
-      {/* About Section */}
-      <AboutSection />
 
       {/* Popular Products */}
       {popularProducts.length > 0 && (
