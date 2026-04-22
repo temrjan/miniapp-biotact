@@ -117,8 +117,8 @@ async def _send_to_user(
     """
     reply_markup = _build_reply_markup(broadcast.button_text, broadcast.button_url)
 
-    # Choose photo (file_id) or text-only
     photo = broadcast.photo_file_id or broadcast.photo_url
+    video = broadcast.video_file_id or broadcast.video_url
 
     if photo:
         payload: dict[str, object] = {
@@ -130,6 +130,16 @@ async def _send_to_user(
         if reply_markup:
             payload["reply_markup"] = reply_markup
         url = f"{TELEGRAM_API}/sendPhoto"
+    elif video:
+        payload = {
+            "chat_id": chat_id,
+            "video": video,
+            "caption": broadcast.text,
+            "parse_mode": "HTML",
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        url = f"{TELEGRAM_API}/sendVideo"
     else:
         payload = {
             "chat_id": chat_id,
@@ -145,11 +155,15 @@ async def _send_to_user(
         data = response.json()
 
         if data.get("ok"):
-            # Extract file_id from first successful photo send
+            result = data.get("result", {})
             if photo and not broadcast.photo_file_id:
-                photos = data.get("result", {}).get("photo", [])
+                photos = result.get("photo", [])
                 if photos:
                     broadcast.photo_file_id = photos[-1]["file_id"]
+            elif video and not broadcast.video_file_id:
+                video_obj = result.get("video")
+                if video_obj:
+                    broadcast.video_file_id = video_obj["file_id"]
             return True, ""
 
         error_code = data.get("error_code", 0)

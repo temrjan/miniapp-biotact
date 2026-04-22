@@ -30,6 +30,8 @@ class Broadcast(Base):
     text: Mapped[str] = mapped_column(Text)
     photo_url: Mapped[str | None] = mapped_column(Text)
     photo_file_id: Mapped[str | None] = mapped_column(String(255))
+    video_url: Mapped[str | None] = mapped_column(Text)
+    video_file_id: Mapped[str | None] = mapped_column(String(255))
     button_text: Mapped[str | None] = mapped_column(String(64))
     button_url: Mapped[str | None] = mapped_column(Text)
 
