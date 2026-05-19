@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     notification_bot_token: str = ""
     sales_group_chat_id: int = 0
 
+    # AI / OpenAI
+    openai_api_key: SecretStr = SecretStr("")
+    openai_base_url: str = ""
+    openai_model: str = "gpt-4o-mini"
+
     @property
     def is_production(self) -> bool:
         return not self.debug

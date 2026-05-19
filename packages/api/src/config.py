@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # Sentry (optional - leave empty to disable)
     sentry_dsn: str = ""
 
+    # AI / OpenAI
+    openai_api_key: SecretStr = SecretStr("")
+    openai_base_url: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+
 
 @lru_cache
 def get_settings() -> Settings:

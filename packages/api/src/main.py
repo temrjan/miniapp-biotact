@@ -32,6 +32,7 @@ from src.products.router import router as products_router
 from src.uploads.router import router as uploads_router
 from src.users.admin_router import router as admin_users_router
 from src.users.router import router as users_router
+from src.ai.router import router as ai_router
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,13 @@ def create_app() -> FastAPI:
         admin_broadcasts_router,
         prefix=f"{settings.api_v1_prefix}/admin/broadcasts",
         tags=["admin-broadcasts"],
+    )
+
+    # AI router
+    app.include_router(
+        ai_router,
+        prefix=f"{settings.api_v1_prefix}/ai",
+        tags=["ai"],
     )
 
     # Global exception handlers
