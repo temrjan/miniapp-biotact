@@ -21,6 +21,7 @@ import { Button } from "@/shared/components/ui/button"
 import { useAuth, useLogout } from "@/features/auth/hooks/useAuth"
 import { useTheme } from "@/app/providers/useTheme"
 import { cn } from "@/shared/lib/utils"
+import { Logo } from "@/shared/components/common"
 
 interface MainLayoutProps {
   children: ReactNode
@@ -61,9 +62,7 @@ function SidebarContent({
     <>
       <div className="h-16 border-b flex items-center justify-between px-6">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
-            <span className="text-primary font-bold">B</span>
-          </div>
+          <Logo variant="sidebar" />
           <h1 className="text-xl font-bold">Biotact Admin</h1>
         </div>
         <Button
@@ -207,9 +206,7 @@ export const MainLayout = ({ children }: MainLayoutProps) => {
             <Menu className="h-5 w-5" />
           </Button>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-primary/10 rounded flex items-center justify-center">
-              <span className="text-primary font-bold text-sm">B</span>
-            </div>
+            <Logo variant="header" />
             <span className="font-semibold">Biotact Admin</span>
           </div>
         </header>

@@ -5,6 +5,7 @@ import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/shared/components/ui/card"
+import { Logo } from "@/shared/components/common"
 import { useLogin } from "../hooks/useAuth"
 
 const loginSchema = z.object({
@@ -34,22 +35,7 @@ export const LoginPage = () => {
       <Card className="w-full max-w-md shadow-large">
         <CardHeader className="space-y-3 text-center">
           <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center">
-            <svg
-              width="32"
-              height="32"
-              className="text-primary"
-              style={{ maxWidth: "32px", maxHeight: "32px" }}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-              />
-            </svg>
+            <Logo variant="login" />
           </div>
           <CardTitle className="text-2xl">Biotact Admin</CardTitle>
           <CardDescription>Вход в панель управления</CardDescription>
