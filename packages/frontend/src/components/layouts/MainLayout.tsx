@@ -31,7 +31,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       >
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-center">
           <img
-            src="/logo-white.png"
+            src="/logo.png"
             alt="BIOTACT"
             className="h-8 object-contain"
           />
