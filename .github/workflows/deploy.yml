@@ -6,13 +6,35 @@ on:
     types: [completed]
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' }}
 
     steps:
+      - name: Verify deployment secrets
+        run: |
+          missing=""
+          for secret in DEPLOY_SSH_KEY DEPLOY_HOST DEPLOY_PORT DEPLOY_USER; do
+            value="${!secret}"
+            if [ -z "$value" ]; then
+              missing="$missing $secret"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secrets:$missing"
+            exit 1
+          fi
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -25,6 +47,9 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT }} ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'SCRIPT'
           set -e
           cd /var/www/biotact
+
+          echo "=== Save current revision for rollback ==="
+          PREV_COMMIT=$(git rev-parse HEAD)
 
           echo "=== Pull latest code ==="
           git fetch origin main
@@ -42,10 +67,25 @@ jobs:
           npm run build
           cd ..
 
-          echo "=== Update API dependencies ==="
+          echo "=== Update API dependencies and run migrations ==="
           cd packages/api
           source venv/bin/activate
           pip install -r requirements.txt --quiet
+
+          set +e
+          alembic upgrade head
+          MIGRATION_STATUS=$?
+          set -e
+
+          if [ "$MIGRATION_STATUS" -ne 0 ]; then
+            echo "=== Migration failed, aborting deploy and rolling back code ==="
+            deactivate
+            cd ../..
+            git reset --hard "$PREV_COMMIT"
+            echo "=== Deploy aborted ==="
+            exit 1
+          fi
+
           deactivate
           cd ../..
 
@@ -59,10 +99,36 @@ jobs:
           echo "=== Restart services ==="
           pm2 restart api --namespace biotact
           pm2 restart bot --namespace biotact
+          pm2 save
 
           echo "=== Health check ==="
-          sleep 3
-          pm2 list --no-color | grep -E "api|bot"
+          sleep 5
+          set +e
+          HEALTH_OK=true
+          curl -fsS --max-time 10 http://127.0.0.1:3001/health >/dev/null || HEALTH_OK=false
+          curl -fsS --max-time 10 http://127.0.0.1:3001/api/v1/products >/dev/null || HEALTH_OK=false
+          set -e
+
+          if [ "$HEALTH_OK" != "true" ]; then
+            echo "=== Health check failed, rolling back code and rebuilds ==="
+            git reset --hard "$PREV_COMMIT"
+
+            echo "=== Rebuild frontend from previous revision ==="
+            cd packages/frontend
+            npm ci --production=false
+            npm run build
+            cd ../..
+
+            echo "=== Rebuild admin panel from previous revision ==="
+            cd admin-panel-v2
+            npm ci --production=false
+            npm run build
+            cd ..
+
+            pm2 restart api bot --namespace biotact
+            echo "=== Rollback complete ==="
+            exit 1
+          fi
 
           echo "=== Deploy complete ==="
           SCRIPT

@@ -1,16 +1,18 @@
 """Main FastAPI application."""
 
 # temrjan-2025-12-25
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from src.analytics.router import router as analytics_router
@@ -24,7 +26,7 @@ from src.config import settings
 from src.crm.admin_router import router as crm_admin_router
 from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
-from src.database import engine
+from src.database import async_session_maker, engine
 from src.orders.admin_router import router as admin_orders_router
 from src.orders.router import router as orders_router
 from src.payments.router import router as payments_router
@@ -231,7 +233,24 @@ app = create_app()
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    Performs a lightweight database query to ensure the application can
+    actually talk to PostgreSQL with the current schema.
+    """
+    try:
+        async with async_session_maker() as session:
+            await asyncio.wait_for(
+                session.execute(text("SELECT 1")),
+                timeout=3.0,
+            )
+    except Exception as exc:
+        logger.exception("Health check failed: database unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable",
+        ) from exc
+
     return {"status": "healthy", "app": settings.app_name}
 
 
