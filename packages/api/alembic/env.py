@@ -18,14 +18,6 @@ from src.users.models import User
 from src.orders.models import Order, OrderItem
 from src.auth.models import AdminUser
 from src.crm.models import Lead, FamilyMember
-from src.loyalty.models import (
-    CodeBatch,
-    QrCode,
-    PointTransaction,
-    SurveyAnswer,
-    LotteryDraw,
-    LotteryTicket,
-)
 from src.config import settings
 
 config = context.config
