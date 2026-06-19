@@ -22,6 +22,11 @@ jobs:
 
     steps:
       - name: Verify deployment secrets
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           missing=""
           for secret in DEPLOY_SSH_KEY DEPLOY_HOST DEPLOY_PORT DEPLOY_USER; do
