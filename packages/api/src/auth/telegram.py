@@ -45,10 +45,13 @@ def validate_init_data(
     if not received_hash:
         raise InitDataValidationError("Missing hash")
 
-    # Build data check string (sorted, without hash)
+    # Build data check string (sorted, without hash and signature).
+    # Telegram excludes BOTH `hash` and the newer `signature` field from the
+    # data-check-string; including `signature` breaks HMAC for valid initData.
+    # https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
     data_check_arr = []
     for key in sorted(parsed.keys()):
-        if key != "hash":
+        if key not in ("hash", "signature"):
             value = parsed[key][0]
             data_check_arr.append(f"{key}={value}")
 
