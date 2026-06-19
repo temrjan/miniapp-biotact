@@ -35,3 +35,6 @@ uploads/
 # Backups
 backups/*.sql.gz
 backups/*.log
+
+# Codex workflow transient state (durable specs under .claude/specs/ are tracked)
+.claude/workflow-state.json
