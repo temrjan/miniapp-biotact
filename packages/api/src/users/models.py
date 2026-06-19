@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from src.crm.models import FamilyMember, Lead
 
 from src.database import Base
+from src.loyalty.models import LoyaltyStatus
 
 
 class User(Base):
@@ -45,6 +46,25 @@ class User(Base):
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Loyalty (Biotact Club). `balance` is a cache of the point_transactions ledger.
+    balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    loyalty_status: Mapped[LoyaltyStatus] = mapped_column(
+        Enum(LoyaltyStatus, name="loyalty_status", create_type=True),
+        default=LoyaltyStatus.NEWBIE,
+        # PG enum labels are member NAMES (project convention, cf. lead_status),
+        # so the server_default must be the name, not the lowercase value.
+        server_default=LoyaltyStatus.NEWBIE.name,
+    )
+    lifetime_activations: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_activation_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Survey-derived profile (denormalized for CRM / segmentation)
+    gender: Mapped[str | None] = mapped_column(String(10))
+    age: Mapped[int | None] = mapped_column(Integer)
+    city: Mapped[str | None] = mapped_column(String(100))
+    purchase_goal: Mapped[str | None] = mapped_column(String(50))
+    purchase_for_whom: Mapped[str | None] = mapped_column(String(50))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

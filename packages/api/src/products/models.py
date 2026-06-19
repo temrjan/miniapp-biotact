@@ -23,6 +23,8 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     name_uz: Mapped[str | None] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    # Biotact Club: links a product to its QR SKU index (storefront, phase 2).
+    sku_code: Mapped[str | None] = mapped_column(String(32), index=True)
     description: Mapped[str | None] = mapped_column(Text)
     description_uz: Mapped[str | None] = mapped_column(Text)
 
