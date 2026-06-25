@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
+    # Feature flags
+    # Biotact Club loyalty: gates loyalty routers/UI; stays dark on prod until ready.
+    loyalty_enabled: bool = False
+
     # Database
     database_url: str
     database_echo: bool = False
