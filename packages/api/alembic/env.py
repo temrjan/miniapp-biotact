@@ -12,12 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.database import Base
-from src.categories.models import Category
-from src.products.models import Product
-from src.users.models import User
-from src.orders.models import Order, OrderItem
-from src.auth.models import AdminUser
-from src.crm.models import Lead, FamilyMember
+import src.models_registry  # noqa: F401 — регистрирует ВСЕ модели на Base.metadata
 from src.config import settings
 
 config = context.config
@@ -27,6 +22,33 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Сотруднический реферал (referrers / referral_invites + *.referral_code) принадлежит
+# ОТДЕЛЬНОМУ прод-сервису ref-bot (общая БД biotact_db); его схема живёт ВНЕ этого репо.
+# Исключаем из autogenerate / `alembic check` — НЕ дропаем (живой сервис + данные).
+_REF_TABLES = {"referrers", "referral_invites"}
+_REF_INDEXES = {
+    "ix_orders_referral_code",
+    "ix_users_referral_code",
+    "ix_referrers_code",
+    "ix_referrers_telegram_id",
+    "ix_referral_invites_invite_code",
+}
+
+
+def include_object(object_, name, type_, reflected, compare_to):  # noqa: ANN001, ANN201
+    if type_ == "table" and name in _REF_TABLES:
+        return False
+    if (
+        type_ == "column"
+        and name == "referral_code"
+        and getattr(object_, "table", None) is not None
+        and object_.table.name in {"users", "orders"}
+    ):
+        return False
+    if type_ == "index" and name in _REF_INDEXES:
+        return False
+    return True
+
 
 def run_migrations_offline() -> None:
     url = settings.database_url.replace("+asyncpg", "")
@@ -35,13 +57,18 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

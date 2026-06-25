@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, Index, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -22,6 +22,12 @@ class Broadcast(Base):
     """Broadcast campaign model."""
 
     __tablename__ = "broadcasts"
+    # Индексы созданы миграцией 224c920d41d0 — объявлены в модели, чтобы паритет не
+    # предлагал их дропнуть.
+    __table_args__ = (
+        Index("idx_broadcasts_status", "status"),
+        Index("idx_broadcasts_created_at", text("created_at DESC")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
 

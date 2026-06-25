@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database import Base
@@ -26,7 +26,7 @@ class Category(Base):
     image_url: Mapped[str | None] = mapped_column(String(500))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_purchasable: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_purchasable: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
