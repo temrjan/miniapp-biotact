@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from src.crm.models import FamilyMember, Lead
+    from src.loyalty.models import Consent
 
 from src.database import Base
 
@@ -61,6 +62,9 @@ class User(Base):
         "FamilyMember", back_populates="user", cascade="all, delete-orphan"
     )
     leads: Mapped[list["Lead"]] = relationship("Lead", back_populates="user")
+    consents: Mapped[list["Consent"]] = relationship(
+        "Consent", back_populates="user", passive_deletes=True
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, telegram_id={self.telegram_id})>"
