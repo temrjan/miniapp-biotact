@@ -15,6 +15,7 @@ from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
+import src.models_registry  # noqa: F401 — единый реестр моделей (паритет/create_all)
 from src.analytics.router import router as analytics_router
 from src.auth.admin_router import router as admin_auth_router
 from src.auth.jwt_router import router as jwt_auth_router
