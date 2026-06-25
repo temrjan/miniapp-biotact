@@ -22,6 +22,7 @@ _MODEL_MODULES = (
     "src.crm.models",
     "src.banners.models",
     "src.broadcasts.models",
+    "src.loyalty.models",
 )
 
 for _module in _MODEL_MODULES:
