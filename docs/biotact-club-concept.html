@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Biotact Club — полный концепт программы</title>
+<style>
+  :root{
+    --green-900:#13402e; --green-700:#1c6a4a; --green-500:#2e8b63;
+    --green-100:#e7f3ec; --green-50:#f4faf6; --gold:#bd8f24; --gold-soft:#f6edd2;
+    --ink:#1b2a23; --muted:#5d6f66; --line:#d8e6dd; --white:#ffffff;
+    --shadow:0 6px 24px rgba(19,64,46,.08); --shadow-lg:0 12px 40px rgba(19,64,46,.14);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:var(--green-50);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 22px}
+  h1,h2,h3,h4{line-height:1.2;letter-spacing:-.01em}
+  .muted{color:var(--muted)}
+  .eyebrow{display:inline-block;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--green-700);background:var(--green-100);padding:5px 12px;border-radius:20px;margin-bottom:16px}
+
+  nav{position:sticky;top:0;z-index:50;background:rgba(244,250,246,.9);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;color:var(--green-900);font-size:17px}
+  .brand .dot{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,var(--green-500),var(--green-700))}
+  .navlinks{display:flex;gap:18px;flex-wrap:wrap}
+  .navlinks a{color:var(--muted);text-decoration:none;font-size:13.5px;font-weight:600;white-space:nowrap}
+  .navlinks a:hover{color:var(--green-700)}
+  @media(max-width:900px){.navlinks{display:none}}
+
+  .hero{background:linear-gradient(160deg,var(--green-900),var(--green-700) 70%);color:#fff;
+    padding:60px 0 66px;position:relative;overflow:hidden}
+  .hero::after{content:"";position:absolute;right:-120px;top:-120px;width:380px;height:380px;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%)}
+  .hero h1{font-size:40px;font-weight:800;max-width:760px;margin-bottom:18px}
+  .hero .lead{font-size:18px;max-width:680px;color:#dff0e6;margin-bottom:12px}
+  .hero .sub{font-size:14.5px;color:#bcd9c8;max-width:660px}
+  .hero .eyebrow{background:rgba(255,255,255,.14);color:#eafff2}
+  .stats{display:flex;flex-wrap:wrap;gap:14px;margin-top:32px}
+  .stat{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:15px 20px;min-width:165px}
+  .stat .n{font-size:24px;font-weight:800;color:#fff}
+  .stat .l{font-size:12.5px;color:#cfe7d8;margin-top:3px}
+
+  section{padding:56px 0}
+  section.alt{background:var(--white)}
+  .sec-head{max-width:740px;margin-bottom:32px}
+  .sec-head h2{font-size:28px;font-weight:800;color:var(--green-900);margin-bottom:11px}
+  .sec-head p{font-size:16.5px;color:var(--muted)}
+
+  .grid{display:grid;gap:18px}
+  .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:820px){.g3,.g2{grid-template-columns:1fr}}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:var(--shadow)}
+  section.alt .card{background:var(--green-50)}
+  .card .ico{font-size:24px;margin-bottom:10px}
+  .card h3{font-size:17px;color:var(--green-900);margin-bottom:7px}
+  .card h4{font-size:15px;color:var(--green-900);margin-bottom:5px}
+  .card p{font-size:14.5px;color:var(--muted)}
+
+  .flow{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;margin-top:6px}
+  .step{flex:1;min-width:150px;background:var(--white);border:1px solid var(--line);border-radius:15px;padding:18px 16px;box-shadow:var(--shadow)}
+  section.alt .step{background:var(--green-50)}
+  .step .badge{width:28px;height:28px;border-radius:50%;background:var(--green-700);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:13px;margin-bottom:10px}
+  .step .ico{font-size:22px;margin-bottom:7px}
+  .step h4{font-size:14.5px;color:var(--green-900);margin-bottom:4px}
+  .step p{font-size:13px;color:var(--muted)}
+  .arrow{display:flex;align-items:center;justify-content:center;color:var(--green-500);font-size:20px;padding:0 5px;font-weight:700}
+  @media(max-width:820px){.arrow{transform:rotate(90deg);padding:7px 0;width:100%}}
+
+  .funnel-label{display:flex;align-items:center;gap:10px;margin:26px 0 12px}
+  .funnel-label .tag{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:5px 11px;border-radius:8px}
+  .tag.green{background:var(--green-100);color:var(--green-700)} .tag.gold{background:var(--gold-soft);color:var(--gold)}
+  .funnel-label h3{font-size:18px;color:var(--ink)}
+
+  .profile{display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start}
+  @media(max-width:820px){.profile{grid-template-columns:1fr}}
+  .pcard{background:var(--white);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-lg);overflow:hidden}
+  .pcard .top{background:linear-gradient(135deg,var(--green-700),var(--green-900));color:#fff;padding:18px 20px;display:flex;align-items:center;gap:13px}
+  .pcard .ava{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:21px}
+  .pcard .top .nm{font-weight:700} .pcard .top .st{font-size:12px;color:#cfe7d8}
+  .pcard .rows{padding:6px 20px 16px}
+  .prow{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px}
+  .prow:last-child{border-bottom:0} .prow .k{color:var(--muted)} .prow .v{font-weight:700;color:var(--ink)}
+  .why li{list-style:none;padding-left:26px;position:relative;margin-bottom:12px;font-size:15px;color:var(--muted)}
+  .why li::before{content:"✓";position:absolute;left:0;top:0;color:var(--green-500);font-weight:800}
+  .why b{color:var(--ink)}
+
+  table.t{width:100%;border-collapse:collapse;background:var(--white);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:14.5px}
+  section.alt table.t{background:var(--green-50)}
+  table.t th{background:var(--green-100);color:var(--green-900);text-align:left;padding:11px 14px;font-weight:700;font-size:13.5px}
+  table.t td{padding:11px 14px;border-top:1px solid var(--line)}
+  table.t td.hl{font-weight:700;color:var(--green-700)} table.t td.gold{font-weight:700;color:var(--gold)}
+
+  .reward{text-align:center}
+  .reward .big{font-size:28px;font-weight:800;color:var(--green-700);margin:5px 0}
+  .reward.gold .big{color:var(--gold)}
+
+  .progress-demo{background:var(--white);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-top:6px}
+  section.alt .progress-demo{background:var(--green-50)}
+  .pbar{height:14px;border-radius:8px;background:var(--green-100);overflow:hidden;margin:10px 0 6px}
+  .pbar span{display:block;height:100%;width:70%;background:linear-gradient(90deg,var(--green-500),var(--green-700))}
+
+  .fair{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:6px}
+  @media(max-width:820px){.fair{grid-template-columns:1fr}}
+
+  .timeline{margin-top:8px}
+  .tl{display:grid;grid-template-columns:150px 1fr;gap:20px;padding:16px 0;border-top:1px solid var(--line)}
+  .tl:first-child{border-top:0}
+  @media(max-width:600px){.tl{grid-template-columns:1fr;gap:5px}}
+  .tl .phase{font-weight:800;color:var(--green-700)} .tl .when{font-size:13px;color:var(--muted);margin-top:3px}
+  .tl .desc{font-size:14.5px;color:var(--ink)} .tl .desc .hl{color:var(--green-900);font-weight:700}
+
+  .callout{background:var(--green-100);border:1px solid var(--green-500);border-left-width:5px;border-radius:14px;padding:20px 22px;margin-top:6px}
+  .callout.gold{background:var(--gold-soft);border-color:var(--gold)}
+  .callout h3{color:var(--green-900);font-size:17px;margin-bottom:6px} .callout p{color:var(--ink);font-size:15px}
+
+  footer{background:var(--green-900);color:#cfe7d8;padding:38px 0;font-size:14px}
+  footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;align-items:flex-start}
+  .status{display:inline-flex;align-items:center;gap:9px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.2);border-radius:30px;padding:8px 16px;color:#fff;font-weight:600}
+  .status .pulse{width:9px;height:9px;border-radius:50%;background:var(--gold)}
+  .legal{font-size:12.5px;color:#9cc2ab;max-width:580px;margin-top:10px}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> Biotact&nbsp;Club</div>
+    <div class="navlinks">
+      <a href="#goal">Зачем</a>
+      <a href="#how">Путь</a>
+      <a href="#profile">Профиль</a>
+      <a href="#points">Баллы</a>
+      <a href="#status">Статус</a>
+      <a href="#spend">Трата</a>
+      <a href="#lottery">Розыгрыш</a>
+      <a href="#roadmap">Этапы</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow">Biotact Deutschland · Полный концепт программы лояльности</span>
+    <h1>Превращаем покупателя в коробке — в узнаваемого клиента, с которым можно работать</h1>
+    <p class="lead">QR-код на упаковке несёт название продукта и ведёт покупателя в Telegram-бот Biotact. Там он делится телефоном и проходит короткую регистрацию: получает кэшбэк баллами и билет в ежемесячный розыгрыш — а компания получает живой профиль клиента и точное знание, какой продукт он купил.</p>
+    <p class="sub">Главная цель — <b style="color:#fff">база клиентов</b>: кто они, что покупают, как с ними говорить. Лояльность и розыгрыш — инструменты привлечения и удержания.</p>
+    <div class="stats">
+      <div class="stat"><div class="n">~96 000</div><div class="l">упаковок в месяц — охват</div></div>
+      <div class="stat"><div class="n">8–14 тыс.</div><div class="l">новых профилей в месяц (план)</div></div>
+      <div class="stat"><div class="n">5% → 8%</div><div class="l">кэшбэк баллами (Новичок → Друг)</div></div>
+      <div class="stat"><div class="n">в 20–50×</div><div class="l">дешевле платной рекламы за клиента</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- GOAL + AUDIENCE -->
+<section id="goal">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Зачем это бизнесу</span>
+      <h2>Сегодня покупатель аптеки — невидимка. Программа делает его видимым.</h2>
+      <p>Человек покупает Biotact в аптеке — и мы о нём ничего не знаем. За понятную выгоду он сам оставляет контакт и пару фактов о себе.</p>
+    </div>
+    <div class="grid g3">
+      <div class="card"><div class="ico">🎯</div><h3>Узнаём покупателя</h3><p>Контакт, пол, возраст, город, для кого и зачем куплено, и какой именно продукт. Анонимная продажа → живой профиль.</p></div>
+      <div class="card"><div class="ico">💬</div><h3>Можем общаться</h3><p>Прямой канал в Telegram — без зависимости от рекламы. Напоминания, новости, персональные предложения.</p></div>
+      <div class="card"><div class="ico">📈</div><h3>Растим свой канал</h3><p>Со временем база превращает мини-приложение в самостоятельный канал продаж бренда.</p></div>
+    </div>
+    <div class="callout" style="margin-top:24px">
+      <h3>Кого мы оцифровываем в первую очередь</h3>
+      <p>Ядро покупателя Biotact — <b>семейная женщина 25–45 лет</b>, мама. На неё приходится основной объём (линейка BIFOLAK). Вокруг этого аватара выстроены и анкета, и призы розыгрыша (Аэрогриль, техника для кухни).</p>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Путь покупателя</span>
+      <h2>Сканировал код → попал в бота → за минуту в базе и в розыгрыше</h2>
+      <p>Первый шаг максимально короткий. Остальное покупатель заполняет постепенно, по желанию — за дополнительные билеты и баллы.</p>
+    </div>
+
+    <div class="funnel-label"><span class="tag green">Основной путь</span><h3>Скан QR с упаковки</h3></div>
+    <div class="flow">
+      <div class="step"><div class="badge">1</div><div class="ico">📦</div><h4>Открывает коробку</h4><p>На внутреннем клапане — уникальный QR, который несёт название продукта.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="badge">2</div><div class="ico">🤖</div><h4>Сканирует → бот</h4><p>QR открывает Telegram-бот Biotact и предлагает регистрацию.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="badge">3</div><div class="ico">📱</div><h4>Делится телефоном</h4><p>Один тап, номер подтверждён Telegram. Главный шаг оцифровки.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="badge">4</div><div class="ico">⭐</div><h4>Получает баллы</h4><p>Кэшбэк за покупку начисляется на счёт. Мы знаем купленный продукт.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="badge">5</div><div class="ico">🎟️</div><h4>Имя, пол, возраст</h4><p>Минимум данных — и билет в розыгрыш Аэрогриля. Дальше профиль по желанию.</p></div>
+    </div>
+
+    <div class="funnel-label"><span class="tag gold">Второй путь</span><h3>Поделиться телефоном без покупки</h3></div>
+    <div class="flow">
+      <div class="step"><div class="badge">1</div><div class="ico">🤝</div><h4>Открывает бота</h4><p>Из рекламы, буклета или по ссылке — без QR-кода с коробки.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="badge">2</div><div class="ico">🗂️</div><h4>Делится телефоном</h4><p>Создаётся профиль, фиксируется согласие на обработку данных.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="badge">3</div><div class="ico">🎟️</div><h4>Получает билет</h4><p>Приветственный билет в розыгрыш. Баллы — нет (баллы только за покупку).</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- PROFILE -->
+<section id="profile">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Что мы узнаём</span>
+      <h2>Профиль покупателя — главный актив программы</h2>
+      <p>Каждое поле — конкретная польза для маркетинга, закупок и аналитики. Часть данных приходит автоматически из Telegram.</p>
+    </div>
+    <div class="profile">
+      <div class="pcard">
+        <div class="top"><div class="ava">👤</div><div><div class="nm">Профиль клиента</div><div class="st">в базе Biotact Club</div></div></div>
+        <div class="rows">
+          <div class="prow"><span class="k">Телефон</span><span class="v">подтверждён ✓</span></div>
+          <div class="prow"><span class="k">Имя / язык</span><span class="v">из Telegram</span></div>
+          <div class="prow"><span class="k">Пол · Возраст</span><span class="v">Женский · 25–45</span></div>
+          <div class="prow"><span class="k">Город</span><span class="v">Ташкент</span></div>
+          <div class="prow"><span class="k">Зачем · Для кого</span><span class="v">здоровье ребёнка · ребёнок</span></div>
+          <div class="prow"><span class="k">Купленный продукт</span><span class="v">BIFOLAK NEO</span></div>
+          <div class="prow"><span class="k">Статус · Баллы</span><span class="v">Новичок · 3 800</span></div>
+        </div>
+      </div>
+      <ul class="why">
+        <li><b>Контакт + согласие</b> — прямой канал связи на месяцы, по закону РУз о персональных данных.</li>
+        <li><b>Пол, возраст, город</b> — основа сегментации: кому, что и где предлагать.</li>
+        <li><b>Зачем и для кого</b> — реальная потребность семьи, а не догадки.</li>
+        <li><b>Купленный продукт</b> — приходит автоматически из кода → продуктовые предпочтения без лишних вопросов.</li>
+        <li><b>История событий</b> — каждое действие (скан, анкета, заказ) в таймлайне клиента; основа «работы с базой».</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- POINTS -->
+<section id="points" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Баллы и кэшбэк</span>
+      <h2>1 балл = 1 сум. Всегда. Без множителей и мелкого шрифта.</h2>
+      <p>Кэшбэк баллами за каждую активацию кода. Первая активация в жизни — с повышенным приветственным бонусом ×1,5.</p>
+    </div>
+    <div class="grid g3" style="margin-bottom:22px">
+      <div class="card reward"><div class="ico">⭐</div><h3>Кэшбэк Новичка</h3><div class="big">5%</div><p>С каждой покупки по QR, баллами на счёт.</p></div>
+      <div class="card reward gold"><div class="ico">👑</div><h3>Кэшбэк Друга</h3><div class="big">8%</div><p>После 10 активаций — навсегда (см. «Статус»).</p></div>
+      <div class="card reward"><div class="ico">🎁</div><h3>Приветственный</h3><div class="big">×1,5</div><p>На самую первую активацию в жизни.</p></div>
+    </div>
+    <table class="t">
+      <tr><th>Продукт (пример)</th><th>Цена, сум</th><th>Новичок (5%)</th><th>Друг (8%)</th></tr>
+      <tr><td>BIFOLAK NEO стик</td><td>66 500</td><td class="hl">3 325</td><td class="gold">5 320</td></tr>
+      <tr><td>BIFOLAK ZINCUM стик</td><td>75 500</td><td class="hl">3 775</td><td class="gold">6 040</td></tr>
+      <tr><td>BIFOLAK MAGNIY стик</td><td>83 500</td><td class="hl">4 175</td><td class="gold">6 680</td></tr>
+      <tr><td>Средневзвешенно по портфелю</td><td>75 938</td><td class="hl">3 797</td><td class="gold">6 075</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- STATUS -->
+<section id="status">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Статус «Друг BIOTACT»</span>
+      <h2>10 активаций — и кэшбэк навсегда 8%, плюс привилегии</h2>
+      <p>Понятная цель и видимый прогресс. Статус присваивается автоматически и никогда не теряется.</p>
+    </div>
+    <div class="progress-demo">
+      <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:600"><span>До статуса «Друг BIOTACT»</span><span class="muted">осталось 3 активации</span></div>
+      <div class="pbar"><span></span></div>
+      <div class="muted" style="font-size:13.5px">При получении статуса — единоразовый бонус +5 000 баллов и бейдж в профиле.</div>
+    </div>
+    <table class="t" style="margin-top:20px">
+      <tr><th>Привилегия</th><th>Новичок</th><th>Друг BIOTACT</th></tr>
+      <tr><td>Кэшбэк за активацию</td><td class="hl">5%</td><td class="gold">8%</td></tr>
+      <tr><td>Билеты в розыгрыш</td><td>по анкете</td><td class="gold">+1 бонусный авто</td></tr>
+      <tr><td>Бесплатная доставка в мини-аппе</td><td>от 200 тыс. сум</td><td class="gold">всегда</td></tr>
+      <tr><td>Закрытый контент</td><td>базовый</td><td class="gold">полный + ранний доступ</td></tr>
+      <tr><td>Знак отличия</td><td>—</td><td class="gold">бейдж «Друг BIOTACT»</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- SPEND -->
+<section id="spend" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Трата баллов</span>
+      <h2>Баллами можно оплатить покупку в мини-аппе — как картой лояльности</h2>
+      <p>Принцип знакомой механики «как в Корзинке»: накопил — потратил. Только наша «касса» — это мини-приложение Biotact.</p>
+    </div>
+    <div class="grid g3">
+      <div class="card"><div class="ico">🛒</div><h4>До 100% товаров</h4><p>Баллами оплачивается стоимость товаров в чеке. Доставка — деньгами.</p></div>
+      <div class="card"><div class="ico">🔢</div><h4>Понятные правила</h4><p>Минимум списания — 500 баллов, кратно 100. 1 балл = 1 сум скидки.</p></div>
+      <div class="card"><div class="ico">🔒</div><h4>Безопасно</h4><p>Скидку считает сервер, не клиент. Баланс защищён от перерасхода и накрутки.</p></div>
+    </div>
+    <div class="callout gold" style="margin-top:22px">
+      <h3>Почему это сильный ход</h3>
+      <p>Баллы перестают быть «цифрой на счету» и становятся реальными деньгами в мини-аппе. Это мотивирует копить и постепенно смещает часть покупок в наш собственный канал — магазин и оплата в приложении уже работают.</p>
+    </div>
+  </div>
+</section>
+
+<!-- LOTTERY -->
+<section id="lottery">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Билеты и розыгрыш</span>
+      <h2>Ежемесячный розыгрыш Аэрогриля — честный и проверяемый</h2>
+      <p>Билеты начисляются за заполнение профиля и активность. Один аккаунт — максимум 4 билета в месяц.</p>
+    </div>
+    <table class="t" style="margin-bottom:22px">
+      <tr><th>За что билет</th><th>Билетов</th></tr>
+      <tr><td>Профиль: телефон + пол + возраст (18+)</td><td class="hl">1</td></tr>
+      <tr><td>Остальные поля анкеты (причина / для кого / город)</td><td class="hl">+1</td></tr>
+      <tr><td>Подписка на Telegram-канал</td><td class="hl">+1</td></tr>
+      <tr><td>Статус «Друг BIOTACT»</td><td class="gold">+1 авто</td></tr>
+    </table>
+    <div class="fair">
+      <div class="card"><div class="ico">🔒</div><h4>1. Запечатываем</h4><p>За сутки публикуем «отпечаток» списка участников — как запечатанный конверт на виду у всех.</p></div>
+      <div class="card"><div class="ico">🎲</div><h4>2. Разыгрываем</h4><p>В прямом эфире определяем победителя случайно. Список после этого изменить нельзя.</p></div>
+      <div class="card"><div class="ico">✅</div><h4>3. Проверяем</h4><p>Публикуем список — любой сверяет отпечаток. Победителя поздравляем публично.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- BONUSES + EXPIRY + FRAUD -->
+<section id="more" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Бонусы, сроки и защита</span>
+      <h2>Что ещё работает на удержание</h2>
+    </div>
+    <div class="grid g3" style="margin-bottom:24px">
+      <div class="card"><div class="ico">🎉</div><h4>Бонусные баллы</h4><p>Приглашение друга +1000, день рождения +1000, подписка на канал +300, отзыв о продукте +200.</p></div>
+      <div class="card"><div class="ico">⏳</div><h4>Срок жизни баллов</h4><p>Баллы действуют 12 месяцев с последнего начисления. Любая новая активация продлевает их. Напоминаем заранее.</p></div>
+      <div class="card"><div class="ico">🛡️</div><h4>Защита от обмана</h4><p>Уникальный код у каждой упаковки (повторно не активируется). Телефон подтверждён Telegram — фейковые анкеты не пройдут.</p></div>
+    </div>
+    <div class="callout">
+      <h3>Старт без лишних сложностей</h3>
+      <p>На старте мы не вводим ручное «вооружение» партий кодов — это упрощает запуск. Если заметим злоупотребления (коды, утёкшие до продажи), добавим этот барьер. Уникальность кодов и подтверждённый телефон уже дают базовую защиту.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section id="roadmap">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Этапы запуска</span>
+      <h2>Полная программа, собранная по шагам</h2>
+      <p>Двигаемся аккуратно и в безопасном порядке: сначала фундамент и деньги-механика, затем розыгрыш, трата баллов и масштаб.</p>
+    </div>
+    <div class="timeline">
+      <div class="tl"><div><div class="phase">Подготовка</div><div class="when">Месяц 0</div></div><div class="desc">Юридическое заключение по акции, типография для печати кодов, доработка приложения. <span class="hl">Готовим запуск.</span></div></div>
+      <div class="tl"><div><div class="phase">Пилот</div><div class="when">Месяцы 1–2</div></div><div class="desc"><span class="hl">33 000 коробок</span> с уникальными кодами, 2 ежемесячных розыгрыша. Замеряем: сканирование, заполнение анкеты, портрет покупателя.</div></div>
+      <div class="tl"><div><div class="phase">Полный запуск</div><div class="when">Месяцы 3–8</div></div><div class="desc">Коды на все упаковки. Статус «Друг», трата баллов, рефералы, работа с базой: рассылки, персональные предложения, эксклюзивные наборы.</div></div>
+      <div class="tl"><div><div class="phase">Монетизация базы</div><div class="when">Месяцы 9+</div></div><div class="desc">Сегментированные кампании, авто-подписка на регулярные продукты, новые категории. <span class="hl">Мини-приложение как канал продаж.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPANY VIEW -->
+<section id="company" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Что видит компания</span>
+      <h2>База, с которой можно работать</h2>
+      <p>Все профили — в одной админ-панели. Это рабочий инструмент маркетинга, а не просто список.</p>
+    </div>
+    <div class="grid g3">
+      <div class="card"><div class="ico">🗂️</div><h3>Профили клиентов</h3><p>Контакты, ответы анкет, статус, баланс, история покупок и активаций — в одном месте.</p></div>
+      <div class="card"><div class="ico">🧩</div><h3>Сегменты</h3><p>«Мамы малышей в Ташкенте», «купившие NEO за 30 дней» — гибкие выборки под кампании.</p></div>
+      <div class="card"><div class="ico">📨</div><h3>Кампании</h3><p>Адресные сообщения и предложения нужному сегменту через Telegram — почти бесплатно.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div class="status"><span class="pulse"></span> Полный концепт — на согласование руководства</div>
+      <p class="legal">Документ для внутреннего использования Biotact Deutschland. Цифры — план и оценки, калибруются по итогам пилота. Окончательная юридическая квалификация акции и правила — после заключения юриста Республики Узбекистан. Участие в розыгрыше 18+.</p>
+    </div>
+    <div style="text-align:right">
+      <div style="font-weight:800;color:#fff;font-size:16px">Biotact&nbsp;Club</div>
+      <div style="font-size:13px;margin-top:4px">Полная версия концепта · 25.06.2026</div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
