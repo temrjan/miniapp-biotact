@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from src.crm.models import FamilyMember, Lead
-    from src.loyalty.models import Consent
+    from src.loyalty.models import Consent, CustomerProfile
 
 from src.database import Base
 
@@ -28,6 +28,7 @@ class User(Base):
 
     # Contact
     phone: Mapped[str | None] = mapped_column(String(20))
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Default delivery address
     address_street: Mapped[str | None] = mapped_column(String(255))
@@ -64,6 +65,9 @@ class User(Base):
     leads: Mapped[list["Lead"]] = relationship("Lead", back_populates="user")
     consents: Mapped[list["Consent"]] = relationship(
         "Consent", back_populates="user", passive_deletes=True
+    )
+    profile: Mapped["CustomerProfile | None"] = relationship(
+        "CustomerProfile", back_populates="user", uselist=False, passive_deletes=True
     )
 
     def __repr__(self) -> str:
