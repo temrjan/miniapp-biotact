@@ -1,0 +1,15 @@
+# gitleaks configuration — extend the built-in ruleset, allowlist documented non-secrets.
+# https://github.com/gitleaks/gitleaks#configuration
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Env templates and removed vendored docs (placeholders / teaching examples, not real secrets)"
+condition = "OR"
+paths = [
+  # .env.example holds placeholders; the real .env is gitignored and never committed.
+  '''\.env\.example$''',
+  # devops-agent/ was a vendored docs tree (removed); its style guide contained a
+  # `API_KEY = "sk_live_..."  # НИКОГДА!` teaching example flagged by generic-api-key.
+  '''devops-agent/''',
+]
