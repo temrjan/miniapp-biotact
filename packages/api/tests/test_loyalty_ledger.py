@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.loyalty.codes import generate_batch
 from src.loyalty.models import LedgerReason, PointLedger
 from src.loyalty.pricing import (
     SENTINEL_SKU,
@@ -71,7 +72,7 @@ def test_validate_catalog_passes() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _cashback_row(user_id: int, qr_code_id: int) -> PointLedger:
+def _cashback_row(user_id: int, qr_code_id: int | None) -> PointLedger:
     """A well-formed cashback earn row (5% of 10_000 = 500)."""
     return PointLedger(
         user_id=user_id,
@@ -82,6 +83,12 @@ def _cashback_row(user_id: int, qr_code_id: int) -> PointLedger:
         unit_price=10_000,
         rate_bps=500,
     )
+
+
+async def _make_qr_id(session: AsyncSession) -> int:
+    """Create a real qr_code (+ batch) and return its id — satisfies the ledger FK."""
+    _, codes = await generate_batch(session, SENTINEL_SKU, 1)
+    return codes[0].id
 
 
 async def test_balance_empty_is_zero(test_db: AsyncSession) -> None:
@@ -97,14 +104,15 @@ async def test_balance_is_signed_sum(test_db: AsyncSession) -> None:
     user = User(telegram_id=40002, first_name="SignedSum")
     test_db.add(user)
     await test_db.flush()
+    qr_id = await _make_qr_id(test_db)
     test_db.add_all(
         [
-            _cashback_row(user.id, qr_code_id=1),  # +500
+            _cashback_row(user.id, qr_code_id=qr_id),  # +500
             PointLedger(
                 user_id=user.id,
                 amount=compute_cashback(10_000, 250),  # +250 welcome (same code, diff reason)
                 reason=LedgerReason.WELCOME,
-                qr_code_id=1,
+                qr_code_id=qr_id,
                 sku="BIFOLAK-STICK",
                 unit_price=10_000,
                 rate_bps=250,
@@ -135,10 +143,11 @@ async def test_partial_unique_blocks_duplicate_qr_reason(test_db: AsyncSession) 
     user = User(telegram_id=40003, first_name="DupQr")
     test_db.add(user)
     await test_db.flush()
-    test_db.add(_cashback_row(user.id, qr_code_id=7))
+    qr_id = await _make_qr_id(test_db)
+    test_db.add(_cashback_row(user.id, qr_code_id=qr_id))
     await test_db.flush()
 
-    test_db.add(_cashback_row(user.id, qr_code_id=7))  # same (qr, reason)
+    test_db.add(_cashback_row(user.id, qr_code_id=qr_id))  # same (qr, reason)
     try:
         with pytest.raises(IntegrityError):
             await test_db.flush()
@@ -151,14 +160,15 @@ async def test_partial_unique_allows_distinct_reason_and_null_qr(test_db: AsyncS
     user = User(telegram_id=40004, first_name="DistinctReason")
     test_db.add(user)
     await test_db.flush()
+    qr_id = await _make_qr_id(test_db)
     test_db.add_all(
         [
-            _cashback_row(user.id, qr_code_id=8),  # (8, cashback)
+            _cashback_row(user.id, qr_code_id=qr_id),  # (qr, cashback)
             PointLedger(
                 user_id=user.id,
                 amount=compute_cashback(10_000, 250),
-                reason=LedgerReason.WELCOME,  # (8, welcome) — distinct reason, OK
-                qr_code_id=8,
+                reason=LedgerReason.WELCOME,  # (qr, welcome) — distinct reason, OK
+                qr_code_id=qr_id,
                 sku="BIFOLAK-STICK",
                 unit_price=10_000,
                 rate_bps=250,
@@ -176,7 +186,8 @@ async def test_ledger_cascades_on_user_delete(test_db: AsyncSession) -> None:
     user = User(telegram_id=40005, first_name="Cascade")
     test_db.add(user)
     await test_db.flush()
-    test_db.add(_cashback_row(user.id, qr_code_id=9))
+    qr_id = await _make_qr_id(test_db)
+    test_db.add(_cashback_row(user.id, qr_code_id=qr_id))
     await test_db.flush()
     uid = user.id
 

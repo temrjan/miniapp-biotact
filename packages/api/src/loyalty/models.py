@@ -220,8 +220,14 @@ class PointLedger(Base):
     amount: Mapped[int] = mapped_column(BigInteger)
     reason: Mapped[str] = mapped_column(String(32), index=True)
 
-    # Idempotency key for earn rows tied to a QR activation (FK to qr_codes added in PR-2.2).
-    qr_code_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    # Idempotency key for earn rows tied to a QR activation. RESTRICT keeps money truth
+    # intact: a qr_code with ledger rows cannot be deleted (user deletion removes the
+    # ledger rows first via user_id CASCADE, so it never blocks deleting a user).
+    qr_code_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("qr_codes.id", ondelete="RESTRICT", name="fk_point_ledger_qr_codes"),
+        index=True,
+    )
 
     # Provenance snapshot — earn rows only; NULL for redeem/expiry/adjust.
     sku: Mapped[str | None] = mapped_column(String(32))
@@ -235,3 +241,58 @@ class PointLedger(Base):
             f"<PointLedger(id={self.id}, user_id={self.user_id}, "
             f"reason={self.reason}, amount={self.amount})>"
         )
+
+
+class QrCodeStatus(enum.StrEnum):
+    """QR lifecycle, stored as a free String (not a PG enum). No ``armed`` state —
+    codes are active on print (anti-fraud arming deferred; leaked-code risk accepted).
+    """
+
+    GENERATED = "generated"
+    USED = "used"
+
+
+class CodeBatch(Base):
+    """A generated batch of unique QR codes for one SKU (printed onto boxes)."""
+
+    __tablename__ = "code_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sku: Mapped[str] = mapped_column(String(32), index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    label: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<CodeBatch(id={self.id}, sku={self.sku}, quantity={self.quantity})>"
+
+
+class QrCode(Base):
+    """A unique QR code carrying a SKU. The code string is an opaque random token; the
+    authoritative SKU lives in the ``sku`` column (never parsed from the string, which
+    could be spoofed). Status flips ``generated`` → ``used`` atomically on activation
+    (PR-2.3); ``UNIQUE(code)`` is the lookup key for the bot deeplink ``qr_<code>``.
+    """
+
+    __tablename__ = "qr_codes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True)
+    sku: Mapped[str] = mapped_column(String(32), index=True)
+    batch_id: Mapped[int] = mapped_column(
+        ForeignKey("code_batches.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default=QrCodeStatus.GENERATED,
+        server_default=QrCodeStatus.GENERATED.value,
+    )
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # SET NULL on user delete: the physical code stays 'used' in history, activator forgotten.
+    activated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<QrCode(id={self.id}, code={self.code}, sku={self.sku}, status={self.status})>"
