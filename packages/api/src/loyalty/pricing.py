@@ -1,93 +1,64 @@
-"""Loyalty cashback price catalog and money math (Stage 2).
+"""Loyalty cashback pricing and money math (Stage 2).
 
-Single source of the cashback base price per SKU. This is **not** reference data —
-``unit_price`` directly computes a financial liability (the points a customer earns),
-so it lives versioned in code: changing a price is a reviewed, deployed change, never
-a silent admin toggle.
+The cashback base is the product's own price (``products.price``), looked up by
+``product_id`` — always current, single source of truth. Each accrual snapshots the
+applied ``unit_price``/``rate_bps`` onto the ledger (Q4), so a later price change only
+affects future accruals; past liability is immutable.
 
-Units (invariant): ``unit_price`` is an integer in **UZS including VAT**. Points are
-whole integers, **1 балл = 1 сум**. No floats anywhere — cashback is computed with
-exact ``Decimal`` arithmetic and ``ROUND_HALF_UP``.
+Units (invariant): ``unit_price`` is an integer in **UZS including VAT** (``products.price``
+is the gross amount Multicard charges). Points are whole integers, **1 балл = 1 сум**.
+No floats — cashback is computed with exact ``Decimal`` arithmetic and ``ROUND_HALF_UP``.
 """
 
 from decimal import ROUND_HALF_UP, Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.products.models import Product
 
 
-class UnknownSkuError(Exception):
-    """A SKU has no cashback price configured.
+class UnknownProductError(Exception):
+    """A product has no usable cashback price (not found, or ``price`` is NULL).
 
-    Surfaced loudly rather than silently accruing zero (or a wrong default): a QR
-    whose SKU is not in the catalog is a real operational event (a product not yet
-    entered), to be handled explicitly — never swallowed to 0 or 500.
+    Surfaced loudly rather than silently accruing zero (or a wrong default): a QR whose
+    product is missing or unpriced is a real operational event, to be handled explicitly
+    (the activation rolls back the claim) — never swallowed to 0.
     """
 
-    def __init__(self, sku: str) -> None:
-        self.sku = sku
-        super().__init__(f"no cashback unit_price configured for SKU {sku!r}")
+    def __init__(self, product_id: int) -> None:
+        self.product_id = product_id
+        super().__init__(f"no cashback price for product_id={product_id}")
 
 
-class SkuPrice(BaseModel):
-    """Immutable cashback base price for one SKU (integer UZS incl. VAT)."""
+async def get_unit_price(session: AsyncSession, product_id: int) -> int:
+    """Cashback base price (integer UZS incl. VAT) for ``product_id`` = ``products.price``.
 
-    model_config = ConfigDict(frozen=True)
-
-    sku: str
-    unit_price: int = Field(gt=0)  # integer UZS, VAT included
-    currency: str = "UZS"
-    vat_included: bool = True
-
-
-# ---------------------------------------------------------------------------
-# PLACEHOLDER CATALOG.
-# The real 13 SKU prices (UZS incl. VAT) land in PR-2.3, together with a guard
-# test that fails if any sentinel survives. Until then the loyalty endpoint is
-# dark (loyalty_enabled=false) so nothing reads a real price. The sentinel below
-# keeps the module valid/importable and the math testable.
-# ---------------------------------------------------------------------------
-SENTINEL_SKU = "__PLACEHOLDER_SKU__"
-SENTINEL_UNIT_PRICE = 1
-
-_CATALOG: dict[str, SkuPrice] = {
-    SENTINEL_SKU: SkuPrice(sku=SENTINEL_SKU, unit_price=SENTINEL_UNIT_PRICE),
-}
-
-
-def validate_catalog() -> None:
-    """Fail-fast on a malformed catalog (non-empty; prices are positive integers).
-
-    Called at import time so a broken catalog stops the app at startup rather than
-    at the first activation. ``SkuPrice`` already enforces ``unit_price > 0`` per
-    entry; this guards the catalog as a whole.
+    Looked up by primary key (unique, indexed, deterministic). Raises
+    :class:`UnknownProductError` if the product is missing or its ``price`` is NULL — never
+    returns 0. Cashback is priced regardless of ``is_active`` (a purchased box still earns
+    even if the product was later delisted from the shop).
     """
-    if not _CATALOG:
-        raise RuntimeError("loyalty price catalog is empty")
-    for sku, price in _CATALOG.items():
-        if price.sku != sku:
-            raise RuntimeError(f"catalog key {sku!r} != entry.sku {price.sku!r}")
-
-
-def get_unit_price(sku: str) -> int:
-    """Cashback base price (integer UZS incl. VAT) for ``sku``.
-
-    Raises :class:`UnknownSkuError` if the SKU is not priced — never returns 0.
-    """
-    try:
-        return _CATALOG[sku].unit_price
-    except KeyError:
-        raise UnknownSkuError(sku) from None
+    price = (
+        await session.execute(select(Product.price).where(Product.id == product_id))
+    ).scalar_one_or_none()
+    if price is None:
+        raise UnknownProductError(product_id)
+    # Cashback base must be whole UZS — guard against a silent truncation if a fractional
+    # price ever lands in the column (the schema allows Numeric(12,2)).
+    if price != price.to_integral_value():
+        raise ValueError(
+            f"product_id={product_id} has a fractional price {price}; expected whole UZS"
+        )
+    return int(price)
 
 
 def compute_cashback(unit_price: int, rate_bps: int) -> int:
     """Cashback points for ``unit_price`` at ``rate_bps`` basis points.
 
     ``rate_bps`` = basis points (500 → 5%, 800 → 8%, 250 → welcome half-rate).
-    Exact ``Decimal`` math, ``ROUND_HALF_UP`` (a .5 tie rounds up — in the
-    customer's favour on earn). Returns whole points (1 балл = 1 сум).
+    Exact ``Decimal`` math, ``ROUND_HALF_UP`` (a .5 tie rounds up — in the customer's
+    favour on earn). Returns whole points (1 балл = 1 сум).
     """
     raw = Decimal(unit_price) * Decimal(rate_bps) / Decimal(10_000)
     return int(raw.quantize(Decimal(1), rounding=ROUND_HALF_UP))
-
-
-validate_catalog()
