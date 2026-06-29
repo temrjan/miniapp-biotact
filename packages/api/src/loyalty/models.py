@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -108,3 +108,48 @@ class CustomerProfile(Base):
 
     def __repr__(self) -> str:
         return f"<CustomerProfile(id={self.id}, user_id={self.user_id}, status={self.status})>"
+
+
+class CustomerEventType(enum.StrEnum):
+    """Canonical customer-event vocabulary.
+
+    Stored as a free string (column is ``String``, NOT a PG enum) so the set can
+    grow without a migration per new type. These constants exist to avoid magic
+    strings in the loyalty services (Stage ≥2).
+    """
+
+    JOINED = "joined"
+    PHONE_SHARED = "phone_shared"
+    QR_ACTIVATED = "qr_activated"
+    SURVEY_DONE = "survey_done"
+    STATUS_FRIEND = "status_friend"
+    RAFFLE_ENTRY = "raffle_entry"
+    ORDER_PLACED = "order_placed"
+    POINTS_SPENT = "points_spent"
+    POINTS_EXPIRED = "points_expired"
+
+
+class CustomerEvent(Base):
+    """Append-only customer timeline.
+
+    High-volume: queried by ``user_id`` directly (no ORM relationship on ``User``),
+    never updated or deleted in code — rows disappear only via the DB
+    ``ON DELETE CASCADE`` when a user is removed. ``event_type`` is a free string
+    (constants in :class:`CustomerEventType`), not a PG enum. No endpoints at Stage 1.
+    """
+
+    __tablename__ = "customer_event"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return (
+            f"<CustomerEvent(id={self.id}, user_id={self.user_id}, event_type={self.event_type})>"
+        )
