@@ -18,26 +18,44 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.products.models import Product
 
 
-class UnknownProductError(Exception):
-    """A product has no usable cashback price (not found, or ``price`` is NULL).
+class PricingError(Exception):
+    """A product cannot be priced for cashback right now — surfaced loudly, never accrued as 0.
 
-    Surfaced loudly rather than silently accruing zero (or a wrong default): a QR whose
-    product is missing or unpriced is a real operational event, to be handled explicitly
-    (the activation rolls back the claim) — never swallowed to 0.
+    Either the product is missing/unpriced (:class:`UnknownProductError`) or its price is not
+    whole UZS (:class:`FractionalPriceError`). Both are real operational events: the activation
+    rolls the claim back and the caller maps them to a retryable error — money is never silently
+    wrong. Carries ``product_id`` for the ops log.
     """
 
-    def __init__(self, product_id: int) -> None:
+    def __init__(self, product_id: int, detail: str) -> None:
         self.product_id = product_id
-        super().__init__(f"no cashback price for product_id={product_id}")
+        super().__init__(f"{detail} for product_id={product_id}")
+
+
+class UnknownProductError(PricingError):
+    """The product is missing, or its ``price`` is NULL (never silently accrue 0)."""
+
+    def __init__(self, product_id: int) -> None:
+        super().__init__(product_id, "no cashback price")
+
+
+class FractionalPriceError(PricingError, ValueError):
+    """The product's ``price`` has a fractional part — whole UZS expected (no silent truncation).
+
+    Also a :class:`ValueError` so the PR-2.1 pricing tests keep matching without change.
+    """
+
+    def __init__(self, product_id: int, price: Decimal) -> None:
+        super().__init__(product_id, f"fractional price {price}")
 
 
 async def get_unit_price(session: AsyncSession, product_id: int) -> int:
     """Cashback base price (integer UZS incl. VAT) for ``product_id`` = ``products.price``.
 
-    Looked up by primary key (unique, indexed, deterministic). Raises
-    :class:`UnknownProductError` if the product is missing or its ``price`` is NULL — never
-    returns 0. Cashback is priced regardless of ``is_active`` (a purchased box still earns
-    even if the product was later delisted from the shop).
+    Looked up by primary key (unique, indexed, deterministic). Raises a :class:`PricingError`
+    — :class:`UnknownProductError` if the product is missing or its ``price`` is NULL,
+    :class:`FractionalPriceError` if the price is not whole UZS — never returns 0. Cashback is
+    priced regardless of ``is_active`` (a purchased box still earns even if later delisted).
     """
     price = (
         await session.execute(select(Product.price).where(Product.id == product_id))
@@ -47,9 +65,7 @@ async def get_unit_price(session: AsyncSession, product_id: int) -> int:
     # Cashback base must be whole UZS — guard against a silent truncation if a fractional
     # price ever lands in the column (the schema allows Numeric(12,2)).
     if price != price.to_integral_value():
-        raise ValueError(
-            f"product_id={product_id} has a fractional price {price}; expected whole UZS"
-        )
+        raise FractionalPriceError(product_id, price)
     return int(price)
 
 
