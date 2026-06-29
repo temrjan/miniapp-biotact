@@ -4,7 +4,18 @@ import enum
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -152,4 +163,75 @@ class CustomerEvent(Base):
     def __repr__(self) -> str:
         return (
             f"<CustomerEvent(id={self.id}, user_id={self.user_id}, event_type={self.event_type})>"
+        )
+
+
+class LedgerReason(enum.StrEnum):
+    """Canonical point-ledger reason vocabulary (stored as a free String, NOT a PG enum).
+
+    Stage 2 writes only ``CASHBACK`` and ``WELCOME``. The rest are the canonical set
+    for later stages (``FRIEND_BONUS`` = Stage 3; ``REDEEM``/``EXPIRY`` = Stage 6;
+    ``REFERRAL``/``BIRTHDAY``/``REVIEW``/``SUBSCRIPTION``/``L3`` = Stage 7). A String
+    column lets the vocabulary grow without a migration per reason — same approach as
+    :class:`CustomerEventType`.
+    """
+
+    CASHBACK = "cashback"
+    WELCOME = "welcome"
+    FRIEND_BONUS = "friend_bonus"
+    REFERRAL = "referral"
+    BIRTHDAY = "birthday"
+    REVIEW = "review"
+    SUBSCRIPTION = "subscription"
+    L3 = "l3"
+    REDEEM = "redeem"
+    EXPIRY = "expiry"
+
+
+class PointLedger(Base):
+    """Append-only points ledger. Balance is ``SUM(amount)`` — never a stored column.
+
+    Money truth: written once, never updated or deleted. ``amount`` is a signed integer
+    of UZS-points (1 балл = 1 сум) — positive on earn (cashback/welcome/…), negative on
+    redeem/expiry. Earn rows snapshot their computation inputs (``sku``/``unit_price``/
+    ``rate_bps``) so each row is self-contained and audit-reconcilable independently of
+    later price or status changes; non-earn rows leave them NULL. ``reason`` is a free
+    String (constants in :class:`LedgerReason`), not a PG enum.
+
+    Idempotency: partial ``UNIQUE(qr_code_id, reason)`` (earn rows only) — at most one
+    cashback and one welcome per activated code, even under a concurrent claim race.
+    ``qr_code_id`` is a plain column here; its FK to ``qr_codes`` is added in PR-2.2,
+    where that table is created. No endpoints at PR-2.1.
+    """
+
+    __tablename__ = "point_ledger"
+    __table_args__ = (
+        Index(
+            "uq_point_ledger_qr_code_id_reason",
+            "qr_code_id",
+            "reason",
+            unique=True,
+            postgresql_where=text("qr_code_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[int] = mapped_column(BigInteger)
+    reason: Mapped[str] = mapped_column(String(32), index=True)
+
+    # Idempotency key for earn rows tied to a QR activation (FK to qr_codes added in PR-2.2).
+    qr_code_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+
+    # Provenance snapshot — earn rows only; NULL for redeem/expiry/adjust.
+    sku: Mapped[str | None] = mapped_column(String(32))
+    unit_price: Mapped[int | None] = mapped_column(BigInteger)
+    rate_bps: Mapped[int | None] = mapped_column(Integer)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return (
+            f"<PointLedger(id={self.id}, user_id={self.user_id}, "
+            f"reason={self.reason}, amount={self.amount})>"
         )
