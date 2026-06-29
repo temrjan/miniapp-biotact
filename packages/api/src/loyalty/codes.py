@@ -1,9 +1,9 @@
-"""QR code batch generation and CSV export (Stage 2 PR-2.2).
+"""QR code batch generation and CSV export (Stage 2).
 
-Codes are opaque random tokens (Crockford base32, ~60 bits) — unguessable enough
-that the "no arming" model is safe, short enough for the Telegram deeplink
-``qr_<code>`` (well under the 64-char limit). The SKU is authoritative in the
-``qr_codes.sku`` column, never encoded in the string.
+Codes are opaque random tokens (Crockford base32, ~60 bits) — unguessable enough that
+the "no arming" model is safe, short enough for the Telegram deeplink ``qr_<code>`` (well
+under the 64-char limit). The product a code carries is the ``product_id`` FK, never
+encoded in the string.
 """
 
 import csv
@@ -47,37 +47,38 @@ async def _generate_unique_codes(session: AsyncSession, quantity: int) -> list[s
 
 async def generate_batch(
     session: AsyncSession,
-    sku: str,
+    product_id: int,
     quantity: int,
     *,
     label: str | None = None,
 ) -> tuple[CodeBatch, list[QrCode]]:
-    """Create a :class:`CodeBatch` of ``quantity`` unique codes for ``sku``.
+    """Create a :class:`CodeBatch` of ``quantity`` unique codes for ``product_id``.
 
-    Fail-fast: ``sku`` must be priced in :mod:`src.loyalty.pricing` (raises
-    :class:`~src.loyalty.pricing.UnknownSkuError`) — never print a QR for a SKU that
-    cannot accrue cashback. The caller owns the transaction (commits).
+    Fail-fast: the product must be priced (raises
+    :class:`~src.loyalty.pricing.UnknownProductError`) — never print a QR for a product that
+    cannot accrue cashback. The ``product_id`` FK also rejects a non-existent product.
+    The caller owns the transaction (commits).
     """
     if quantity < 1:
         raise ValueError("quantity must be >= 1")
-    get_unit_price(sku)  # MINOR-2a: reject an unpriced SKU at the generation boundary
+    await get_unit_price(session, product_id)  # fail-fast: product exists and is priced
 
-    batch = CodeBatch(sku=sku, quantity=quantity, label=label)
+    batch = CodeBatch(product_id=product_id, quantity=quantity, label=label)
     session.add(batch)
     await session.flush()  # assign batch.id
 
     codes = await _generate_unique_codes(session, quantity)
-    qr_codes = [QrCode(code=code, sku=sku, batch_id=batch.id) for code in codes]
+    qr_codes = [QrCode(code=code, product_id=product_id, batch_id=batch.id) for code in codes]
     session.add_all(qr_codes)
     await session.flush()  # UNIQUE(code) enforced here
     return batch, qr_codes
 
 
 def codes_to_csv(qr_codes: list[QrCode]) -> str:
-    """Render codes as CSV (``code,sku``) for the printing house."""
+    """Render codes as CSV (``code,product_id``) for the printing house."""
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["code", "sku"])
+    writer.writerow(["code", "product_id"])
     for qr in qr_codes:
-        writer.writerow([qr.code, qr.sku])
+        writer.writerow([qr.code, qr.product_id])
     return buffer.getvalue()

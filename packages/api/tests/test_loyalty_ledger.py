@@ -1,27 +1,52 @@
-"""Tests for the loyalty point ledger + pricing (Stage 2 PR-2.1)."""
+"""Tests for the loyalty point ledger + pricing (Stage 2)."""
+
+import secrets
+from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.loyalty.codes import generate_batch
 from src.loyalty.models import LedgerReason, PointLedger
-from src.loyalty.pricing import (
-    SENTINEL_SKU,
-    SENTINEL_UNIT_PRICE,
-    SkuPrice,
-    UnknownSkuError,
-    compute_cashback,
-    get_unit_price,
-    validate_catalog,
-)
+from src.loyalty.pricing import UnknownProductError, compute_cashback, get_unit_price
 from src.loyalty.service import earn_row_reconciles, get_balance
+from src.products.models import Product
 from src.users.models import User
 
+
+async def _make_product(session: AsyncSession, *, price: str = "10000") -> int:
+    """Seed a priced product; return its id (the cashback key)."""
+    product = Product(
+        name="Test BAD", slug=f"test-bad-{secrets.token_hex(4)}", price=Decimal(price)
+    )
+    session.add(product)
+    await session.flush()
+    return product.id
+
+
+async def _make_qr_id(session: AsyncSession, product_id: int) -> int:
+    """Create a real qr_code (+ batch) for a product; return its id — satisfies the FKs."""
+    _, codes = await generate_batch(session, product_id, 1)
+    return codes[0].id
+
+
+def _cashback_row(user_id: int, product_id: int, qr_code_id: int | None) -> PointLedger:
+    """A well-formed cashback earn row (5% of 10_000 = 500)."""
+    return PointLedger(
+        user_id=user_id,
+        amount=compute_cashback(10_000, 500),
+        reason=LedgerReason.CASHBACK,
+        qr_code_id=qr_code_id,
+        product_id=product_id,
+        unit_price=10_000,
+        rate_bps=500,
+    )
+
+
 # --------------------------------------------------------------------------- #
-# pricing — pure money math (no DB)
+# pricing — money math + DB-lookup
 # --------------------------------------------------------------------------- #
 
 
@@ -42,53 +67,31 @@ def test_compute_cashback_round_half_up(unit_price: int, rate_bps: int, expected
     assert compute_cashback(unit_price, rate_bps) == expected
 
 
-def test_get_unit_price_known_and_unknown() -> None:
-    """Priced SKU returns its price; an unpriced SKU raises (never returns 0)."""
-    assert get_unit_price(SENTINEL_SKU) == SENTINEL_UNIT_PRICE
-    with pytest.raises(UnknownSkuError):
-        get_unit_price("__definitely_not_a_sku__")
+async def test_get_unit_price_known_and_unknown(test_db: AsyncSession) -> None:
+    """A priced product returns its price; a missing product_id raises (never returns 0)."""
+    pid = await _make_product(test_db, price="10000")
+    assert await get_unit_price(test_db, pid) == 10_000
+    with pytest.raises(UnknownProductError):
+        await get_unit_price(test_db, 999_999)
 
 
-def test_unknown_sku_error_carries_sku() -> None:
-    """UnknownSkuError exposes the offending SKU for the ops log."""
-    with pytest.raises(UnknownSkuError) as exc:
-        get_unit_price("NOPE-1")
-    assert exc.value.sku == "NOPE-1"
+async def test_unknown_product_error_carries_product_id(test_db: AsyncSession) -> None:
+    """UnknownProductError exposes the offending product_id for the ops log."""
+    with pytest.raises(UnknownProductError) as exc:
+        await get_unit_price(test_db, 424_242)
+    assert exc.value.product_id == 424_242
 
 
-def test_sku_price_rejects_nonpositive_unit_price() -> None:
-    """unit_price must be a positive integer (frozen pydantic constraint)."""
-    with pytest.raises(ValidationError):
-        SkuPrice(sku="X", unit_price=0)
-
-
-def test_validate_catalog_passes() -> None:
-    """The shipped (placeholder) catalog is well-formed."""
-    validate_catalog()  # no raise
+async def test_get_unit_price_rejects_fractional(test_db: AsyncSession) -> None:
+    """A fractional price is rejected loudly — money must not be silently truncated."""
+    pid = await _make_product(test_db, price="100.50")
+    with pytest.raises(ValueError, match="fractional"):
+        await get_unit_price(test_db, pid)
 
 
 # --------------------------------------------------------------------------- #
 # point_ledger — balance, reconciliation, idempotency index, cascade
 # --------------------------------------------------------------------------- #
-
-
-def _cashback_row(user_id: int, qr_code_id: int | None) -> PointLedger:
-    """A well-formed cashback earn row (5% of 10_000 = 500)."""
-    return PointLedger(
-        user_id=user_id,
-        amount=compute_cashback(10_000, 500),
-        reason=LedgerReason.CASHBACK,
-        qr_code_id=qr_code_id,
-        sku="BIFOLAK-STICK",
-        unit_price=10_000,
-        rate_bps=500,
-    )
-
-
-async def _make_qr_id(session: AsyncSession) -> int:
-    """Create a real qr_code (+ batch) and return its id — satisfies the ledger FK."""
-    _, codes = await generate_batch(session, SENTINEL_SKU, 1)
-    return codes[0].id
 
 
 async def test_balance_empty_is_zero(test_db: AsyncSession) -> None:
@@ -104,16 +107,17 @@ async def test_balance_is_signed_sum(test_db: AsyncSession) -> None:
     user = User(telegram_id=40002, first_name="SignedSum")
     test_db.add(user)
     await test_db.flush()
-    qr_id = await _make_qr_id(test_db)
+    pid = await _make_product(test_db)
+    qr_id = await _make_qr_id(test_db, pid)
     test_db.add_all(
         [
-            _cashback_row(user.id, qr_code_id=qr_id),  # +500
+            _cashback_row(user.id, pid, qr_code_id=qr_id),  # +500
             PointLedger(
                 user_id=user.id,
                 amount=compute_cashback(10_000, 250),  # +250 welcome (same code, diff reason)
                 reason=LedgerReason.WELCOME,
                 qr_code_id=qr_id,
-                sku="BIFOLAK-STICK",
+                product_id=pid,
                 unit_price=10_000,
                 rate_bps=250,
             ),
@@ -126,10 +130,10 @@ async def test_balance_is_signed_sum(test_db: AsyncSession) -> None:
 
 def test_earn_row_reconciles_pure() -> None:
     """earn_row_reconciles checks amount == compute_cashback(unit_price, rate_bps)."""
-    good = _cashback_row(user_id=1, qr_code_id=2)
+    good = _cashback_row(user_id=1, product_id=1, qr_code_id=2)
     assert earn_row_reconciles(good) is True
 
-    tampered = _cashback_row(user_id=1, qr_code_id=2)
+    tampered = _cashback_row(user_id=1, product_id=1, qr_code_id=2)
     tampered.amount = 999
     assert earn_row_reconciles(tampered) is False
 
@@ -143,11 +147,12 @@ async def test_partial_unique_blocks_duplicate_qr_reason(test_db: AsyncSession) 
     user = User(telegram_id=40003, first_name="DupQr")
     test_db.add(user)
     await test_db.flush()
-    qr_id = await _make_qr_id(test_db)
-    test_db.add(_cashback_row(user.id, qr_code_id=qr_id))
+    pid = await _make_product(test_db)
+    qr_id = await _make_qr_id(test_db, pid)
+    test_db.add(_cashback_row(user.id, pid, qr_code_id=qr_id))
     await test_db.flush()
 
-    test_db.add(_cashback_row(user.id, qr_code_id=qr_id))  # same (qr, reason)
+    test_db.add(_cashback_row(user.id, pid, qr_code_id=qr_id))  # same (qr, reason)
     try:
         with pytest.raises(IntegrityError):
             await test_db.flush()
@@ -160,16 +165,17 @@ async def test_partial_unique_allows_distinct_reason_and_null_qr(test_db: AsyncS
     user = User(telegram_id=40004, first_name="DistinctReason")
     test_db.add(user)
     await test_db.flush()
-    qr_id = await _make_qr_id(test_db)
+    pid = await _make_product(test_db)
+    qr_id = await _make_qr_id(test_db, pid)
     test_db.add_all(
         [
-            _cashback_row(user.id, qr_code_id=qr_id),  # (qr, cashback)
+            _cashback_row(user.id, pid, qr_code_id=qr_id),  # (qr, cashback)
             PointLedger(
                 user_id=user.id,
                 amount=compute_cashback(10_000, 250),
                 reason=LedgerReason.WELCOME,  # (qr, welcome) — distinct reason, OK
                 qr_code_id=qr_id,
-                sku="BIFOLAK-STICK",
+                product_id=pid,
                 unit_price=10_000,
                 rate_bps=250,
             ),
@@ -186,8 +192,9 @@ async def test_ledger_cascades_on_user_delete(test_db: AsyncSession) -> None:
     user = User(telegram_id=40005, first_name="Cascade")
     test_db.add(user)
     await test_db.flush()
-    qr_id = await _make_qr_id(test_db)
-    test_db.add(_cashback_row(user.id, qr_code_id=qr_id))
+    pid = await _make_product(test_db)
+    qr_id = await _make_qr_id(test_db, pid)
+    test_db.add(_cashback_row(user.id, pid, qr_code_id=qr_id))
     await test_db.flush()
     uid = user.id
 

@@ -193,7 +193,7 @@ class PointLedger(Base):
 
     Money truth: written once, never updated or deleted. ``amount`` is a signed integer
     of UZS-points (1 балл = 1 сум) — positive on earn (cashback/welcome/…), negative on
-    redeem/expiry. Earn rows snapshot their computation inputs (``sku``/``unit_price``/
+    redeem/expiry. Earn rows snapshot their computation inputs (``product_id``/``unit_price``/
     ``rate_bps``) so each row is self-contained and audit-reconcilable independently of
     later price or status changes; non-earn rows leave them NULL. ``reason`` is a free
     String (constants in :class:`LedgerReason`), not a PG enum.
@@ -230,7 +230,9 @@ class PointLedger(Base):
     )
 
     # Provenance snapshot — earn rows only; NULL for redeem/expiry/adjust.
-    sku: Mapped[str | None] = mapped_column(String(32))
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="RESTRICT", name="fk_point_ledger_product"), index=True
+    )
     unit_price: Mapped[int | None] = mapped_column(BigInteger)
     rate_bps: Mapped[int | None] = mapped_column(Integer)
 
@@ -253,32 +255,36 @@ class QrCodeStatus(enum.StrEnum):
 
 
 class CodeBatch(Base):
-    """A generated batch of unique QR codes for one SKU (printed onto boxes)."""
+    """A generated batch of unique QR codes for one product (printed onto boxes)."""
 
     __tablename__ = "code_batches"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    sku: Mapped[str] = mapped_column(String(32), index=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="RESTRICT", name="fk_code_batches_product"), index=True
+    )
     quantity: Mapped[int] = mapped_column(Integer)
     label: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     def __repr__(self) -> str:
-        return f"<CodeBatch(id={self.id}, sku={self.sku}, quantity={self.quantity})>"
+        return f"<CodeBatch(id={self.id}, product_id={self.product_id}, quantity={self.quantity})>"
 
 
 class QrCode(Base):
-    """A unique QR code carrying a SKU. The code string is an opaque random token; the
-    authoritative SKU lives in the ``sku`` column (never parsed from the string, which
-    could be spoofed). Status flips ``generated`` → ``used`` atomically on activation
-    (PR-2.3); ``UNIQUE(code)`` is the lookup key for the bot deeplink ``qr_<code>``.
+    """A unique QR code bound to one product. The code string is an opaque random token;
+    the product it carries is the authoritative ``product_id`` FK (never parsed from the
+    string, which could be spoofed). Status flips ``generated`` → ``used`` atomically on
+    activation (PR-2.3b); ``UNIQUE(code)`` is the lookup key for the bot deeplink ``qr_<code>``.
     """
 
     __tablename__ = "qr_codes"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     code: Mapped[str] = mapped_column(String(32), unique=True)
-    sku: Mapped[str] = mapped_column(String(32), index=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="RESTRICT", name="fk_qr_codes_product"), index=True
+    )
     batch_id: Mapped[int] = mapped_column(
         ForeignKey("code_batches.id", ondelete="CASCADE"), index=True
     )
@@ -295,4 +301,7 @@ class QrCode(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     def __repr__(self) -> str:
-        return f"<QrCode(id={self.id}, code={self.code}, sku={self.sku}, status={self.status})>"
+        return (
+            f"<QrCode(id={self.id}, code={self.code}, "
+            f"product_id={self.product_id}, status={self.status})>"
+        )
