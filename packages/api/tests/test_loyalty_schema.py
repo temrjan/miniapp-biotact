@@ -125,7 +125,7 @@ async def test_customer_profile_full_roundtrip(test_db: AsyncSession) -> None:
             status=LoyaltyStatus.BIOTACT_FRIEND,
             lifetime_activations=10,
             last_activation_at=datetime(2026, 6, 1, tzinfo=UTC),
-            first_activated_sku="BIFOLAK-STICK",
+            first_activated_product_id=77,
             registration_source="qr_activation",
             survey_raw={"q1": "a", "nested": {"k": 1}},
         )
@@ -140,7 +140,7 @@ async def test_customer_profile_full_roundtrip(test_db: AsyncSession) -> None:
     assert row.city == "Tashkent"
     assert row.status is LoyaltyStatus.BIOTACT_FRIEND
     assert row.lifetime_activations == 10
-    assert row.first_activated_sku == "BIFOLAK-STICK"
+    assert row.first_activated_product_id == 77
     assert row.survey_raw == {"q1": "a", "nested": {"k": 1}}
 
 

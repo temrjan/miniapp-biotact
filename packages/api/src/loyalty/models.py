@@ -104,7 +104,7 @@ class CustomerProfile(Base):
     lifetime_activations: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_activation_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_accrual_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    first_activated_sku: Mapped[str | None] = mapped_column(String(32))
+    first_activated_product_id: Mapped[int | None] = mapped_column(BigInteger)
     registration_source: Mapped[str | None] = mapped_column(String(20))
 
     # Growing survey blob — extend without migrations.
