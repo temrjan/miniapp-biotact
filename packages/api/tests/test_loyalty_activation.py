@@ -24,7 +24,16 @@ from src.auth.schemas import TelegramUser
 from src.common.exceptions import ConflictException, NotFoundException
 from src.config import settings
 from src.loyalty.codes import generate_batch
-from src.loyalty.models import CustomerProfile, LedgerReason, PointLedger, QrCode, QrCodeStatus
+from src.loyalty.models import (
+    CustomerEvent,
+    CustomerEventType,
+    CustomerProfile,
+    LedgerReason,
+    LoyaltyStatus,
+    PointLedger,
+    QrCode,
+    QrCodeStatus,
+)
 from src.loyalty.pricing import UnknownProductError
 from src.loyalty.schemas import ActivationStatus
 from src.loyalty.service import ActivationOutcome, activate_code, earn_row_reconciles
@@ -70,6 +79,22 @@ async def _set_price(sm: async_sessionmaker[AsyncSession], product_id: int, pric
         await s.execute(
             update(Product).where(Product.id == product_id).values(price=Decimal(price))
         )
+
+
+async def _seed_user_with_profile(
+    sm: async_sessionmaker[AsyncSession],
+    telegram_id: int,
+    *,
+    lifetime: int,
+    status: LoyaltyStatus = LoyaltyStatus.NEWBIE,
+) -> int:
+    """Commit a user + a profile pre-set to ``lifetime``/``status`` (target the flip boundary)."""
+    async with sm() as s, s.begin():
+        user = User(telegram_id=telegram_id, first_name="Seed")
+        s.add(user)
+        await s.flush()
+        s.add(CustomerProfile(user_id=user.id, lifetime_activations=lifetime, status=status))
+        return user.id
 
 
 def _make_init_data(bot_token: str, user: dict[str, object]) -> str:
@@ -368,3 +393,191 @@ async def test_conflict_http_body_is_generic(client, maker, monkeypatch) -> None
     assert second.status_code == 409
     assert "60042" not in second.text and "Owner" not in second.text  # no owner identity leak
     assert "already activated" in second.text.lower()
+
+
+# --------------------------------------------------------------------------- #
+# Stage 3 — "Друг" status flip: rate 5%→8%, +5000 bonus, milestone event
+# --------------------------------------------------------------------------- #
+
+
+async def test_tenth_activation_flips_to_friend(test_db: AsyncSession, maker) -> None:
+    """The 10th activation flips newbie→friend, earns at 8% (flip-then-accrue), grants +5000.
+
+    MINOR-1 invariant: points_awarded == cashback + friend_bonus and balance == points_awarded.
+    """
+    _, (code,) = await _seed_product_and_codes(maker, price="10000")
+    await _seed_user_with_profile(maker, 60100, lifetime=9)  # next activation is the 10th
+    async with maker() as s:
+        outcome = await activate_code(
+            s, telegram_user=TelegramUser(id=60100, first_name="Friend"), code=code
+        )
+    assert outcome.tier is LoyaltyStatus.BIOTACT_FRIEND
+    assert outcome.friend_bonus == 5000
+    assert outcome.welcome_bonus == 0
+    assert outcome.points_awarded == 5800  # 800 cashback (8%) + 5000 bonus
+    assert outcome.balance == 5800  # == points_awarded (started at 0)
+    assert outcome.lifetime_activations == 10
+
+    async with maker() as s:
+        rows = (await s.execute(select(PointLedger))).scalars().all()
+        assert {r.reason for r in rows} == {"cashback", "friend_bonus"}
+        assert all(earn_row_reconciles(r) for r in rows)  # friend_bonus skipped (NULL snapshot)
+        cashback = next(r for r in rows if r.reason == LedgerReason.CASHBACK)
+        assert cashback.rate_bps == 800
+        assert cashback.amount == 800
+        bonus = next(r for r in rows if r.reason == LedgerReason.FRIEND_BONUS)
+        assert bonus.amount == 5000
+        assert bonus.unit_price is None  # flat bonus, not cashback — no price snapshot
+        assert bonus.rate_bps is None
+        assert bonus.qr_code_id is not None  # tied to the flipping code (partial-UNIQUE backstop)
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert profile.status is LoyaltyStatus.BIOTACT_FRIEND
+        assert profile.lifetime_activations == 10
+        event = (
+            await s.execute(
+                select(CustomerEvent).where(
+                    CustomerEvent.event_type == CustomerEventType.STATUS_FRIEND
+                )
+            )
+        ).scalar_one()
+        assert event.payload == {"lifetime_activations": 10, "bonus": 5000}
+
+
+async def test_friend_activation_earns_8pct_without_repeat_bonus(
+    test_db: AsyncSession, maker
+) -> None:
+    """An existing friend earns 8% on every activation, with no second bonus or event."""
+    _, (code,) = await _seed_product_and_codes(maker, price="10000")
+    await _seed_user_with_profile(maker, 60101, lifetime=15, status=LoyaltyStatus.BIOTACT_FRIEND)
+    async with maker() as s:
+        outcome = await activate_code(
+            s, telegram_user=TelegramUser(id=60101, first_name="OldFriend"), code=code
+        )
+    assert outcome.tier is LoyaltyStatus.BIOTACT_FRIEND
+    assert outcome.friend_bonus == 0
+    assert outcome.points_awarded == 800  # 8% only
+    assert outcome.lifetime_activations == 16
+    async with maker() as s:
+        rows = (await s.execute(select(PointLedger))).scalars().all()
+        assert {r.reason for r in rows} == {"cashback"}
+        assert rows[0].rate_bps == 800
+        events = (await s.execute(select(func.count()).select_from(CustomerEvent))).scalar_one()
+        assert events == 0  # already a friend → no flip event
+
+
+async def test_below_threshold_stays_newbie_at_5pct(test_db: AsyncSession, maker) -> None:
+    """The 9th activation stays newbie: 5% cashback, no flip, no bonus."""
+    _, (code,) = await _seed_product_and_codes(maker, price="10000")
+    await _seed_user_with_profile(maker, 60102, lifetime=8)  # next activation is the 9th
+    async with maker() as s:
+        outcome = await activate_code(
+            s, telegram_user=TelegramUser(id=60102, first_name="Almost"), code=code
+        )
+    assert outcome.tier is LoyaltyStatus.NEWBIE
+    assert outcome.friend_bonus == 0
+    assert outcome.points_awarded == 500  # 5%
+    assert outcome.lifetime_activations == 9
+    async with maker() as s:
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert profile.status is LoyaltyStatus.NEWBIE
+
+
+async def test_threshold_is_idempotent_flips_when_already_past_ten(
+    test_db: AsyncSession, maker
+) -> None:
+    """A newbie whose counter is already ≥10 (backfill/re-ingest) flips on the next activation."""
+    _, (code,) = await _seed_product_and_codes(maker, price="10000")
+    await _seed_user_with_profile(maker, 60103, lifetime=12, status=LoyaltyStatus.NEWBIE)
+    async with maker() as s:
+        outcome = await activate_code(
+            s, telegram_user=TelegramUser(id=60103, first_name="Backfill"), code=code
+        )
+    assert outcome.tier is LoyaltyStatus.BIOTACT_FRIEND
+    assert outcome.friend_bonus == 5000
+    assert outcome.lifetime_activations == 13
+
+
+async def test_replay_of_flipping_code_grants_no_second_bonus(test_db: AsyncSession, maker) -> None:
+    """Re-scanning the flipping code returns the original earn (incl. bonus), grants nothing new."""
+    _, (code,) = await _seed_product_and_codes(maker, price="10000")
+    await _seed_user_with_profile(maker, 60104, lifetime=9)
+    tg = TelegramUser(id=60104, first_name="Replay10")
+    async with maker() as s:
+        first = await activate_code(s, telegram_user=tg, code=code)
+    async with maker() as s:
+        replay = await activate_code(s, telegram_user=tg, code=code)
+    assert first.friend_bonus == 5000
+    assert replay.status is ActivationStatus.ALREADY_ACTIVATED
+    assert replay.friend_bonus == 0
+    assert replay.tier is LoyaltyStatus.BIOTACT_FRIEND  # status persists across the replay
+    assert replay.points_awarded == 5800  # echoes the code's original earn (cashback + bonus)
+    assert replay.lifetime_activations == 10  # not re-incremented
+    async with maker() as s:
+        bonus_count = (
+            await s.execute(
+                select(func.count())
+                .select_from(PointLedger)
+                .where(PointLedger.reason == LedgerReason.FRIEND_BONUS)
+            )
+        ).scalar_one()
+        assert bonus_count == 1  # exactly one friend bonus, ever
+
+
+async def test_race_at_boundary_flips_exactly_once(test_db: AsyncSession, maker) -> None:
+    """Two concurrent activations across the 10th boundary → exactly one flip + one +5000 bonus.
+
+    The per-user ``customer_profile`` FOR UPDATE lock serializes them: whoever wins flips to friend;
+    the other re-reads ``friend`` under the lock and only accrues 8% — no second flip/bonus/event.
+    """
+    _, codes = await _seed_product_and_codes(maker, price="10000", n=2)
+    await _seed_user_with_profile(maker, 60105, lifetime=9)
+    tg = TelegramUser(id=60105, first_name="BoundaryRace")
+    async with maker() as s1, maker() as s2:
+        results = await asyncio.gather(
+            activate_code(s1, telegram_user=tg, code=codes[0]),
+            activate_code(s2, telegram_user=tg, code=codes[1]),
+            return_exceptions=True,
+        )
+    assert all(isinstance(r, ActivationOutcome) for r in results), results
+    async with maker() as s:
+        bonus = (
+            await s.execute(
+                select(func.count())
+                .select_from(PointLedger)
+                .where(PointLedger.reason == LedgerReason.FRIEND_BONUS)
+            )
+        ).scalar_one()
+        assert bonus == 1  # exactly one bonus despite the race
+        events = (await s.execute(select(func.count()).select_from(CustomerEvent))).scalar_one()
+        assert events == 1  # exactly one milestone event
+        cashbacks = (
+            (
+                await s.execute(
+                    select(PointLedger).where(PointLedger.reason == LedgerReason.CASHBACK)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(cashbacks) == 2
+        assert all(r.rate_bps == 800 for r in cashbacks)  # both at 8% (friend rate)
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert profile.status is LoyaltyStatus.BIOTACT_FRIEND
+        assert profile.lifetime_activations == 11
+
+
+async def test_endpoint_returns_tier_and_friend_bonus(client, maker, monkeypatch) -> None:
+    """The HTTP response exposes the new tier + friend_bonus fields on the flip."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    _, (code,) = await _seed_product_and_codes(maker, price="10000")
+    await _seed_user_with_profile(maker, 60050, lifetime=9)
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 60050, "first_name": "Flip"})
+    }
+    resp = await client.post("/api/v1/qr/activate", json={"code": code}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["tier"] == "biotact_friend"
+    assert body["friend_bonus"] == 5000
+    assert body["points_awarded"] == 5800

@@ -84,8 +84,10 @@ async def activate_qr(
         ) from e
     return ActivateResponse(
         status=outcome.status,
+        tier=outcome.tier,
         points_awarded=outcome.points_awarded,
         welcome_bonus=outcome.welcome_bonus,
+        friend_bonus=outcome.friend_bonus,
         balance=outcome.balance,
         lifetime_activations=outcome.lifetime_activations,
     )

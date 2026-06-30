@@ -10,8 +10,11 @@ from src.auth.schemas import TelegramUser
 from src.auth.service import get_or_create_user
 from src.common.exceptions import ConflictException, NotFoundException
 from src.loyalty.models import (
+    CustomerEvent,
+    CustomerEventType,
     CustomerProfile,
     LedgerReason,
+    LoyaltyStatus,
     PointLedger,
     QrCode,
     QrCodeStatus,
@@ -19,10 +22,14 @@ from src.loyalty.models import (
 from src.loyalty.pricing import compute_cashback, get_unit_price
 from src.loyalty.schemas import ActivationStatus
 
-# Stage 2 always accrues at the newbie rate; the friend tier (800 bps) arrives in Stage 3.
+# Cashback rate by tier (basis points): newbie 5%, friend 8%.
 NEWBIE_RATE_BPS = 500
+FRIEND_RATE_BPS = 800
 # Welcome bonus on the user's first-ever activation = half the base rate (→ 7.5% on row one).
 WELCOME_RATE_BPS = 250
+# "Друг" status (Stage 3): granted once the lifetime activation count reaches the threshold.
+FRIEND_THRESHOLD = 10
+FRIEND_BONUS_POINTS = 5000
 
 
 async def get_balance(session: AsyncSession, user_id: int) -> int:
@@ -53,8 +60,10 @@ class ActivationOutcome:
     """Result of an activation — primitives only (safe to read after the txn commits)."""
 
     status: ActivationStatus
-    points_awarded: int  # cashback (+ welcome) accrued by this code
+    tier: LoyaltyStatus  # loyalty tier AFTER this activation (may have just flipped to friend)
+    points_awarded: int  # cashback + welcome + friend_bonus accrued by this code
     welcome_bonus: int  # welcome half-rate bonus; 0 when not the first activation / on replay
+    friend_bonus: int  # one-time +5000 on the activation that flips to friend; 0 otherwise / replay
     balance: int  # current total balance after accrual
     lifetime_activations: int  # lifetime activations after this one
 
@@ -98,12 +107,13 @@ async def activate_code(
         )
         locked = (
             await db.execute(
-                select(CustomerProfile.lifetime_activations)
+                select(CustomerProfile.lifetime_activations, CustomerProfile.status)
                 .where(CustomerProfile.user_id == user_id)
                 .with_for_update()
             )
         ).one()
         lifetime_before = int(locked[0])
+        status_before: LoyaltyStatus = locked[1]
 
         # Atomic claim: only a row still 'generated' flips to 'used'. A concurrent claimer
         # sees 0 rows and falls through to the replay / conflict / not-found branch.
@@ -123,7 +133,7 @@ async def activate_code(
 
         if claimed is None:
             return await _resolve_unclaimed(
-                db, code=code, user_id=user_id, lifetime=lifetime_before
+                db, code=code, user_id=user_id, lifetime=lifetime_before, tier=status_before
             )
 
         qr_code_id, product_id = claimed
@@ -133,6 +143,7 @@ async def activate_code(
             qr_code_id=qr_code_id,
             product_id=product_id,
             lifetime_before=lifetime_before,
+            status_before=status_before,
         )
 
 
@@ -143,19 +154,29 @@ async def _accrue(
     qr_code_id: int,
     product_id: int,
     lifetime_before: int,
+    status_before: LoyaltyStatus,
 ) -> ActivationOutcome:
-    """Write the cashback (+ first-activation welcome) ledger rows and bump the counters."""
+    """Write the cashback (+ welcome, + "Друг" bonus on the flip) rows and bump the counters.
+
+    The status flip is an idempotent threshold check — a ``newbie`` whose lifetime count reaches
+    :data:`FRIEND_THRESHOLD` (this activation included) becomes ``biotact_friend`` BEFORE the
+    cashback is priced, so the 10th activation already earns at the friend rate. It is robust to a
+    counter already past the threshold (backfill/re-ingest): such a user flips on the next
+    activation. The flip is once per user (guarded by ``status == newbie``), so the +5000 bonus is
+    granted exactly once; the partial ``UNIQUE(qr_code_id, reason)`` backstops a replay of the
+    flipping code. All of this runs under the per-user ``customer_profile`` row lock held by the
+    caller.
+    """
+    lifetime_after = lifetime_before + 1
+    flips_to_friend = status_before == LoyaltyStatus.NEWBIE and lifetime_after >= FRIEND_THRESHOLD
+    tier = LoyaltyStatus.BIOTACT_FRIEND if flips_to_friend else status_before
+    rate_bps = FRIEND_RATE_BPS if tier == LoyaltyStatus.BIOTACT_FRIEND else NEWBIE_RATE_BPS
+
     unit_price = await get_unit_price(db, product_id)  # raises → claim rolls back with the txn
-    cashback = compute_cashback(unit_price, NEWBIE_RATE_BPS)
+    cashback = compute_cashback(unit_price, rate_bps)
     db.add(
         _earn_row(
-            user_id,
-            qr_code_id,
-            product_id,
-            unit_price,
-            NEWBIE_RATE_BPS,
-            cashback,
-            LedgerReason.CASHBACK,
+            user_id, qr_code_id, product_id, unit_price, rate_bps, cashback, LedgerReason.CASHBACK
         )
     )
 
@@ -174,13 +195,28 @@ async def _accrue(
             )
         )
 
+    friend_bonus = 0
+    if flips_to_friend:  # crossing into "Друг" — one-time bonus + a milestone timeline event
+        friend_bonus = FRIEND_BONUS_POINTS
+        db.add(_friend_bonus_row(user_id, qr_code_id, friend_bonus))
+        db.add(
+            CustomerEvent(
+                user_id=user_id,
+                event_type=CustomerEventType.STATUS_FRIEND,
+                payload={"lifetime_activations": lifetime_after, "bonus": friend_bonus},
+            )
+        )
+
     # DB-time counter bump on the locked row (Core UPDATE → no ORM/Core staleness, no float clock).
-    # first_activated_sku is a legacy Stage-1 column; COALESCE sets it once to the first product.
+    # status is written as the (possibly flipped) tier — a no-op write of the same value when no
+    # flip; the row is already locked, so it costs nothing. first_activated_sku is a legacy Stage-1
+    # column; COALESCE sets it once to the first product.
     await db.execute(
         update(CustomerProfile)
         .where(CustomerProfile.user_id == user_id)
         .values(
             lifetime_activations=CustomerProfile.lifetime_activations + 1,
+            status=tier,
             last_activation_at=func.now(),
             last_accrual_at=func.now(),
             first_activated_sku=func.coalesce(CustomerProfile.first_activated_sku, str(product_id)),
@@ -191,10 +227,12 @@ async def _accrue(
     await db.flush()  # autoflush is off — write the rows; the partial UNIQUE backstops a dup here
     return ActivationOutcome(
         status=ActivationStatus.ACTIVATED,
-        points_awarded=cashback + welcome,
+        tier=tier,
+        points_awarded=cashback + welcome + friend_bonus,
         welcome_bonus=welcome,
+        friend_bonus=friend_bonus,
         balance=await get_balance(db, user_id),
-        lifetime_activations=lifetime_before + 1,
+        lifetime_activations=lifetime_after,
     )
 
 
@@ -219,12 +257,29 @@ def _earn_row(
     )
 
 
+def _friend_bonus_row(user_id: int, qr_code_id: int, amount: int) -> PointLedger:
+    """The one-time "Друг" bonus row (Stage 3).
+
+    Tied to the triggering activation's ``qr_code_id`` so the partial ``UNIQUE(qr_code_id, reason)``
+    backstops a double bonus on a replay of the flipping code. Carries no price snapshot
+    (``unit_price``/``rate_bps`` NULL) — it is a flat milestone bonus, not cashback, so
+    :func:`earn_row_reconciles` treats it as not-applicable.
+    """
+    return PointLedger(
+        user_id=user_id,
+        amount=amount,
+        reason=LedgerReason.FRIEND_BONUS,
+        qr_code_id=qr_code_id,
+    )
+
+
 async def _resolve_unclaimed(
     db: AsyncSession,
     *,
     code: str,
     user_id: int,
     lifetime: int,
+    tier: LoyaltyStatus,
 ) -> ActivationOutcome:
     """The claim affected 0 rows — distinguish replay / conflict / unknown code."""
     existing = (await db.execute(select(QrCode).where(QrCode.code == code))).scalar_one_or_none()
@@ -243,8 +298,10 @@ async def _resolve_unclaimed(
     ).scalar_one()
     return ActivationOutcome(
         status=ActivationStatus.ALREADY_ACTIVATED,
+        tier=tier,
         points_awarded=int(earned),
         welcome_bonus=0,
+        friend_bonus=0,
         balance=await get_balance(db, user_id),
         lifetime_activations=lifetime,
     )

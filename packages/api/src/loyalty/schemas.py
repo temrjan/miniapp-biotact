@@ -5,6 +5,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints
 
+from src.loyalty.models import LoyaltyStatus
+
 
 class ActivationStatus(enum.StrEnum):
     """Outcome of an activation call."""
@@ -35,9 +37,15 @@ class ActivateResponse(BaseModel):
     """
 
     status: ActivationStatus
+    tier: LoyaltyStatus = Field(
+        description="Loyalty tier after this activation (newbie | biotact_friend)"
+    )
     points_awarded: int = Field(
-        ge=0, description="Points accrued by this code (cashback + welcome)"
+        ge=0, description="Points accrued by this code (cashback + welcome + friend_bonus)"
     )
     welcome_bonus: int = Field(ge=0, description="Welcome half-rate bonus (first activation only)")
+    friend_bonus: int = Field(
+        ge=0, description="One-time bonus on reaching 'Друг' status (0 otherwise / on replay)"
+    )
     balance: int = Field(ge=0, description="Current total balance = SUM(point_ledger.amount)")
     lifetime_activations: int = Field(ge=0, description="Lifetime activations after this one")
