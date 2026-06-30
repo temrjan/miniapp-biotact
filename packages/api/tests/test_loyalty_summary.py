@@ -1,0 +1,183 @@
+"""Tests for the read-only loyalty summary endpoint (Stage 3, PR-3.2): GET /api/v1/loyalty/me.
+
+Seeding commits through a second sessionmaker on the same test DB (so the endpoint's request
+session sees committed rows under READ COMMITTED), mirroring test_loyalty_activation.py.
+"""
+
+import hashlib
+import hmac
+import json
+import time
+from urllib.parse import urlencode
+
+import pytest_asyncio
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from src.config import settings
+from src.loyalty.models import CustomerProfile, LedgerReason, LoyaltyStatus, PointLedger
+from src.loyalty.service import get_loyalty_summary
+from src.users.models import User
+
+TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
+
+
+@pytest_asyncio.fixture
+async def maker(test_db: AsyncSession) -> object:
+    """A sessionmaker on the same test DB ``test_db`` created — for committed seeding/asserts."""
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    sm = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    yield sm
+    await engine.dispose()
+
+
+async def _seed_user(sm: async_sessionmaker[AsyncSession], telegram_id: int) -> int:
+    """Commit a bare user (no profile); return its id."""
+    async with sm() as s, s.begin():
+        user = User(telegram_id=telegram_id, first_name="Seed")
+        s.add(user)
+        await s.flush()
+        return user.id
+
+
+async def _seed_profile(
+    sm: async_sessionmaker[AsyncSession],
+    telegram_id: int,
+    *,
+    lifetime: int,
+    status: LoyaltyStatus = LoyaltyStatus.NEWBIE,
+    balance: int = 0,
+) -> int:
+    """Commit a user + profile (lifetime/status), optionally a ledger row for a non-zero balance."""
+    async with sm() as s, s.begin():
+        user = User(telegram_id=telegram_id, first_name="Seed")
+        s.add(user)
+        await s.flush()
+        s.add(CustomerProfile(user_id=user.id, lifetime_activations=lifetime, status=status))
+        if balance:
+            s.add(PointLedger(user_id=user.id, amount=balance, reason=LedgerReason.CASHBACK))
+        return user.id
+
+
+def _make_init_data(bot_token: str, user: dict[str, object]) -> str:
+    """Build a validly-signed Telegram initData string (mirrors validate_init_data's HMAC)."""
+    fields = {
+        "auth_date": str(int(time.time())),
+        "query_id": "AAHtest",
+        "user": json.dumps(user, separators=(",", ":")),
+    }
+    data_check = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
+    secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    fields["hash"] = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+    return urlencode(fields)
+
+
+# --------------------------------------------------------------------------- #
+# service: read-only summary + defaults, no side effects
+# --------------------------------------------------------------------------- #
+
+
+async def test_summary_unknown_user_is_newbie_default_and_writes_nothing(
+    test_db: AsyncSession, maker
+) -> None:
+    """An unknown telegram_id → newbie default, and NO user/profile row is created (GET = read)."""
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70001)
+    assert summary.tier is LoyaltyStatus.NEWBIE
+    assert summary.balance == 0
+    assert summary.lifetime_activations == 0
+    assert summary.activations_to_friend == 10
+    async with maker() as s:
+        users = (await s.execute(select(func.count()).select_from(User))).scalar_one()
+        profiles = (await s.execute(select(func.count()).select_from(CustomerProfile))).scalar_one()
+    assert users == 0
+    assert profiles == 0
+
+
+async def test_summary_user_without_profile_is_default(test_db: AsyncSession, maker) -> None:
+    """A known user with no profile yet → newbie default, balance 0, no profile created."""
+    await _seed_user(maker, 70002)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70002)
+    assert summary.tier is LoyaltyStatus.NEWBIE
+    assert summary.balance == 0
+    assert summary.lifetime_activations == 0
+    assert summary.activations_to_friend == 10
+    async with maker() as s:
+        profiles = (await s.execute(select(func.count()).select_from(CustomerProfile))).scalar_one()
+    assert profiles == 0  # GET did not lazily create a profile
+
+
+async def test_summary_newbie_reports_progress_and_balance(test_db: AsyncSession, maker) -> None:
+    """A newbie with 3 activations → tier newbie, 7 remaining, balance from the ledger."""
+    await _seed_profile(maker, 70003, lifetime=3, balance=1500)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70003)
+    assert summary.tier is LoyaltyStatus.NEWBIE
+    assert summary.lifetime_activations == 3
+    assert summary.activations_to_friend == 7
+    assert summary.balance == 1500
+
+
+async def test_summary_friend_reports_zero_remaining(test_db: AsyncSession, maker) -> None:
+    """A friend → tier friend, 0 remaining regardless of count, balance from the ledger."""
+    await _seed_profile(
+        maker, 70004, lifetime=12, status=LoyaltyStatus.BIOTACT_FRIEND, balance=9000
+    )
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70004)
+    assert summary.tier is LoyaltyStatus.BIOTACT_FRIEND
+    assert summary.activations_to_friend == 0
+    assert summary.balance == 9000
+
+
+# --------------------------------------------------------------------------- #
+# HTTP endpoint — dark gate, auth, end-to-end
+# --------------------------------------------------------------------------- #
+
+
+async def test_me_dark_returns_404(client) -> None:
+    """loyalty_enabled off (default) → 404 before auth (dark, not probeable)."""
+    resp = await client.get("/api/v1/loyalty/me")
+    assert resp.status_code == 404
+
+
+async def test_me_requires_init_data(client, monkeypatch) -> None:
+    """Flag on but no X-Init-Data → 401."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    resp = await client.get("/api/v1/loyalty/me")
+    assert resp.status_code == 401
+
+
+async def test_me_happy_e2e_friend(client, maker, monkeypatch) -> None:
+    """Full path: signed initData + flag on → 200 with the friend snapshot."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    await _seed_profile(
+        maker, 70010, lifetime=10, status=LoyaltyStatus.BIOTACT_FRIEND, balance=5800
+    )
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70010, "first_name": "Friend"})
+    }
+    resp = await client.get("/api/v1/loyalty/me", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["tier"] == "biotact_friend"
+    assert body["balance"] == 5800
+    assert body["lifetime_activations"] == 10
+    assert body["activations_to_friend"] == 0
+
+
+async def test_me_happy_e2e_unknown_user_default(client, monkeypatch) -> None:
+    """Signed initData for a user not in the DB + flag on → 200 newbie default."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70011, "first_name": "Fresh"})
+    }
+    resp = await client.get("/api/v1/loyalty/me", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["tier"] == "newbie"
+    assert body["balance"] == 0
+    assert body["activations_to_friend"] == 10

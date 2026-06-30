@@ -29,6 +29,7 @@ from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
 from src.database import async_session_maker, engine
 from src.loyalty.router import router as loyalty_router
+from src.loyalty.router import summary_router as loyalty_summary_router
 from src.orders.admin_router import router as admin_orders_router
 from src.orders.router import router as orders_router
 from src.payments.router import router as payments_router
@@ -143,6 +144,11 @@ def create_app() -> FastAPI:
     app.include_router(
         loyalty_router,
         prefix=f"{settings.api_v1_prefix}/qr",
+        tags=["loyalty"],
+    )
+    app.include_router(
+        loyalty_summary_router,
+        prefix=f"{settings.api_v1_prefix}/loyalty",
         tags=["loyalty"],
     )
 
