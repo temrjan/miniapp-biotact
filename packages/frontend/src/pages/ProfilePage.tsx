@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { User, Package, Settings, LogOut, ChevronRight, Globe, Phone, MapPin, Check } from 'lucide-react';
 import { Card } from '@components/ui/Card';
+import { LoyaltyCard } from '@components/features/LoyaltyCard';
 import { useUser } from '@stores/appStore';
 import { useLanguage, useSetLanguage, type Language } from '@stores/languageStore';
 import { useTranslation } from '@/i18n';
@@ -134,6 +135,9 @@ export function ProfilePage() {
           </div>
         </Card>
       </motion.div>
+
+      {/* Loyalty (Biotact Club) — hidden while the program is dark (endpoint 404) */}
+      <LoyaltyCard />
 
       {/* Language Selector */}
       <motion.section

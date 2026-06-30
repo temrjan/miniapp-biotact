@@ -113,7 +113,15 @@
     "addressLabel": "Адрес доставки",
     "addressPlaceholder": "Город, улица, дом, квартира",
     "saved": "Сохранено",
-    "save": "Сохранить"
+    "save": "Сохранить",
+    "loyalty": {
+      "title": "Biotact Club",
+      "points": "баллов",
+      "newbie": "Новичок",
+      "friend": "Друг BIOTACT",
+      "toFriend": "активаций до «Друга»",
+      "friendPerk": "Кэшбэк 8% навсегда"
+    }
   },
   "orders": {
     "title": "Мои заказы",

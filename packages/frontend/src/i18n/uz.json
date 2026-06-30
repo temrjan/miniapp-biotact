@@ -113,7 +113,15 @@
     "addressLabel": "Yetkazib berish manzili",
     "addressPlaceholder": "Shahar, ko'cha, uy, xonadon",
     "saved": "Saqlandi",
-    "save": "Saqlash"
+    "save": "Saqlash",
+    "loyalty": {
+      "title": "Biotact Club",
+      "points": "ball",
+      "newbie": "Yangi a'zo",
+      "friend": "BIOTACT Do'sti",
+      "toFriend": "«Do'st»gacha faollashtirish",
+      "friendPerk": "Doimiy 8% keshbek"
+    }
   },
   "orders": {
     "title": "Buyurtmalarim",
