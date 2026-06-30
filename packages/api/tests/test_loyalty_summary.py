@@ -131,6 +131,16 @@ async def test_summary_friend_reports_zero_remaining(test_db: AsyncSession, make
     assert summary.balance == 9000
 
 
+async def test_summary_newbie_past_threshold_clamps_to_zero(test_db: AsyncSession, maker) -> None:
+    """A newbie whose counter is already ≥10 (backfill) → remaining clamps to 0, never negative."""
+    await _seed_profile(maker, 70005, lifetime=12, status=LoyaltyStatus.NEWBIE)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70005)
+    assert summary.tier is LoyaltyStatus.NEWBIE
+    assert summary.lifetime_activations == 12
+    assert summary.activations_to_friend == 0  # max(0, 10 - 12) guard — not -2
+
+
 # --------------------------------------------------------------------------- #
 # HTTP endpoint — dark gate, auth, end-to-end
 # --------------------------------------------------------------------------- #
