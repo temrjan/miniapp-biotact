@@ -116,7 +116,7 @@
   /* build progress (checklist) */
   .bsum{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:24px}
   .bsum .pbar{flex:1;min-width:220px;margin:0}
-  .bsum .pbar span{width:44%}
+  .bsum .pbar span{width:50%}
   .bsum .lbl{font-weight:800;color:var(--green-700);font-size:14.5px;white-space:nowrap}
   .build{display:grid;gap:14px}
   .bstage{background:var(--white);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow)}
@@ -407,9 +407,9 @@
     </div>
 
     <div class="bsum">
-      <div class="lbl">Готово 3 этапа из 8</div>
+      <div class="lbl">Готово 4 этапа из 8</div>
       <div class="pbar"><span></span></div>
-      <div class="lbl" style="color:var(--gold)">◀ Сейчас: Этап 3</div>
+      <div class="lbl" style="color:var(--gold)">◀ Сейчас: Этап 4</div>
     </div>
 
     <div class="build">
@@ -444,19 +444,19 @@
         </div>
       </div>
 
-      <div class="bstage now">
-        <div class="bhead"><span class="bnum">3</span><h3>Статус «Друг»</h3><span class="bpill now">◀ Сейчас</span></div>
-        <p class="bdesc">10 активаций — и клиент навсегда переходит на повышенный кэшбэк. Денежная механика и данные статуса готовы на сервере; осталась карточка в Профиле.</p>
+      <div class="bstage done">
+        <div class="bhead"><span class="bnum">3</span><h3>Статус «Друг»</h3><span class="bpill done">Готово</span></div>
+        <p class="bdesc">10 активаций — и клиент навсегда переходит на повышенный кэшбэк. Механика и карточка статуса готовы (пока скрыта — включится с запуском входа).</p>
         <div class="bsteps">
           <div class="bstep ok"><span class="cb">✓</span><span>Переход «Новичок → Друг» на 10-й активации</span></div>
           <div class="bstep ok"><span class="cb">✓</span><span>Кэшбэк 8% навсегда + разовый бонус +5000 баллов</span></div>
           <div class="bstep ok"><span class="cb">✓</span><span>Данные статуса, баланса и прогресса для приложения</span></div>
-          <div class="bstep todo"><span class="cb"></span><span>Карточка лояльности в Профиле: бейдж и прогресс к «Другу»</span></div>
+          <div class="bstep ok"><span class="cb">✓</span><span>Карточка лояльности в Профиле: бейдж и прогресс к «Другу»</span></div>
         </div>
       </div>
 
-      <div class="bstage">
-        <div class="bhead"><span class="bnum">4</span><h3>Вход и регистрация через бота</h3><span class="bpill next">Дальше</span></div>
+      <div class="bstage now">
+        <div class="bhead"><span class="bnum">4</span><h3>Вход и регистрация через бота</h3><span class="bpill now">◀ Сейчас</span></div>
         <p class="bdesc">Полный путь покупателя: QR → бот → телефон → анкета. В конце этапа — включение программы.</p>
         <div class="bsteps">
           <div class="bstep todo"><span class="cb"></span><span>QR-код → бот → шеринг телефона</span></div>
