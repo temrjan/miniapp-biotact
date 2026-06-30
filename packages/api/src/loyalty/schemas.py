@@ -49,3 +49,14 @@ class ActivateResponse(BaseModel):
     )
     balance: int = Field(ge=0, description="Current total balance = SUM(point_ledger.amount)")
     lifetime_activations: int = Field(ge=0, description="Lifetime activations after this one")
+
+
+class LoyaltySummaryResponse(BaseModel):
+    """Read-only loyalty snapshot for the mini-app profile card (GET /loyalty/me)."""
+
+    tier: LoyaltyStatus = Field(description="Loyalty tier (newbie | biotact_friend)")
+    balance: int = Field(ge=0, description="Current point balance = SUM(point_ledger.amount)")
+    lifetime_activations: int = Field(ge=0, description="Lifetime QR activations")
+    activations_to_friend: int = Field(
+        ge=0, description="Activations remaining until 'Друг' (0 once a friend)"
+    )

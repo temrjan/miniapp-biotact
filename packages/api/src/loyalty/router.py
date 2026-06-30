@@ -19,11 +19,14 @@ from src.config import settings
 from src.database import get_db
 from src.loyalty import service
 from src.loyalty.pricing import PricingError
-from src.loyalty.schemas import ActivateRequest, ActivateResponse
+from src.loyalty.schemas import ActivateRequest, ActivateResponse, LoyaltySummaryResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+# Separate router for read endpoints — mounted at /loyalty (the activation `router` stays at /qr).
+# Distinct object so main.py never shadows the activation router.
+summary_router = APIRouter()
 
 
 def require_loyalty_enabled() -> None:
@@ -90,4 +93,27 @@ async def activate_qr(
         friend_bonus=outcome.friend_bonus,
         balance=outcome.balance,
         lifetime_activations=outcome.lifetime_activations,
+    )
+
+
+@summary_router.get(
+    "/me",
+    response_model=LoyaltySummaryResponse,
+    dependencies=[Depends(require_loyalty_enabled)],
+)
+async def get_loyalty_me(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    telegram_user: Annotated[TelegramUser, Depends(get_init_data_user)],
+) -> LoyaltySummaryResponse:
+    """Read-only loyalty summary for the current user: tier, balance, progress to 'Друг'.
+
+    Same dark gate (404 while ``loyalty_enabled`` is off) and initData HMAC auth as activation.
+    Pure read — never creates a user/profile row (see :func:`service.get_loyalty_summary`).
+    """
+    summary = await service.get_loyalty_summary(db, telegram_user.id)
+    return LoyaltySummaryResponse(
+        tier=summary.tier,
+        balance=summary.balance,
+        lifetime_activations=summary.lifetime_activations,
+        activations_to_friend=summary.activations_to_friend,
     )

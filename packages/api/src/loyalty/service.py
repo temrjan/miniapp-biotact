@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.schemas import TelegramUser
-from src.auth.service import get_or_create_user
+from src.auth.service import get_or_create_user, get_user_by_telegram_id
 from src.common.exceptions import ConflictException, NotFoundException
 from src.loyalty.models import (
     CustomerEvent,
@@ -53,6 +53,58 @@ def earn_row_reconciles(entry: PointLedger) -> bool:
     if entry.unit_price is None or entry.rate_bps is None:
         return True
     return entry.amount == compute_cashback(entry.unit_price, entry.rate_bps)
+
+
+@dataclass(frozen=True)
+class LoyaltySummary:
+    """Read-only loyalty snapshot for the mini-app profile card (Stage 3)."""
+
+    tier: LoyaltyStatus
+    balance: int  # SUM(point_ledger.amount); 1 балл = 1 сум
+    lifetime_activations: int
+    activations_to_friend: int  # remaining activations until "Друг"; 0 once a friend
+
+
+async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> LoyaltySummary:
+    """Read-only loyalty summary for a Telegram user — never writes (safe on a GET).
+
+    An unknown user, or a known user whose profile is not created yet, returns the newbie
+    default without inserting any row (so merely opening the profile card costs no writes).
+    """
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if user is None:
+        return LoyaltySummary(
+            tier=LoyaltyStatus.NEWBIE,
+            balance=0,
+            lifetime_activations=0,
+            activations_to_friend=FRIEND_THRESHOLD,
+        )
+
+    profile = (
+        await session.execute(
+            select(CustomerProfile.status, CustomerProfile.lifetime_activations).where(
+                CustomerProfile.user_id == user.id
+            )
+        )
+    ).one_or_none()
+    balance = await get_balance(session, user.id)
+    if profile is None:
+        return LoyaltySummary(
+            tier=LoyaltyStatus.NEWBIE,
+            balance=balance,
+            lifetime_activations=0,
+            activations_to_friend=FRIEND_THRESHOLD,
+        )
+
+    tier: LoyaltyStatus = profile[0]
+    lifetime = int(profile[1])
+    remaining = 0 if tier == LoyaltyStatus.BIOTACT_FRIEND else max(0, FRIEND_THRESHOLD - lifetime)
+    return LoyaltySummary(
+        tier=tier,
+        balance=balance,
+        lifetime_activations=lifetime,
+        activations_to_friend=remaining,
+    )
 
 
 @dataclass(frozen=True)
