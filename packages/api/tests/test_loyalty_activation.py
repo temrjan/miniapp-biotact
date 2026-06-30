@@ -137,7 +137,7 @@ async def test_first_activation_grants_cashback_and_welcome(test_db: AsyncSessio
         assert qr.activated_by is not None
         profile = (await s.execute(select(CustomerProfile))).scalar_one()
         assert profile.lifetime_activations == 1
-        assert profile.first_activated_sku == str(pid)
+        assert profile.first_activated_product_id == pid
 
 
 async def test_second_activation_has_no_welcome(test_db: AsyncSession, maker) -> None:

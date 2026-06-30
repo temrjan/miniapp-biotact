@@ -261,8 +261,8 @@ async def _accrue(
 
     # DB-time counter bump on the locked row (Core UPDATE → no ORM/Core staleness, no float clock).
     # status is written as the (possibly flipped) tier — a no-op write of the same value when no
-    # flip; the row is already locked, so it costs nothing. first_activated_sku is a legacy Stage-1
-    # column; COALESCE sets it once to the first product.
+    # flip; the row is already locked, so it costs nothing. first_activated_product_id is set once
+    # (COALESCE) to the first activated product's id.
     await db.execute(
         update(CustomerProfile)
         .where(CustomerProfile.user_id == user_id)
@@ -271,7 +271,9 @@ async def _accrue(
             status=tier,
             last_activation_at=func.now(),
             last_accrual_at=func.now(),
-            first_activated_sku=func.coalesce(CustomerProfile.first_activated_sku, str(product_id)),
+            first_activated_product_id=func.coalesce(
+                CustomerProfile.first_activated_product_id, product_id
+            ),
         )
         .execution_options(synchronize_session=False)
     )
