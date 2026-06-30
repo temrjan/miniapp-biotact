@@ -1,5 +1,7 @@
 """Inline and Reply keyboards for the bot."""
 
+from urllib.parse import quote
+
 from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -76,6 +78,22 @@ def get_webapp_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     # ai_text = "🤖 AI Ассистент" if lang == "ru" else "🤖 AI Yordamchi"
     # builder.button(text=ai_text, callback_data="ai_assistant")
 
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_loyalty_webapp_keyboard(code: str, lang: str = "ru") -> InlineKeyboardMarkup:
+    """Mini App launcher carrying a scanned QR code via ``?code=`` (Biotact Club activation).
+
+    The bot opens the web app through this inline button; the code rides in the URL query
+    (``start_param`` is not delivered for web_app buttons). ``quote`` keeps the URL valid.
+    """
+    text = "🎁 Получить кэшбэк" if lang == "ru" else "🎁 Keshbekni olish"
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=text,
+        web_app=WebAppInfo(url=f"{settings.webapp_url}?code={quote(code, safe='')}"),
+    )
     builder.adjust(1)
     return builder.as_markup()
 

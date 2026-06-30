@@ -1,6 +1,7 @@
 """User service for direct database operations."""
 
 import logging
+from datetime import UTC, datetime
 from typing import Literal
 
 from aiogram.types import User as TelegramUser
@@ -72,10 +73,23 @@ class UserService:
         return user
 
     async def update_phone(self, telegram_id: int, phone: str) -> User | None:
-        """Update user's phone number."""
+        """Update user's phone number (unverified — e.g. typed manually)."""
         user = await self.get_by_telegram_id(telegram_id)
         if user:
             user.phone = phone
+            await self.session.flush()
+        return user
+
+    async def set_verified_phone(self, telegram_id: int, phone: str) -> User | None:
+        """Store a phone shared via Telegram contact and stamp it as verified.
+
+        Used by the Biotact Club QR-deeplink flow: a contact share is an explicit
+        affirmative act, so both ``phone`` and ``phone_verified_at`` are set together.
+        """
+        user = await self.get_by_telegram_id(telegram_id)
+        if user:
+            user.phone = phone
+            user.phone_verified_at = datetime.now(UTC)
             await self.session.flush()
         return user
 
