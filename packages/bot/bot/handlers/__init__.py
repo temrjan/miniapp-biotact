@@ -2,13 +2,15 @@
 
 from aiogram import Router
 
-from bot.handlers import auth, common
+from bot.handlers import auth, common, loyalty
 
 # Main router
 router = Router(name="main")
 
-# Include all handlers (auth first to catch deep links)
+# Include all handlers. loyalty first: its qr_ deeplink filter is specific, so it must run
+# before auth's generic deep_link handler (which would otherwise consume qr_ deeplinks).
 router.include_routers(
+    loyalty.router,
     auth.router,
     common.router,
 )

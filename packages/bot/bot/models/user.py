@@ -19,6 +19,9 @@ class User(Base):
     first_name: Mapped[str | None] = mapped_column(String(100))
     last_name: Mapped[str | None] = mapped_column(String(100))
     phone: Mapped[str | None] = mapped_column(String(20))
+    # Set only when the number was shared via Telegram contact (a verified affirmative act).
+    # Column already exists in the shared DB (added by API migration); mirrored here, no migration.
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     language_code: Mapped[str] = mapped_column(String(10), default="ru")
 
     # Status

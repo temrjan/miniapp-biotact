@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # Mini App
     webapp_url: str = "https://app.biotact.uz"
 
+    # Biotact Club loyalty — master gate (mirrors the API flag). While off, the bot's
+    # qr_<code> deeplink behaves like a normal /start (the program is dark end-to-end).
+    # Flipped to true together with the API flag at go-live (Stage 4, PR-4.5).
+    loyalty_enabled: bool = False
+
     # Debug
     debug: bool = False
 
