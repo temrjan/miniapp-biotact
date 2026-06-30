@@ -108,6 +108,19 @@ export interface PaginatedResponse<T> {
 export type ColorScheme = 'light' | 'dark';
 export type Platform = 'ios' | 'android' | 'web' | 'unknown';
 
+// ═══════════════════════════════════════════════════════════════════
+// Loyalty Types (Biotact Club)
+// ═══════════════════════════════════════════════════════════════════
+
+export type LoyaltyTier = 'newbie' | 'biotact_friend';
+
+export interface LoyaltySummary {
+  tier: LoyaltyTier;
+  balance: number;
+  lifetimeActivations: number;
+  activationsToFriend: number;
+}
+
 export interface ThemeColors {
   primary: string;
   primaryLight: string;
