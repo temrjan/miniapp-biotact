@@ -116,7 +116,7 @@
   /* build progress (checklist) */
   .bsum{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:24px}
   .bsum .pbar{flex:1;min-width:220px;margin:0}
-  .bsum .pbar span{width:50%}
+  .bsum .pbar span{width:56%}
   .bsum .lbl{font-weight:800;color:var(--green-700);font-size:14.5px;white-space:nowrap}
   .build{display:grid;gap:14px}
   .bstage{background:var(--white);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow)}
@@ -457,10 +457,13 @@
 
       <div class="bstage now">
         <div class="bhead"><span class="bnum">4</span><h3>Вход и регистрация через бота</h3><span class="bpill now">◀ Сейчас</span></div>
-        <p class="bdesc">Полный путь покупателя: QR → бот → телефон → анкета. В конце этапа — включение программы.</p>
+        <p class="bdesc">Полный путь покупателя: QR → бот → телефон → активация → анкета. В конце этапа — включение программы. Первые шаги уже на сервере (в «тёмном» режиме).</p>
         <div class="bsteps">
-          <div class="bstep todo"><span class="cb"></span><span>QR-код → бот → шеринг телефона</span></div>
-          <div class="bstep todo"><span class="cb"></span><span>Прогрессивная анкета и переход в мини-приложение</span></div>
+          <div class="bstep ok"><span class="cb">✓</span><span>Тех-подготовка карточки профиля под новую механику</span><span class="ref">#55</span></div>
+          <div class="bstep ok"><span class="cb">✓</span><span>QR → бот → подтверждённый телефон → запуск приложения с кодом</span><span class="ref">#56</span></div>
+          <div class="bstep todo"><span class="cb"></span><span>Согласие на данные и активация кода в приложении</span></div>
+          <div class="bstep todo"><span class="cb"></span><span>Вход без QR и прогрессивная анкета</span></div>
+          <div class="bstep todo"><span class="cb"></span><span>🚀 Включение программы (общий выключатель)</span></div>
         </div>
       </div>
 
