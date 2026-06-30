@@ -44,6 +44,8 @@ describe('LoyaltyCard', () => {
     expect(await screen.findByText('Новичок')).toBeInTheDocument();
     const balance = screen.getByTestId('loyalty-balance');
     expect(balance.textContent?.replace(/\s/g, '')).toBe('5800');
+    // goal is server-derived (lifetime 3 + remaining 7 = 10) — no client threshold constant
+    expect(screen.getByText(/3 \/ 10/)).toBeInTheDocument();
     expect(screen.getByText(/активаций до «Друга»/)).toBeInTheDocument();
     expect(screen.queryByText('Друг BIOTACT')).not.toBeInTheDocument();
   });
@@ -68,8 +70,8 @@ describe('LoyaltyCard', () => {
 
     expect(await screen.findByText('Новичок')).toBeInTheDocument();
     expect(screen.queryByText('Друг BIOTACT')).not.toBeInTheDocument();
-    // capped at 10/10, framed as newbie progress — never an "almost Друг" claim
-    expect(screen.getByText(/10 \/ 10/)).toBeInTheDocument();
+    // server goal = lifetime 12 + remaining 0 → full bar "12 / 12", still newbie — no "Друг" claim
+    expect(screen.getByText(/12 \/ 12/)).toBeInTheDocument();
   });
 
   it('renders nothing while the program is dark (endpoint 404 / error)', async () => {

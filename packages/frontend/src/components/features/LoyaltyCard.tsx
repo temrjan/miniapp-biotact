@@ -5,8 +5,6 @@ import { Card } from '@components/ui/Card';
 import { useLoyalty } from '@hooks/useLoyalty';
 import { useTranslation } from '@/i18n';
 
-const FRIEND_THRESHOLD = 10;
-
 export function LoyaltyCard() {
   const { data } = useLoyalty();
   const { t } = useTranslation();
@@ -17,10 +15,11 @@ export function LoyaltyCard() {
   }
 
   const isFriend = data.tier === 'biotact_friend';
-  // NIT-1: a newbie whose counter is already ≥10 (backfill) shows a normal capped
-  // progress, never an "almost Друг" claim — the bar fills from lifetime activations.
-  const reached = Math.min(data.lifetimeActivations, FRIEND_THRESHOLD);
-  const progressPct = (reached / FRIEND_THRESHOLD) * 100;
+  // Goal threshold comes from the server (lifetime + remaining) — single source of truth,
+  // no client-side duplicate of the backend's "10". A newbie already past the threshold
+  // (backfill) yields goal == lifetime → a full bar, never an "almost Друг" claim (NIT-1).
+  const goal = data.lifetimeActivations + data.activationsToFriend;
+  const progressPct = goal > 0 ? (data.lifetimeActivations / goal) * 100 : 0;
 
   return (
     <motion.section
@@ -63,7 +62,7 @@ export function LoyaltyCard() {
               />
             </div>
             <p className="text-xs text-[var(--text-muted)]">
-              {reached} / {FRIEND_THRESHOLD} {t('profile.loyalty.toFriend')}
+              {data.lifetimeActivations} / {goal} {t('profile.loyalty.toFriend')}
             </p>
           </div>
         )}
