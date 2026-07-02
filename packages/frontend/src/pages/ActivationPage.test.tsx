@@ -95,6 +95,8 @@ describe('ActivationPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Активировать' }));
 
     expect(await screen.findByText(/Поздравляем/)).toBeInTheDocument();
+    // welcomeBonus is 0 on the flip (10th activation, not the first) — no welcome line.
+    expect(screen.queryByText(/приветственный бонус/)).not.toBeInTheDocument();
   });
 
   it('shows a replay message on already_activated WITHOUT claiming a fresh earn', async () => {
@@ -143,6 +145,19 @@ describe('ActivationPage', () => {
 
     expect(await screen.findByText(/Программа лояльности скоро будет доступна/)).toBeInTheDocument();
     expect(activateMock).not.toHaveBeenCalled(); // consent gates activate
+    expect(screen.queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument(); // 404 not retriable
+  });
+
+  it('maps a non-ApiError (network/timeout) to a generic message with a retry button', async () => {
+    consentMock.mockResolvedValue({ consentRecorded: true, joined: true, phoneShared: false });
+    activateMock.mockRejectedValue(new Error('network down'));
+    setup();
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Активировать' }));
+
+    expect(await screen.findByText(/Что-то пошло не так/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();
   });
 
   it('shows a neutral message when opened without a code', () => {

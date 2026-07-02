@@ -24,7 +24,8 @@ const ActivationPage = lazy(() => import('@pages/ActivationPage').then((m) => ({
 
 // The bot QR launcher opens `/?code=<code>` (start_param is not delivered for web_app buttons),
 // so a code on the home path is routed to the dedicated activation screen; a bare `/` = home feed.
-function HomeOrActivate() {
+// Exported for unit testing the redirect (the feature's single entry point).
+export function HomeOrActivate() {
   const [searchParams] = useSearchParams();
   const code = searchParams.get('code');
   if (code) {

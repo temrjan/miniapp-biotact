@@ -9,10 +9,16 @@ import { useActivation } from '@hooks/useActivation';
 import { useTranslation } from '@/i18n';
 import { ROUTES } from '@utils/constants';
 
+type ActivationErrorKey =
+  | 'activation.error.dark'
+  | 'activation.error.invalidCode'
+  | 'activation.error.unavailable'
+  | 'activation.error.generic';
+
 // Maps a failed activation to a neutral, non-leaking message. 404 = dark program (not probeable),
 // 409 = code invalid / used by someone else, 503 = temporarily unpriced. Only transient failures
 // (503 / network / timeout) offer a retry — a 404/409 will not change on repeat.
-function errorContent(status: number | undefined): { messageKey: string; canRetry: boolean } {
+function errorContent(status: number | undefined): { messageKey: ActivationErrorKey; canRetry: boolean } {
   switch (status) {
     case 404:
       return { messageKey: 'activation.error.dark', canRetry: false };
@@ -20,6 +26,9 @@ function errorContent(status: number | undefined): { messageKey: string; canRetr
       return { messageKey: 'activation.error.invalidCode', canRetry: false };
     case 503:
       return { messageKey: 'activation.error.unavailable', canRetry: true };
+    // Network/timeout/5xx — a retry can help. A 401 (stale initData) also lands here; its retry is
+    // harmless but unhelpful (initData refreshes only on reopen) — acceptable, and 401 is unreachable
+    // while the program is dark (the 404 gate fires before auth). Revisit session-expired UX at PR-4.5.
     default:
       return { messageKey: 'activation.error.generic', canRetry: true };
   }
