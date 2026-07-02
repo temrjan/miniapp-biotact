@@ -30,8 +30,9 @@ from src.loyalty.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-# Separate router for read endpoints — mounted at /loyalty (the activation `router` stays at /qr).
-# Distinct object so main.py never shadows the activation router.
+# Second router mounted at /loyalty (the activation `router` stays at /qr) — carries the read
+# summary (GET /me) and the consent write (POST /consent). Distinct object so main.py never
+# shadows the activation router.
 summary_router = APIRouter()
 
 

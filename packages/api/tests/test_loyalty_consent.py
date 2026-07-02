@@ -8,14 +8,9 @@ connections via ``asyncio.gather`` (genuine Postgres row-lock contention on the 
 """
 
 import asyncio
-import hashlib
-import hmac
-import json
 import secrets
-import time
 from datetime import UTC, datetime
 from decimal import Decimal
-from urllib.parse import urlencode
 
 import pytest_asyncio
 from sqlalchemy import func, select
@@ -35,6 +30,7 @@ from src.loyalty.schemas import RegistrationSource
 from src.loyalty.service import ConsentOutcome, activate_code, record_consent
 from src.products.models import Product
 from src.users.models import User
+from tests.conftest import _make_init_data
 
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
 
@@ -109,19 +105,6 @@ async def _seed_verified_user_with_profile(
         await s.flush()
         s.add(CustomerProfile(user_id=user.id))
         return user.id
-
-
-def _make_init_data(bot_token: str, user: dict[str, object]) -> str:
-    """Build a validly-signed Telegram initData string (mirrors validate_init_data's HMAC)."""
-    fields = {
-        "auth_date": str(int(time.time())),
-        "query_id": "AAHtest",
-        "user": json.dumps(user, separators=(",", ":")),
-    }
-    data_check = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
-    secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    fields["hash"] = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
-    return urlencode(fields)
 
 
 async def _joined_events(s: AsyncSession) -> list[CustomerEvent]:
