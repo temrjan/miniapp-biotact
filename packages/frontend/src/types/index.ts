@@ -121,6 +121,29 @@ export interface LoyaltySummary {
   activationsToFriend: number;
 }
 
+// How the customer entered the program (sent to POST /loyalty/consent).
+export type RegistrationSource = 'qr' | 'direct';
+
+export interface ConsentResult {
+  consentRecorded: boolean;
+  joined: boolean;
+  phoneShared: boolean;
+}
+
+// Two legal 200 outcomes of activation — `already_activated` is an idempotent replay
+// (points_awarded echoes the ORIGINAL accrual, nothing new is granted), NOT a 409.
+export type ActivationStatus = 'activated' | 'already_activated';
+
+export interface ActivationResult {
+  status: ActivationStatus;
+  tier: LoyaltyTier;
+  pointsAwarded: number;
+  welcomeBonus: number;
+  friendBonus: number;
+  balance: number;
+  lifetimeActivations: number;
+}
+
 export interface ThemeColors {
   primary: string;
   primaryLight: string;

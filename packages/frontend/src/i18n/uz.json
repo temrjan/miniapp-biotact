@@ -123,6 +123,33 @@
       "friendPerk": "Doimiy 8% keshbek"
     }
   },
+  "activation": {
+    "title": "Kodni faollashtirish",
+    "subtitle": "Rozilikni belgilang va keshbek olish uchun qadoqdagi kodni faollashtiring.",
+    "consentLabel": "Biotact Club'da ishtirok etish uchun shaxsiy ma'lumotlarni qayta ishlashga roziman.",
+    "activateButton": "Faollashtirish",
+    "result": {
+      "successTitle": "Kod faollashtirildi!",
+      "earned": "{points} ball hisoblandi",
+      "welcome": "+ xush kelibsiz bonusi {points}",
+      "friendFlip": "Tabriklaymiz — endi siz BIOTACT Do'stisiz! Bonus +{bonus}",
+      "balance": "Balans: {balance} ball",
+      "toProfile": "Profilga"
+    },
+    "replay": {
+      "title": "Kod allaqachon faollashtirilgan",
+      "message": "Bu kod avval faollashtirilgan — qayta hisoblash amalga oshirilmaydi."
+    },
+    "error": {
+      "dark": "Sodiqlik dasturi tez orada mavjud bo'ladi.",
+      "invalidCode": "Kod yaroqsiz yoki allaqachon ishlatilgan.",
+      "unavailable": "Vaqtincha mavjud emas. Iltimos, keyinroq urinib ko'ring.",
+      "generic": "Nimadir xato ketdi. Yana urinib ko'ring.",
+      "retry": "Qayta urinish",
+      "toHome": "Bosh sahifaga"
+    },
+    "noCode": "Havola yaroqsiz: kod topilmadi."
+  },
   "orders": {
     "title": "Buyurtmalarim",
     "empty": "Sizda hali buyurtmalar yo'q",
