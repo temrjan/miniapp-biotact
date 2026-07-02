@@ -1,8 +1,12 @@
 """Pytest configuration and fixtures."""
 
 import asyncio
+import hashlib
+import hmac
+import json
 import time
 from collections.abc import AsyncGenerator
+from urllib.parse import urlencode
 
 import pytest
 import pytest_asyncio
@@ -16,6 +20,22 @@ from src.main import app
 
 # Test database URL
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
+
+
+def _make_init_data(bot_token: str, user: dict[str, object]) -> str:
+    """Build a validly-signed Telegram initData string (mirrors validate_init_data's HMAC).
+
+    Shared across the loyalty test modules (activation/summary/consent) — imported, not copied.
+    """
+    fields = {
+        "auth_date": str(int(time.time())),
+        "query_id": "AAHtest",
+        "user": json.dumps(user, separators=(",", ":")),
+    }
+    data_check = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
+    secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    fields["hash"] = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+    return urlencode(fields)
 
 
 @pytest.fixture(scope="session")

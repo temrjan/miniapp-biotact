@@ -7,13 +7,8 @@ connections via ``asyncio.gather`` (genuine Postgres row-lock contention).
 """
 
 import asyncio
-import hashlib
-import hmac
-import json
 import secrets
-import time
 from decimal import Decimal
-from urllib.parse import urlencode
 
 import pytest
 import pytest_asyncio
@@ -39,6 +34,7 @@ from src.loyalty.schemas import ActivationStatus
 from src.loyalty.service import ActivationOutcome, activate_code, earn_row_reconciles
 from src.products.models import Product
 from src.users.models import User
+from tests.conftest import _make_init_data
 
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
 
@@ -95,19 +91,6 @@ async def _seed_user_with_profile(
         await s.flush()
         s.add(CustomerProfile(user_id=user.id, lifetime_activations=lifetime, status=status))
         return user.id
-
-
-def _make_init_data(bot_token: str, user: dict[str, object]) -> str:
-    """Build a validly-signed Telegram initData string (mirrors validate_init_data's HMAC)."""
-    fields = {
-        "auth_date": str(int(time.time())),
-        "query_id": "AAHtest",
-        "user": json.dumps(user, separators=(",", ":")),
-    }
-    data_check = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
-    secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    fields["hash"] = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
-    return urlencode(fields)
 
 
 # --------------------------------------------------------------------------- #
@@ -461,8 +444,14 @@ async def test_friend_activation_earns_8pct_without_repeat_bonus(
         rows = (await s.execute(select(PointLedger))).scalars().all()
         assert {r.reason for r in rows} == {"cashback"}
         assert rows[0].rate_bps == 800
-        events = (await s.execute(select(func.count()).select_from(CustomerEvent))).scalar_one()
-        assert events == 0  # already a friend → no flip event
+        flip_events = (
+            await s.execute(
+                select(func.count())
+                .select_from(CustomerEvent)
+                .where(CustomerEvent.event_type == CustomerEventType.STATUS_FRIEND)
+            )
+        ).scalar_one()
+        assert flip_events == 0  # already a friend → no flip event
 
 
 async def test_below_threshold_stays_newbie_at_5pct(test_db: AsyncSession, maker) -> None:
@@ -548,8 +537,14 @@ async def test_race_at_boundary_flips_exactly_once(test_db: AsyncSession, maker)
             )
         ).scalar_one()
         assert bonus == 1  # exactly one bonus despite the race
-        events = (await s.execute(select(func.count()).select_from(CustomerEvent))).scalar_one()
-        assert events == 1  # exactly one milestone event
+        flip_events = (
+            await s.execute(
+                select(func.count())
+                .select_from(CustomerEvent)
+                .where(CustomerEvent.event_type == CustomerEventType.STATUS_FRIEND)
+            )
+        ).scalar_one()
+        assert flip_events == 1  # exactly one milestone event
         cashbacks = (
             (
                 await s.execute(
@@ -581,3 +576,138 @@ async def test_endpoint_returns_tier_and_friend_bonus(client, maker, monkeypatch
     assert body["tier"] == "biotact_friend"
     assert body["friend_bonus"] == 5000
     assert body["points_awarded"] == 5800
+
+
+# --------------------------------------------------------------------------- #
+# Stage 4 (PR-4.2) — lifecycle events written inside the claim transaction
+# --------------------------------------------------------------------------- #
+
+
+async def _count_events(s: AsyncSession, event_type: CustomerEventType) -> int:
+    return int(
+        (
+            await s.execute(
+                select(func.count())
+                .select_from(CustomerEvent)
+                .where(CustomerEvent.event_type == event_type)
+            )
+        ).scalar_one()
+    )
+
+
+async def test_activation_writes_qr_activated_and_joined_events(
+    test_db: AsyncSession, maker
+) -> None:
+    """A real claim by a new user writes exactly one qr_activated + one joined (null source)."""
+    pid, (code,) = await _seed_product_and_codes(maker, price="10000")
+    async with maker() as s:
+        await activate_code(
+            s, telegram_user=TelegramUser(id=70101, first_name="Claimer"), code=code
+        )
+    async with maker() as s:
+        qr = (await s.execute(select(QrCode).where(QrCode.code == code))).scalar_one()
+        qr_events = (
+            (
+                await s.execute(
+                    select(CustomerEvent).where(
+                        CustomerEvent.event_type == CustomerEventType.QR_ACTIVATED
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(qr_events) == 1
+        assert qr_events[0].payload == {
+            "qr_code_id": qr.id,
+            "product_id": pid,
+            "points_awarded": 750,  # 500 cashback + 250 welcome (first activation)
+        }
+        joined = (
+            (
+                await s.execute(
+                    select(CustomerEvent).where(
+                        CustomerEvent.event_type == CustomerEventType.JOINED
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(joined) == 1
+        assert joined[0].payload == {"registration_source": None}  # activate has no source
+
+
+async def test_replay_writes_no_new_qr_activated_or_joined(test_db: AsyncSession, maker) -> None:
+    """An idempotent replay grants nothing new — no second qr_activated / joined event."""
+    _, (code,) = await _seed_product_and_codes(maker)
+    tg = TelegramUser(id=70102, first_name="ReplayEvents")
+    async with maker() as s:
+        await activate_code(s, telegram_user=tg, code=code)
+    async with maker() as s:
+        await activate_code(s, telegram_user=tg, code=code)  # replay
+    async with maker() as s:
+        assert await _count_events(s, CustomerEventType.QR_ACTIVATED) == 1
+        assert await _count_events(s, CustomerEventType.JOINED) == 1
+
+
+async def test_conflict_writes_no_events_for_other_user(test_db: AsyncSession, maker) -> None:
+    """A code owned by another user rolls the whole txn back — the thief gets no profile/events."""
+    _, (code,) = await _seed_product_and_codes(maker)
+    async with maker() as s:
+        await activate_code(s, telegram_user=TelegramUser(id=70103, first_name="Owner"), code=code)
+    async with maker() as s:
+        with pytest.raises(ConflictException):
+            await activate_code(
+                s, telegram_user=TelegramUser(id=70104, first_name="Thief"), code=code
+            )
+    async with maker() as s:
+        # only the owner persists — the thief's user/profile INSERT rolled back with the claim
+        assert (await s.execute(select(func.count()).select_from(User))).scalar_one() == 1
+        assert (
+            await s.execute(select(func.count()).select_from(CustomerProfile))
+        ).scalar_one() == 1
+        assert await _count_events(s, CustomerEventType.QR_ACTIVATED) == 1  # owner only
+        assert await _count_events(s, CustomerEventType.JOINED) == 1  # owner only
+
+
+async def test_unknown_code_writes_no_events(test_db: AsyncSession, maker) -> None:
+    """An unknown code rolls back the lazily-created user/profile — no orphan events."""
+    async with maker() as s:
+        with pytest.raises(NotFoundException):
+            await activate_code(
+                s, telegram_user=TelegramUser(id=70105, first_name="Ghost"), code="NOPENOPE0000"
+            )
+    async with maker() as s:
+        assert (
+            await s.execute(select(func.count()).select_from(CustomerProfile))
+        ).scalar_one() == 0
+        assert await _count_events(s, CustomerEventType.QR_ACTIVATED) == 0
+        assert await _count_events(s, CustomerEventType.JOINED) == 0
+
+
+async def test_race_activate_writes_exactly_one_qr_activated_on_claim(
+    test_db: AsyncSession, maker
+) -> None:
+    """Two concurrent scans of one code → exactly one qr_activated (the claim), one joined.
+
+    The loser replays (``_resolve_unclaimed`` grants nothing → no event), so the timeline records
+    the single real claim, not the replay — proven under genuine Postgres row-lock contention.
+    """
+    _, (code,) = await _seed_product_and_codes(maker)
+    await _seed_user(maker, 70110)  # pre-exist so get_or_create doesn't race on user INSERT
+    tg = TelegramUser(id=70110, first_name="RaceEvents")
+    async with maker() as s1, maker() as s2:
+        results = await asyncio.gather(
+            activate_code(s1, telegram_user=tg, code=code),
+            activate_code(s2, telegram_user=tg, code=code),
+            return_exceptions=True,
+        )
+    assert all(isinstance(r, ActivationOutcome) for r in results), results
+    assert {r.status for r in results} == {
+        ActivationStatus.ACTIVATED,
+        ActivationStatus.ALREADY_ACTIVATED,
+    }
+    async with maker() as s:
+        assert await _count_events(s, CustomerEventType.QR_ACTIVATED) == 1
+        assert await _count_events(s, CustomerEventType.JOINED) == 1

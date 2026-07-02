@@ -10,6 +10,8 @@ from src.auth.schemas import TelegramUser
 from src.auth.service import get_or_create_user, get_user_by_telegram_id
 from src.common.exceptions import ConflictException, NotFoundException
 from src.loyalty.models import (
+    Consent,
+    ConsentPurpose,
     CustomerEvent,
     CustomerEventType,
     CustomerProfile,
@@ -20,7 +22,7 @@ from src.loyalty.models import (
     QrCodeStatus,
 )
 from src.loyalty.pricing import compute_cashback, get_unit_price
-from src.loyalty.schemas import ActivationStatus
+from src.loyalty.schemas import ActivationStatus, RegistrationSource
 
 # Cashback rate by tier (basis points): newbie 5%, friend 8%.
 NEWBIE_RATE_BPS = 500
@@ -107,6 +109,134 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     )
 
 
+# Consent policy version recorded for `data_processing`; bump when the consent wording changes.
+DATA_PROCESSING_CONSENT_VERSION = "1.0"
+
+
+@dataclass(frozen=True)
+class ConsentOutcome:
+    """Result of a consent call — primitives only; each flag is True only if THIS call wrote it."""
+
+    consent_recorded: bool  # a new data_processing consent row was inserted
+    joined: bool  # this call created the customer_profile row (→ the `joined` event was written)
+    phone_shared: bool  # this call wrote the `phone_shared` timeline event
+
+
+async def record_consent(
+    db: AsyncSession,
+    *,
+    telegram_user: TelegramUser,
+    source: RegistrationSource,
+) -> ConsentOutcome:
+    """Record data-processing consent + entry lifecycle events, idempotently and race-safely.
+
+    Runs in ONE explicit transaction (mirroring :func:`activate_code`): the user is resolved/created
+    inside it so a brand-new user's row is FK-visible to the profile/consent/event writes. The
+    guarded writes (consent dedup, ``phone_shared``) run under the per-user ``customer_profile``
+    ``FOR UPDATE`` lock, so two concurrent consent calls serialize; ``joined`` is race-safe via the
+    profile ``ON CONFLICT … RETURNING`` (the inserter is the winner). Every write shares this one
+    transaction — a rollback leaves no orphan event.
+
+    Idempotent on repeat: a second call by the same user writes nothing and returns all-False.
+    """
+    async with db.begin():
+        user = await get_or_create_user(db, telegram_user)
+        user_id = user.id
+
+        # Lazy-create the profile race-safely; the inserter owns the one-time `joined` event.
+        inserted = (
+            await db.execute(
+                pg_insert(CustomerProfile)
+                .values(user_id=user_id)
+                .on_conflict_do_nothing(index_elements=["user_id"])
+                .returning(CustomerProfile.id)
+            )
+        ).one_or_none()
+        joined = inserted is not None
+        if joined:
+            db.add(
+                CustomerEvent(
+                    user_id=user_id,
+                    event_type=CustomerEventType.JOINED,
+                    payload={"registration_source": source.value},
+                )
+            )
+
+        # Lock the profile row — the per-user serialization point for the guarded writes below.
+        # This is what protects the consent/phone_shared dedup when the profile ALREADY exists (an
+        # activate-first user): then the ON CONFLICT insert above is a no-op for both racers and does
+        # NOT serialize them, so without this lock two concurrent consents could double-write.
+        await db.execute(
+            select(CustomerProfile.id).where(CustomerProfile.user_id == user_id).with_for_update()
+        )
+
+        # registration_source is set once (first writer wins): an activate-first user whose profile
+        # was created without a source gets it backfilled here; a repeat call is a COALESCE no-op.
+        await db.execute(
+            update(CustomerProfile)
+            .where(CustomerProfile.user_id == user_id)
+            .values(
+                registration_source=func.coalesce(CustomerProfile.registration_source, source.value)
+            )
+            .execution_options(synchronize_session=False)
+        )
+
+        # data_processing consent — idempotent: write a row only when there is no active grant.
+        consent_recorded = False
+        active_consent = (
+            await db.execute(
+                select(Consent.id)
+                .where(
+                    Consent.user_id == user_id,
+                    Consent.purpose == ConsentPurpose.DATA_PROCESSING,
+                    Consent.granted.is_(True),
+                    Consent.revoked_at.is_(None),
+                )
+                .limit(1)
+            )
+        ).first()
+        if active_consent is None:
+            db.add(
+                Consent(
+                    user_id=user_id,
+                    purpose=ConsentPurpose.DATA_PROCESSING,
+                    granted=True,
+                    version=DATA_PROCESSING_CONSENT_VERSION,
+                    source=source.value,
+                )
+            )
+            consent_recorded = True
+
+        # phone_shared — idempotent, only once the bot has stored a verified phone. Guard-then-insert
+        # under the lock is race-safe (registration is one-shot per user). Payload is empty by design.
+        phone_shared = False
+        if user.phone_verified_at is not None:
+            prior_phone_event = (
+                await db.execute(
+                    select(CustomerEvent.id)
+                    .where(
+                        CustomerEvent.user_id == user_id,
+                        CustomerEvent.event_type == CustomerEventType.PHONE_SHARED,
+                    )
+                    .limit(1)
+                )
+            ).first()
+            if prior_phone_event is None:
+                db.add(
+                    CustomerEvent(
+                        user_id=user_id,
+                        event_type=CustomerEventType.PHONE_SHARED,
+                        payload={},
+                    )
+                )
+                phone_shared = True
+
+        await db.flush()
+        return ConsentOutcome(
+            consent_recorded=consent_recorded, joined=joined, phone_shared=phone_shared
+        )
+
+
 @dataclass(frozen=True)
 class ActivationOutcome:
     """Result of an activation — primitives only (safe to read after the txn commits)."""
@@ -152,11 +282,25 @@ async def activate_code(
         user_id = user.id
 
         # Lazy-create the profile race-safely, then lock it (per-user serialization point).
-        await db.execute(
-            pg_insert(CustomerProfile)
-            .values(user_id=user_id)
-            .on_conflict_do_nothing(index_elements=["user_id"])
-        )
+        # The inserter owns the one-time `joined` event, so an activate-first user (no consent yet)
+        # still gets `joined`. activate carries no registration source — the consent endpoint sets
+        # `registration_source` and would find the profile already present (so it re-emits nothing).
+        profile_inserted = (
+            await db.execute(
+                pg_insert(CustomerProfile)
+                .values(user_id=user_id)
+                .on_conflict_do_nothing(index_elements=["user_id"])
+                .returning(CustomerProfile.id)
+            )
+        ).one_or_none()
+        if profile_inserted is not None:
+            db.add(
+                CustomerEvent(
+                    user_id=user_id,
+                    event_type=CustomerEventType.JOINED,
+                    payload={"registration_source": None},
+                )
+            )
         locked = (
             await db.execute(
                 select(CustomerProfile.lifetime_activations, CustomerProfile.status)
@@ -258,6 +402,20 @@ async def _accrue(
                 payload={"lifetime_activations": lifetime_after, "bonus": friend_bonus},
             )
         )
+
+    # Timeline event for the claim — written only here (real claim → ACTIVATED), never on a replay
+    # (`_resolve_unclaimed` grants nothing) nor on conflict/not-found (the whole txn rolls back).
+    db.add(
+        CustomerEvent(
+            user_id=user_id,
+            event_type=CustomerEventType.QR_ACTIVATED,
+            payload={
+                "qr_code_id": qr_code_id,
+                "product_id": product_id,
+                "points_awarded": cashback + welcome + friend_bonus,
+            },
+        )
+    )
 
     # DB-time counter bump on the locked row (Core UPDATE → no ORM/Core staleness, no float clock).
     # status is written as the (possibly flipped) tier — a no-op write of the same value when no

@@ -4,12 +4,6 @@ Seeding commits through a second sessionmaker on the same test DB (so the endpoi
 session sees committed rows under READ COMMITTED), mirroring test_loyalty_activation.py.
 """
 
-import hashlib
-import hmac
-import json
-import time
-from urllib.parse import urlencode
-
 import pytest_asyncio
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -18,6 +12,7 @@ from src.config import settings
 from src.loyalty.models import CustomerProfile, LedgerReason, LoyaltyStatus, PointLedger
 from src.loyalty.service import get_loyalty_summary
 from src.users.models import User
+from tests.conftest import _make_init_data
 
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
 
@@ -57,19 +52,6 @@ async def _seed_profile(
         if balance:
             s.add(PointLedger(user_id=user.id, amount=balance, reason=LedgerReason.CASHBACK))
         return user.id
-
-
-def _make_init_data(bot_token: str, user: dict[str, object]) -> str:
-    """Build a validly-signed Telegram initData string (mirrors validate_init_data's HMAC)."""
-    fields = {
-        "auth_date": str(int(time.time())),
-        "query_id": "AAHtest",
-        "user": json.dumps(user, separators=(",", ":")),
-    }
-    data_check = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
-    secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    fields["hash"] = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
-    return urlencode(fields)
 
 
 # --------------------------------------------------------------------------- #
