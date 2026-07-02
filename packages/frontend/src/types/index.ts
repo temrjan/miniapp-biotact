@@ -119,6 +119,7 @@ export interface LoyaltySummary {
   balance: number;
   lifetimeActivations: number;
   activationsToFriend: number;
+  isMember: boolean; // true once the user joined the club (a customer_profile row exists)
 }
 
 // How the customer entered the program (sent to POST /loyalty/consent).

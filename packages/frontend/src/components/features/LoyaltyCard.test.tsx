@@ -23,6 +23,7 @@ const newbie: LoyaltySummary = {
   balance: 5800,
   lifetimeActivations: 3,
   activationsToFriend: 7,
+  isMember: true,
 };
 
 const friend: LoyaltySummary = {
@@ -30,6 +31,7 @@ const friend: LoyaltySummary = {
   balance: 9000,
   lifetimeActivations: 14,
   activationsToFriend: 0,
+  isMember: true,
 };
 
 describe('LoyaltyCard', () => {
@@ -65,6 +67,7 @@ describe('LoyaltyCard', () => {
       balance: 0,
       lifetimeActivations: 12,
       activationsToFriend: 0,
+      isMember: true,
     });
     renderCard(<LoyaltyCard />);
 

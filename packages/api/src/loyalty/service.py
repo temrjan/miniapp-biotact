@@ -65,6 +65,7 @@ class LoyaltySummary:
     balance: int  # SUM(point_ledger.amount); 1 балл = 1 сум
     lifetime_activations: int
     activations_to_friend: int  # remaining activations until "Друг"; 0 once a friend
+    is_member: bool  # True once a customer_profile row exists (the canonical "joined" signal)
 
 
 async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> LoyaltySummary:
@@ -80,6 +81,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
             balance=0,
             lifetime_activations=0,
             activations_to_friend=FRIEND_THRESHOLD,
+            is_member=False,
         )
 
     profile = (
@@ -96,6 +98,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
             balance=balance,
             lifetime_activations=0,
             activations_to_friend=FRIEND_THRESHOLD,
+            is_member=False,
         )
 
     tier: LoyaltyStatus = profile[0]
@@ -106,6 +109,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
         balance=balance,
         lifetime_activations=lifetime,
         activations_to_friend=remaining,
+        is_member=True,
     )
 
 

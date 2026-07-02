@@ -89,3 +89,6 @@ class LoyaltySummaryResponse(BaseModel):
     activations_to_friend: int = Field(
         ge=0, description="Activations remaining until 'Друг' (0 once a friend)"
     )
+    is_member: bool = Field(
+        description="Whether the user has joined the club (a customer_profile row exists)"
+    )

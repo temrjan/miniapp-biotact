@@ -69,6 +69,7 @@ async def test_summary_unknown_user_is_newbie_default_and_writes_nothing(
     assert summary.balance == 0
     assert summary.lifetime_activations == 0
     assert summary.activations_to_friend == 10
+    assert summary.is_member is False  # unknown user has no profile
     async with maker() as s:
         users = (await s.execute(select(func.count()).select_from(User))).scalar_one()
         profiles = (await s.execute(select(func.count()).select_from(CustomerProfile))).scalar_one()
@@ -85,6 +86,7 @@ async def test_summary_user_without_profile_is_default(test_db: AsyncSession, ma
     assert summary.balance == 0
     assert summary.lifetime_activations == 0
     assert summary.activations_to_friend == 10
+    assert summary.is_member is False  # user exists but has no profile → not a member
     async with maker() as s:
         profiles = (await s.execute(select(func.count()).select_from(CustomerProfile))).scalar_one()
     assert profiles == 0  # GET did not lazily create a profile
@@ -99,6 +101,7 @@ async def test_summary_newbie_reports_progress_and_balance(test_db: AsyncSession
     assert summary.lifetime_activations == 3
     assert summary.activations_to_friend == 7
     assert summary.balance == 1500
+    assert summary.is_member is True  # profile row exists → member
 
 
 async def test_summary_friend_reports_zero_remaining(test_db: AsyncSession, maker) -> None:
@@ -111,6 +114,7 @@ async def test_summary_friend_reports_zero_remaining(test_db: AsyncSession, make
     assert summary.tier is LoyaltyStatus.BIOTACT_FRIEND
     assert summary.activations_to_friend == 0
     assert summary.balance == 9000
+    assert summary.is_member is True  # profile row exists → member
 
 
 async def test_summary_newbie_past_threshold_clamps_to_zero(test_db: AsyncSession, maker) -> None:
@@ -158,6 +162,7 @@ async def test_me_happy_e2e_friend(client, maker, monkeypatch) -> None:
     assert body["balance"] == 5800
     assert body["lifetime_activations"] == 10
     assert body["activations_to_friend"] == 0
+    assert body["is_member"] is True
 
 
 async def test_me_happy_e2e_unknown_user_default(client, monkeypatch) -> None:
@@ -173,3 +178,4 @@ async def test_me_happy_e2e_unknown_user_default(client, monkeypatch) -> None:
     assert body["tier"] == "newbie"
     assert body["balance"] == 0
     assert body["activations_to_friend"] == 10
+    assert body["is_member"] is False

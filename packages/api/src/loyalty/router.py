@@ -123,6 +123,7 @@ async def get_loyalty_me(
         balance=summary.balance,
         lifetime_activations=summary.lifetime_activations,
         activations_to_friend=summary.activations_to_friend,
+        is_member=summary.is_member,
     )
 
 
