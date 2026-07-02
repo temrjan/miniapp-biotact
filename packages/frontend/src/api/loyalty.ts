@@ -1,16 +1,39 @@
 import { api } from './client';
-import type { LoyaltySummary, LoyaltyTier } from '@/types';
+import type {
+  ActivationResult,
+  ActivationStatus,
+  ConsentResult,
+  LoyaltySummary,
+  LoyaltyTier,
+  RegistrationSource,
+} from '@/types';
 
 // ═══════════════════════════════════════════════════════════════════
 // Loyalty API (Biotact Club)
 // ═══════════════════════════════════════════════════════════════════
 
-// Raw server shape (snake_case); mapped to the camelCase domain type below.
+// Raw server shapes (snake_case); mapped to the camelCase domain types below.
 interface LoyaltySummaryDto {
   tier: LoyaltyTier;
   balance: number;
   lifetime_activations: number;
   activations_to_friend: number;
+}
+
+interface ConsentResponseDto {
+  consent_recorded: boolean;
+  joined: boolean;
+  phone_shared: boolean;
+}
+
+interface ActivateResponseDto {
+  status: ActivationStatus;
+  tier: LoyaltyTier;
+  points_awarded: number;
+  welcome_bonus: number;
+  friend_bonus: number;
+  balance: number;
+  lifetime_activations: number;
 }
 
 export const loyaltyApi = {
@@ -22,6 +45,30 @@ export const loyaltyApi = {
       balance: dto.balance,
       lifetimeActivations: dto.lifetime_activations,
       activationsToFriend: dto.activations_to_friend,
+    };
+  },
+
+  // POST /loyalty/consent — record data-processing consent + entry events (idempotent). 404 while dark.
+  consent: async (source: RegistrationSource): Promise<ConsentResult> => {
+    const dto = await api.post<ConsentResponseDto>('/loyalty/consent', { source });
+    return {
+      consentRecorded: dto.consent_recorded,
+      joined: dto.joined,
+      phoneShared: dto.phone_shared,
+    };
+  },
+
+  // POST /qr/activate — claim a scanned code, accrue cashback (idempotent replay). 404 while dark.
+  activate: async (code: string): Promise<ActivationResult> => {
+    const dto = await api.post<ActivateResponseDto>('/qr/activate', { code });
+    return {
+      status: dto.status,
+      tier: dto.tier,
+      pointsAwarded: dto.points_awarded,
+      welcomeBonus: dto.welcome_bonus,
+      friendBonus: dto.friend_bonus,
+      balance: dto.balance,
+      lifetimeActivations: dto.lifetime_activations,
     };
   },
 };

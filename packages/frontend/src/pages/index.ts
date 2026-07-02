@@ -3,5 +3,6 @@ export { CatalogPage } from './CatalogPage';
 export { ProductPage } from './ProductPage';
 export { CartPage } from './CartPage';
 export { ProfilePage } from './ProfilePage';
+export { ActivationPage } from './ActivationPage';
 export { CheckoutPage } from './CheckoutPage';
 export { PaymentSuccessPage } from './PaymentSuccessPage';

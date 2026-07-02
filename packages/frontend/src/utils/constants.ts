@@ -52,6 +52,7 @@ export const ROUTES = {
   CART: '/cart',
   CHECKOUT: '/checkout',
   PROFILE: '/profile',
+  ACTIVATE: '/activate',
   ORDERS: '/orders',
   ORDER: '/orders/:orderId',
   PAYMENT_SUCCESS: "/payment/success",
