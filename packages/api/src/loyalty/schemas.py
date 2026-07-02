@@ -15,6 +15,13 @@ class ActivationStatus(enum.StrEnum):
     ALREADY_ACTIVATED = "already_activated"  # same user re-scanned an own code (idempotent replay)
 
 
+class RegistrationSource(enum.StrEnum):
+    """How the customer entered the loyalty program (persisted once via COALESCE)."""
+
+    QR = "qr"  # opened the mini-app from a scanned QR box code
+    DIRECT = "direct"  # opened the mini-app without a code (no points)
+
+
 # Opaque code: Crockford base32, ~12 chars (the qr_codes.code column is String(32)).
 # Trim surrounding whitespace; an unknown/garbage code simply fails the lookup (404).
 ActivationCode = Annotated[
@@ -49,6 +56,28 @@ class ActivateResponse(BaseModel):
     )
     balance: int = Field(ge=0, description="Current total balance = SUM(point_ledger.amount)")
     lifetime_activations: int = Field(ge=0, description="Lifetime activations after this one")
+
+
+class ConsentRequest(BaseModel):
+    """Body of ``POST /loyalty/consent`` — the mini-app records data-processing consent.
+
+    ``source`` reflects how the user entered: ``qr`` when a box code was scanned, ``direct``
+    otherwise. The mini-app knows this from the presence of ``?code=`` in its launch URL.
+    """
+
+    source: RegistrationSource
+
+
+class ConsentResponse(BaseModel):
+    """Result of a consent call — makes idempotency observable (all False on a repeat call).
+
+    Each flag is True only when THIS call performed that write; a second call by the same user
+    returns all False (the consent row, profile and phone-shared event already exist).
+    """
+
+    consent_recorded: bool = Field(description="A new data_processing consent row was written")
+    joined: bool = Field(description="The customer profile was created by this call")
+    phone_shared: bool = Field(description="A phone_shared timeline event was written by this call")
 
 
 class LoyaltySummaryResponse(BaseModel):

@@ -19,7 +19,13 @@ from src.config import settings
 from src.database import get_db
 from src.loyalty import service
 from src.loyalty.pricing import PricingError
-from src.loyalty.schemas import ActivateRequest, ActivateResponse, LoyaltySummaryResponse
+from src.loyalty.schemas import (
+    ActivateRequest,
+    ActivateResponse,
+    ConsentRequest,
+    ConsentResponse,
+    LoyaltySummaryResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,4 +122,29 @@ async def get_loyalty_me(
         balance=summary.balance,
         lifetime_activations=summary.lifetime_activations,
         activations_to_friend=summary.activations_to_friend,
+    )
+
+
+@summary_router.post(
+    "/consent",
+    response_model=ConsentResponse,
+    dependencies=[Depends(require_loyalty_enabled)],
+)
+async def submit_consent(
+    payload: ConsentRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    telegram_user: Annotated[TelegramUser, Depends(get_init_data_user)],
+) -> ConsentResponse:
+    """Record data-processing consent + entry lifecycle events (idempotent, race-safe).
+
+    Same dark gate (404 while ``loyalty_enabled`` is off) and initData HMAC auth as activation. The
+    money path (``/qr/activate``) does NOT hard-block on consent; the happy-path mini-app calls this
+    first (writes ``data_processing`` + ``joined``/``phone_shared``, sets ``registration_source``),
+    then activates. Idempotent: a repeat call by the same user writes nothing and returns all-False.
+    """
+    outcome = await service.record_consent(db, telegram_user=telegram_user, source=payload.source)
+    return ConsentResponse(
+        consent_recorded=outcome.consent_recorded,
+        joined=outcome.joined,
+        phone_shared=outcome.phone_shared,
     )
