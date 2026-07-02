@@ -37,7 +37,12 @@ export function JoinCard() {
           <p className="text-sm text-[var(--error)]">{t('activation.error.generic')}</p>
         )}
 
-        <Button fullWidth disabled={!agreed} isLoading={join.isPending} onClick={() => join.mutate()}>
+        <Button
+          fullWidth
+          disabled={!agreed || join.isSuccess}
+          isLoading={join.isPending}
+          onClick={() => join.mutate()}
+        >
           {t('join.button')}
         </Button>
       </Card>
