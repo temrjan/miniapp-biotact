@@ -150,6 +150,11 @@
     },
     "noCode": "Havola yaroqsiz: kod topilmadi."
   },
+  "join": {
+    "title": "Biotact Club'ga qo'shiling",
+    "subtitle": "Rozilikni belgilang va klubga qo'shiling — xaridlar uchun keshbek va «Do'st» maqomi.",
+    "button": "Qo'shilish"
+  },
   "orders": {
     "title": "Buyurtmalarim",
     "empty": "Sizda hali buyurtmalar yo'q",

@@ -18,6 +18,7 @@ interface LoyaltySummaryDto {
   balance: number;
   lifetime_activations: number;
   activations_to_friend: number;
+  is_member: boolean;
 }
 
 interface ConsentResponseDto {
@@ -45,6 +46,7 @@ export const loyaltyApi = {
       balance: dto.balance,
       lifetimeActivations: dto.lifetime_activations,
       activationsToFriend: dto.activations_to_friend,
+      isMember: dto.is_member,
     };
   },
 

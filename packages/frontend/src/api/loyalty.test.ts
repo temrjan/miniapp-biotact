@@ -21,6 +21,7 @@ describe('loyaltyApi.getMe', () => {
       balance: 5800,
       lifetime_activations: 3,
       activations_to_friend: 7,
+      is_member: true,
     });
 
     const result = await loyaltyApi.getMe();
@@ -31,6 +32,7 @@ describe('loyaltyApi.getMe', () => {
       balance: 5800,
       lifetimeActivations: 3,
       activationsToFriend: 7,
+      isMember: true,
     });
     expect(getMock).toHaveBeenCalledWith('/loyalty/me');
   });
