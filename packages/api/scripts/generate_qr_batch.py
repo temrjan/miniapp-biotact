@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
 
+import src.models_registry  # noqa: F401 — register ALL models on Base.metadata (resolves Consent→User etc.)
 from src.database import async_session_maker
 from src.loyalty.codes import codes_to_csv, generate_batch
 from src.products.models import Product
