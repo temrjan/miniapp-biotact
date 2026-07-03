@@ -6,6 +6,8 @@ import type {
   LoyaltySummary,
   LoyaltyTier,
   RegistrationSource,
+  SurveyPayload,
+  SurveyResult,
 } from '@/types';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -35,6 +37,11 @@ interface ActivateResponseDto {
   friend_bonus: number;
   balance: number;
   lifetime_activations: number;
+}
+
+interface SurveyResponseDto {
+  updated_fields: string[];
+  survey_done: boolean;
 }
 
 export const loyaltyApi = {
@@ -71,6 +78,15 @@ export const loyaltyApi = {
       friendBonus: dto.friend_bonus,
       balance: dto.balance,
       lifetimeActivations: dto.lifetime_activations,
+    };
+  },
+
+  // POST /loyalty/survey — write progressive survey fields (idempotent event). 404 while dark.
+  survey: async (payload: SurveyPayload): Promise<SurveyResult> => {
+    const dto = await api.post<SurveyResponseDto>('/loyalty/survey', payload);
+    return {
+      updatedFields: dto.updated_fields,
+      surveyDone: dto.survey_done,
     };
   },
 };

@@ -155,6 +155,16 @@
     "subtitle": "Rozilikni belgilang va klubga qo'shiling — xaridlar uchun keshbek va «Do'st» maqomi.",
     "button": "Qo'shilish"
   },
+  "survey": {
+    "title": "O'zingiz haqingizda ayting",
+    "genderLabel": "Jinsi",
+    "genderMale": "Erkak",
+    "genderFemale": "Ayol",
+    "ageLabel": "Yosh",
+    "cityLabel": "Shahar",
+    "saveButton": "Saqlash",
+    "success": "Rahmat! Anketa saqlandi."
+  },
   "orders": {
     "title": "Buyurtmalarim",
     "empty": "Sizda hali buyurtmalar yo'q",

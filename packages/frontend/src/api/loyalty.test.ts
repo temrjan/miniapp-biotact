@@ -83,3 +83,18 @@ describe('loyaltyApi.activate', () => {
     });
   });
 });
+
+describe('loyaltyApi.survey', () => {
+  beforeEach(() => {
+    postMock.mockReset();
+  });
+
+  it('posts the payload as-is and maps the response to camelCase', async () => {
+    postMock.mockResolvedValue({ updated_fields: ['age', 'city'], survey_done: true });
+
+    const result = await loyaltyApi.survey({ age: 30, city: 'Tashkent' });
+
+    expect(postMock).toHaveBeenCalledWith('/loyalty/survey', { age: 30, city: 'Tashkent' });
+    expect(result).toEqual({ updatedFields: ['age', 'city'], surveyDone: true });
+  });
+});
