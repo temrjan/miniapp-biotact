@@ -22,7 +22,7 @@ from src.loyalty.models import (
     QrCodeStatus,
 )
 from src.loyalty.pricing import compute_cashback, get_unit_price
-from src.loyalty.schemas import ActivationStatus, RegistrationSource
+from src.loyalty.schemas import ActivationStatus, RegistrationSource, SurveyRequest
 
 # Cashback rate by tier (basis points): newbie 5%, friend 8%.
 NEWBIE_RATE_BPS = 500
@@ -239,6 +239,84 @@ async def record_consent(
         return ConsentOutcome(
             consent_recorded=consent_recorded, joined=joined, phone_shared=phone_shared
         )
+
+
+@dataclass(frozen=True)
+class SurveyOutcome:
+    """Result of a survey call — primitives only; each field reflects only THIS call's write."""
+
+    updated_fields: list[str]  # payload keys written by this call (sorted, for a stable response)
+    survey_done: bool  # True only if this call wrote the one-time survey_done event
+
+
+async def submit_survey(
+    db: AsyncSession,
+    *,
+    telegram_user: TelegramUser,
+    payload: SurveyRequest,
+) -> SurveyOutcome:
+    """Write progressive survey fields + the one-time ``survey_done`` event, race-safely.
+
+    Requires an EXISTING member (a ``customer_profile`` row) — never creates one. A lazy profile
+    create here would be a silent "join" that bypasses the mandatory consent checkbox, the same
+    hole :func:`record_consent` closes for the entry flow. Present fields always overwrite the
+    stored value (no ``COALESCE``): the survey is progressive, so a member may correct/extend it
+    on a later call. ``survey_done`` reuses the guard-check-then-insert-under-lock primitive
+    already proven by ``phone_shared`` above.
+
+    User resolution runs INSIDE the explicit transaction (mirroring :func:`activate_code` /
+    :func:`record_consent`): a read before ``db.begin()`` would autobegin the session's
+    transaction, and the later explicit ``begin()`` would then raise.
+    """
+    updates = payload.model_dump(exclude_none=True)
+    updated_fields = sorted(updates)
+    async with db.begin():
+        user = await get_user_by_telegram_id(db, telegram_user.id)
+        if user is None:
+            raise NotFoundException("Not a club member")
+
+        # SELECT ... FOR UPDATE both resolves membership (None → not a member) and locks the row
+        # as the per-user serialization point for the guarded survey_done write below.
+        locked = (
+            await db.execute(
+                select(CustomerProfile.id)
+                .where(CustomerProfile.user_id == user.id)
+                .with_for_update()
+            )
+        ).one_or_none()
+        if locked is None:
+            raise NotFoundException("Not a club member")
+
+        await db.execute(
+            update(CustomerProfile)
+            .where(CustomerProfile.user_id == user.id)
+            .values(**updates)
+            .execution_options(synchronize_session=False)
+        )
+
+        survey_done = False
+        prior_survey_event = (
+            await db.execute(
+                select(CustomerEvent.id)
+                .where(
+                    CustomerEvent.user_id == user.id,
+                    CustomerEvent.event_type == CustomerEventType.SURVEY_DONE,
+                )
+                .limit(1)
+            )
+        ).first()
+        if prior_survey_event is None:
+            db.add(
+                CustomerEvent(
+                    user_id=user.id,
+                    event_type=CustomerEventType.SURVEY_DONE,
+                    payload={"fields": updated_fields},
+                )
+            )
+            survey_done = True
+
+        await db.flush()
+        return SurveyOutcome(updated_fields=updated_fields, survey_done=survey_done)
 
 
 @dataclass(frozen=True)

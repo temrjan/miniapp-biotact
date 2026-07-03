@@ -25,6 +25,8 @@ from src.loyalty.schemas import (
     ConsentRequest,
     ConsentResponse,
     LoyaltySummaryResponse,
+    SurveyRequest,
+    SurveyResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -149,4 +151,26 @@ async def submit_consent(
         consent_recorded=outcome.consent_recorded,
         joined=outcome.joined,
         phone_shared=outcome.phone_shared,
+    )
+
+
+@summary_router.post(
+    "/survey",
+    response_model=SurveyResponse,
+    dependencies=[Depends(require_loyalty_enabled)],
+)
+async def submit_survey(
+    payload: SurveyRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    telegram_user: Annotated[TelegramUser, Depends(get_init_data_user)],
+) -> SurveyResponse:
+    """Record progressive survey fields (gender/age/city), race-safe and idempotent for the event.
+
+    Same dark gate (404 while ``loyalty_enabled`` is off) and initData HMAC auth as activation.
+    Requires an existing member (``customer_profile`` row) — 404 otherwise; never creates one.
+    """
+    outcome = await service.submit_survey(db, telegram_user=telegram_user, payload=payload)
+    return SurveyResponse(
+        updated_fields=outcome.updated_fields,
+        survey_done=outcome.survey_done,
     )

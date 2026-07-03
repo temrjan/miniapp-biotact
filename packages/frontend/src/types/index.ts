@@ -145,6 +145,20 @@ export interface ActivationResult {
   lifetimeActivations: number;
 }
 
+// Progressive survey (POST /loyalty/survey) — all fields optional, at least one required.
+export type Gender = 'male' | 'female';
+
+export interface SurveyPayload {
+  gender?: Gender;
+  age?: number;
+  city?: string;
+}
+
+export interface SurveyResult {
+  updatedFields: string[];
+  surveyDone: boolean;
+}
+
 export interface ThemeColors {
   primary: string;
   primaryLight: string;

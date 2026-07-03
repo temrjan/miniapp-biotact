@@ -11,3 +11,4 @@ export { useBackButton } from './useBackButton';
 export { useLoyalty } from './useLoyalty';
 export { useActivation } from './useActivation';
 export { useJoin } from './useJoin';
+export { useSurvey } from './useSurvey';

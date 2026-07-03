@@ -3,9 +3,9 @@
 import enum
 from typing import Annotated
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
-from src.loyalty.models import LoyaltyStatus
+from src.loyalty.models import Gender, LoyaltyStatus
 
 
 class ActivationStatus(enum.StrEnum):
@@ -91,4 +91,36 @@ class LoyaltySummaryResponse(BaseModel):
     )
     is_member: bool = Field(
         description="Whether the user has joined the club (a customer_profile row exists)"
+    )
+
+
+SurveyAge = Annotated[int, Field(ge=1, le=120)]
+SurveyCity = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+class SurveyRequest(BaseModel):
+    """Body of ``POST /loyalty/survey`` — progressive, optional profile fields.
+
+    A present field always overwrites the stored value (no ``COALESCE``) so a member can
+    correct/extend the survey on a later call. An all-empty body is rejected (422): a survey
+    call that writes nothing is meaningless.
+    """
+
+    gender: Gender | None = None
+    age: SurveyAge | None = None
+    city: SurveyCity | None = None
+
+    @model_validator(mode="after")
+    def require_at_least_one_field(self) -> "SurveyRequest":
+        if self.gender is None and self.age is None and self.city is None:
+            raise ValueError("At least one of gender, age, city is required")
+        return self
+
+
+class SurveyResponse(BaseModel):
+    """Result of a survey call — makes idempotency of the ``survey_done`` event observable."""
+
+    updated_fields: list[str] = Field(description="Fields written by THIS call (payload keys)")
+    survey_done: bool = Field(
+        description="True only if THIS call wrote the one-time survey_done event"
     )
