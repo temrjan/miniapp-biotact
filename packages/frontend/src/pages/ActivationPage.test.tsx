@@ -136,7 +136,9 @@ describe('ActivationPage', () => {
     expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();
   });
 
-  it('shows a neutral message and does not activate when consent is dark (404)', async () => {
+  // A 404 from consent = the program is dark (the gate precedes all logic). Distinct from an
+  // activate 404 below: this one shows "coming soon", never "invalid code", and skips activate.
+  it('maps a consent 404 (dark program) to "coming soon" and does not activate', async () => {
     consentMock.mockRejectedValue(new ApiError('not found', 404));
     setup();
 
@@ -145,6 +147,21 @@ describe('ActivationPage', () => {
 
     expect(await screen.findByText(/Программа лояльности скоро будет доступна/)).toBeInTheDocument();
     expect(activateMock).not.toHaveBeenCalled(); // consent gates activate
+    expect(screen.queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument(); // 404 not retriable
+  });
+
+  // On a LIVE program, consent succeeds and a 404 comes from activate = the scanned code is unknown.
+  // It must read as "invalid code", NOT "coming soon" (the pre-fix bug that conflated both 404s).
+  it('maps an activate 404 (unknown code, live) to invalid-code, not "coming soon"', async () => {
+    consentMock.mockResolvedValue({ consentRecorded: true, joined: true, phoneShared: false });
+    activateMock.mockRejectedValue(new ApiError('not found', 404));
+    setup();
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Активировать' }));
+
+    expect(await screen.findByText(/Код недействителен или уже был использован/)).toBeInTheDocument();
+    expect(screen.queryByText(/скоро будет доступна/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument(); // 404 not retriable
   });
 
