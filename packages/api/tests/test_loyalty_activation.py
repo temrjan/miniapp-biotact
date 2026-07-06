@@ -93,6 +93,42 @@ async def _seed_user_with_profile(
         return user.id
 
 
+async def _seed_matched_user_with_profile(
+    sm: async_sessionmaker[AsyncSession],
+    telegram_user: TelegramUser,
+    *,
+    lifetime: int,
+    status: LoyaltyStatus = LoyaltyStatus.NEWBIE,
+) -> int:
+    """Commit a user whose identity EXACTLY matches ``telegram_user`` + a COMMITTED profile.
+
+    Both details are what make the activate ``FOR UPDATE`` (service.py, the lock on the
+    ``lifetime_activations``/``status`` read) the ONLY serializer of a concurrent activation
+    race — so removing it deterministically opens the race (audit PR-A honesty fix):
+
+    * identity match → ``get_or_create_user`` makes no net change to the users row
+      (username/first_name/last_name/language_code all already equal), so it emits no
+      ``UPDATE users`` and takes no users-row lock. A racer whose ``first_name`` differs from the
+      seeded value (as the older race tests seed ``"Seed"``) would instead serialize on that
+      incidental ``UPDATE users`` — masking whether the profile lock does any work.
+    * committed profile → the ``INSERT … ON CONFLICT DO NOTHING`` inside ``activate_code`` is a
+      pure no-op that neither blocks nor locks. A lazily-created profile would instead serialize
+      the racers on the first (uncommitted) insert, again masking the profile lock.
+    """
+    async with sm() as s, s.begin():
+        user = User(
+            telegram_id=telegram_user.id,
+            username=telegram_user.username,
+            first_name=telegram_user.first_name,
+            last_name=telegram_user.last_name,
+            language_code=telegram_user.language_code or "ru",
+        )
+        s.add(user)
+        await s.flush()
+        s.add(CustomerProfile(user_id=user.id, lifetime_activations=lifetime, status=status))
+        return user.id
+
+
 # --------------------------------------------------------------------------- #
 # service: happy path, welcome-once, replay, conflict, not-found, reconciliation
 # --------------------------------------------------------------------------- #
@@ -291,7 +327,7 @@ async def test_endpoint_happy_e2e(client, maker, monkeypatch) -> None:
 
 
 async def test_welcome_rounding_is_half_up_per_row(test_db: AsyncSession, maker) -> None:
-    """Each earn row rounds independently ROUND_HALF_UP — NOT one ×1.5 multiplier.
+    """Each earn row rounds independently ROUND_HALF_UP — NOT one x1.5 multiplier.
 
     Price 20 → cashback = compute_cashback(20, 500) = 1.0 → 1; welcome = compute_cashback(20, 250)
     = 0.5 → 1 (half rounds up, in the customer's favour). Total 2 across two reconcilable rows.
@@ -374,7 +410,8 @@ async def test_conflict_http_body_is_generic(client, maker, monkeypatch) -> None
         },
     )
     assert second.status_code == 409
-    assert "60042" not in second.text and "Owner" not in second.text  # no owner identity leak
+    assert "60042" not in second.text  # no owner identity leak
+    assert "Owner" not in second.text
     assert "already activated" in second.text.lower()
 
 
@@ -711,3 +748,128 @@ async def test_race_activate_writes_exactly_one_qr_activated_on_claim(
     async with maker() as s:
         assert await _count_events(s, CustomerEventType.QR_ACTIVATED) == 1
         assert await _count_events(s, CustomerEventType.JOINED) == 1
+
+
+# --------------------------------------------------------------------------- #
+# audit PR-A — the activate FOR UPDATE is the SOLE serializer of the race
+#
+# Unlike the older race tests above, these seed an identity that exactly matches the incoming
+# TelegramUser AND a COMMITTED profile (_seed_matched_user_with_profile). That strips the two
+# incidental serializers — the UPDATE users inside get_or_create_user (a differing first_name
+# would take a users-row lock) and the ON CONFLICT profile insert (a lazy profile would block on
+# the uncommitted insert) — leaving the customer_profile FOR UPDATE in activate_code as the ONLY
+# thing preventing a double accrual across two DIFFERENT codes. The atomic claim dedups one code,
+# not two. Mutation-proven in the PR report: removing that lock turns both tests RED.
+# --------------------------------------------------------------------------- #
+
+
+async def _activate_two_forced_concurrent(
+    maker,
+    monkeypatch,
+    tg: TelegramUser,
+    code_a: str,
+    code_b: str,
+) -> list[object]:
+    """Run two activations that are FORCED to overlap on the profile lock, then gather them.
+
+    ``asyncio.gather`` alone does NOT reliably overlap the two transactions on localhost Postgres
+    (one racer commits before the other reads ``lifetime_before`` → false green even with the lock
+    removed — the known limitation flagged in PR-4.4b). Determinism comes from two injected points:
+
+    1. A barrier wrapped around ``get_or_create_user`` releases both racers only once BOTH have
+       resolved their user, so they enter the ``customer_profile`` lock region in the same window.
+    2. A short sleep wrapped around ``get_unit_price`` (which activation calls AFTER it reads
+       ``lifetime_before``/``status_before`` but BEFORE it writes any row or commits) holds each
+       racer in the critical section long enough for the other to perform its own read before
+       either commits.
+
+    The outcome then depends solely on the lock: with it, the second racer blocks at the profile
+    ``SELECT … FOR UPDATE`` and re-reads fresh state (one welcome / one +5000); without it
+    (mutation), both read stale state and double-accrue. Deterministic across 20+ runs each way.
+
+    Preconditions (met by :func:`_seed_matched_user_with_profile`): the identity match means
+    ``get_or_create_user`` writes no ``UPDATE users`` (else the users-row lock would deadlock the
+    barrier — the first racer holds it while waiting for the second, which blocks on it), and the
+    committed profile means the ``ON CONFLICT`` insert is a no-op (not a second serializer).
+    """
+    from src.loyalty import service as svc
+
+    real_get_or_create = svc.get_or_create_user
+    real_get_unit_price = svc.get_unit_price
+    barrier = asyncio.Barrier(2)
+
+    async def _barriered(db: AsyncSession, telegram_user: TelegramUser) -> User:
+        user = await real_get_or_create(db, telegram_user)
+        await asyncio.wait_for(barrier.wait(), timeout=10)  # fail loudly instead of hanging CI
+        return user
+
+    async def _slow_priced(db: AsyncSession, product_id: int) -> int:
+        await asyncio.sleep(0.25)  # widen the window between the lifetime read and the commit
+        return await real_get_unit_price(db, product_id)
+
+    monkeypatch.setattr(svc, "get_or_create_user", _barriered)
+    monkeypatch.setattr(svc, "get_unit_price", _slow_priced)
+    async with maker() as s1, maker() as s2:
+        return await asyncio.gather(
+            activate_code(s1, telegram_user=tg, code=code_a),
+            activate_code(s2, telegram_user=tg, code=code_b),
+            return_exceptions=True,
+        )
+
+
+async def test_race_welcome_committed_profile_grants_exactly_one_welcome(
+    test_db: AsyncSession, maker, monkeypatch
+) -> None:
+    """Two first activations (different codes) by one identity-matched user with a committed
+    lifetime=0 profile → exactly one welcome row.
+
+    Without the activate FOR UPDATE both racers read lifetime_before=0 and each write a welcome
+    (the sole serializer is removed) → two welcome rows: mutation RED.
+    """
+    _, codes = await _seed_product_and_codes(maker, n=2)
+    tg = TelegramUser(id=60200, first_name="Matched", language_code="ru")
+    await _seed_matched_user_with_profile(maker, tg, lifetime=0)
+    results = await _activate_two_forced_concurrent(maker, monkeypatch, tg, codes[0], codes[1])
+    assert all(isinstance(r, ActivationOutcome) for r in results), results
+    async with maker() as s:
+        rows = (await s.execute(select(PointLedger))).scalars().all()
+        assert len([r for r in rows if r.reason == "welcome"]) == 1
+        assert len([r for r in rows if r.reason == "cashback"]) == 2
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert profile.lifetime_activations == 2
+
+
+async def test_race_boundary_committed_profile_flips_exactly_once(
+    test_db: AsyncSession, maker, monkeypatch
+) -> None:
+    """Two activations (different codes) across the 10th boundary by one identity-matched user with
+    a committed lifetime=9 profile → exactly one +5000 bonus and one status_friend event.
+
+    Without the activate FOR UPDATE both racers read lifetime_before=9, each flip newbie→friend and
+    each grant the bonus (the sole serializer is removed) → two bonuses: mutation RED.
+    """
+    _, codes = await _seed_product_and_codes(maker, price="10000", n=2)
+    tg = TelegramUser(id=60201, first_name="Matched", language_code="ru")
+    await _seed_matched_user_with_profile(maker, tg, lifetime=9)
+    results = await _activate_two_forced_concurrent(maker, monkeypatch, tg, codes[0], codes[1])
+    assert all(isinstance(r, ActivationOutcome) for r in results), results
+    async with maker() as s:
+        bonus = (
+            await s.execute(
+                select(func.count())
+                .select_from(PointLedger)
+                .where(PointLedger.reason == LedgerReason.FRIEND_BONUS)
+            )
+        ).scalar_one()
+        assert bonus == 1  # exactly one bonus despite the race
+        flip_events = (
+            await s.execute(
+                select(func.count())
+                .select_from(CustomerEvent)
+                .where(CustomerEvent.event_type == CustomerEventType.STATUS_FRIEND)
+            )
+        ).scalar_one()
+        assert flip_events == 1  # exactly one milestone event
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert profile.status is LoyaltyStatus.BIOTACT_FRIEND
+        assert profile.lifetime_activations == 11
