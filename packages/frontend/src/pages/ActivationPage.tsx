@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle2, Sparkles } from 'lucide-react';
 import { ApiError } from '@/api';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
-import { useActivation } from '@hooks/useActivation';
+import { ProgramDarkError, useActivation } from '@hooks/useActivation';
 import { useTranslation } from '@/i18n';
 import { ROUTES } from '@utils/constants';
 
@@ -15,20 +15,25 @@ type ActivationErrorKey =
   | 'activation.error.unavailable'
   | 'activation.error.generic';
 
-// Maps a failed activation to a neutral, non-leaking message. 404 = dark program (not probeable),
-// 409 = code invalid / used by someone else, 503 = temporarily unpriced. Only transient failures
-// (503 / network / timeout) offer a retry — a 404/409 will not change on repeat.
-function errorContent(status: number | undefined): { messageKey: ActivationErrorKey; canRetry: boolean } {
+// Maps a failed activation to a neutral, non-leaking message + whether a retry is offered.
+// A dark program (consent 404, tagged upstream as ProgramDarkError) shows "coming soon" — it must
+// never be conflated with a failed activation. Otherwise map by HTTP status: 404 = unknown code
+// while live (the dark 404 never reaches here), 409 = code already claimed by someone else, 503 =
+// temporarily unpriced. Only transient failures (503 / network / timeout) offer a retry.
+function errorContent(error: Error): { messageKey: ActivationErrorKey; canRetry: boolean } {
+  if (error instanceof ProgramDarkError) {
+    return { messageKey: 'activation.error.dark', canRetry: false };
+  }
+  const status = error instanceof ApiError ? error.status : undefined;
   switch (status) {
     case 404:
-      return { messageKey: 'activation.error.dark', canRetry: false };
     case 409:
       return { messageKey: 'activation.error.invalidCode', canRetry: false };
     case 503:
       return { messageKey: 'activation.error.unavailable', canRetry: true };
     // Network/timeout/5xx — a retry can help. A 401 (stale initData) also lands here; its retry is
-    // harmless but unhelpful (initData refreshes only on reopen) — acceptable, and 401 is unreachable
-    // while the program is dark (the 404 gate fires before auth). Revisit session-expired UX at PR-4.5.
+    // harmless but unhelpful (initData refreshes only on reopen) — acceptable. Revisit session-
+    // expired UX at PR-4.5.
     default:
       return { messageKey: 'activation.error.generic', canRetry: true };
   }
@@ -104,10 +109,9 @@ export function ActivationPage() {
     );
   }
 
-  // Error — neutral message + retry only for transient failures.
+  // Error — neutral message + retry only for transient failures (dark program handled inside).
   if (activation.isError) {
-    const status = activation.error instanceof ApiError ? activation.error.status : undefined;
-    const { messageKey, canRetry } = errorContent(status);
+    const { messageKey, canRetry } = errorContent(activation.error);
     return (
       <section className="p-4 space-y-4 text-center">
         <AlertCircle className="mx-auto text-[var(--text-muted)]" size={48} aria-hidden />
