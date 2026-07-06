@@ -1,8 +1,8 @@
 """Tests for Biotact Club QR-deeplink loyalty handlers (Stage 4, PR-4.1).
 
-The bot CI only runs ``ruff check bot/`` (no pytest job), so these are run locally as the
-Gate-2 proof: deeplink dispatch (qr_ vs auth_), contact -> verified phone, the dark gate,
-and the code-carrying mini-app launcher.
+The bot CI runs both ``ruff check bot/`` and ``pytest tests/`` (ci.yml Bot job), so these run in
+CI: deeplink dispatch (qr_ vs auth_), contact -> verified phone, the dark gate, and the
+code-carrying mini-app launcher.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch

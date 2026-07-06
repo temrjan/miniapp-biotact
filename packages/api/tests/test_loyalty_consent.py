@@ -288,9 +288,12 @@ async def test_race_two_consent_calls_write_each_thing_once(test_db: AsyncSessio
 async def test_race_two_consent_on_existing_profile_dedup(test_db: AsyncSession, maker) -> None:
     """Two concurrent consents on a PRE-EXISTING profile → exactly one consent + one phone_shared.
 
-    This is the case the ``FOR UPDATE`` lock exists for: the profile already exists (activate-first),
-    so the ``ON CONFLICT`` insert does not serialize the racers — only the row lock does. Removing
-    ``.with_for_update()`` makes this test fail with two consent / two phone_shared rows.
+    The per-user serializer here is the MANDATORY ``UPDATE customer_profile SET registration_source``
+    that runs before the guards — its row lock is held until commit, so the second racer waits and
+    then sees the first's committed consent/phone_shared. The explicit ``.with_for_update()`` above
+    that UPDATE is redundant defense-in-depth on this path: audit PR-A mutation-verified that
+    removing it keeps this test green. The load-bearing, directly mutation-tested profile lock is
+    the one in ``activate_code`` (see the deterministic race tests in test_loyalty_activation.py).
     """
     await _seed_verified_user_with_profile(maker, 70011)  # profile ALREADY exists, no consent yet
     tg = TelegramUser(id=70011, first_name="RaceExisting")

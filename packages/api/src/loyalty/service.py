@@ -166,10 +166,13 @@ async def record_consent(
                 )
             )
 
-        # Lock the profile row — the per-user serialization point for the guarded writes below.
-        # This is what protects the consent/phone_shared dedup when the profile ALREADY exists (an
-        # activate-first user): then the ON CONFLICT insert above is a no-op for both racers and does
-        # NOT serialize them, so without this lock two concurrent consents could double-write.
+        # Redundant defense-in-depth (audit PR-A, mutation-verified: removing it keeps the consent
+        # race test green). The real per-user serializer is the MANDATORY `UPDATE customer_profile
+        # SET registration_source` just below — an UPDATE holds the profile row lock until commit,
+        # so the guarded consent/phone_shared writes serialize even on an activate-first user (where
+        # the ON CONFLICT insert above is a no-op for both racers). Kept as a deliberate backstop —
+        # do NOT just delete it; whether to reorder so THIS lock is the primary serializer is the
+        # tracked audit follow-up. The load-bearing, directly mutation-tested lock is in activate_code.
         await db.execute(
             select(CustomerProfile.id).where(CustomerProfile.user_id == user_id).with_for_update()
         )
@@ -275,8 +278,11 @@ async def submit_survey(
         if user is None:
             raise NotFoundException("Not a club member")
 
-        # SELECT ... FOR UPDATE both resolves membership (None → not a member) and locks the row
-        # as the per-user serialization point for the guarded survey_done write below.
+        # SELECT resolves membership (None → not a member). The FOR UPDATE lock is redundant
+        # defense-in-depth for the survey_done dedup (audit PR-A, mutation-verified: removing it
+        # keeps the survey race test green). The real per-user serializer is the MANDATORY
+        # `UPDATE customer_profile SET **updates` just below, whose row lock is held until commit.
+        # Kept as a backstop; the load-bearing, mutation-tested lock is in activate_code.
         locked = (
             await db.execute(
                 select(CustomerProfile.id)
@@ -383,6 +389,12 @@ async def activate_code(
                     payload={"registration_source": None},
                 )
             )
+        # Load-bearing per-user serializer (audit PR-A): this lock is what prevents a double welcome
+        # / double +5000 when one user races TWO DIFFERENT codes across the first-activation or the
+        # 9→10 boundary — the atomic claim below dedups a single code, not two different ones, and
+        # the flip/welcome decision is made in Python from the values read here. Directly
+        # mutation-tested by the deterministic race tests in test_loyalty_activation.py (removing
+        # this `.with_for_update()` turns them red).
         locked = (
             await db.execute(
                 select(CustomerProfile.lifetime_activations, CustomerProfile.status)

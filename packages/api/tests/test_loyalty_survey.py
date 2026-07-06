@@ -249,8 +249,12 @@ def test_survey_request_rejects_unknown_gender() -> None:
 async def test_race_two_survey_calls_write_survey_done_once(test_db: AsyncSession, maker) -> None:
     """Two concurrent survey calls (same member) → exactly one survey_done event.
 
-    This is what the ``FOR UPDATE`` lock exists for: removing it lets both racers see "no prior
-    event" and both insert, duplicating ``survey_done``.
+    The per-user serializer here is the MANDATORY ``UPDATE customer_profile SET **updates`` that
+    runs before the ``survey_done`` guard — its row lock is held until commit, so the second racer
+    waits and then sees the first's committed event. The explicit ``.with_for_update()`` above that
+    UPDATE is redundant defense-in-depth on this path: audit PR-A mutation-verified that removing it
+    keeps this test green. The load-bearing, directly mutation-tested profile lock is the one in
+    ``activate_code`` (see the deterministic race tests in test_loyalty_activation.py).
     """
     await _seed_member(maker, 80010)
     tg = TelegramUser(id=80010, first_name="Race")
