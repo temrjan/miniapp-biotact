@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest_asyncio
-from sqlalchemy import func, select
+from sqlalchemy import Select, Table, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.auth.schemas import TelegramUser
@@ -288,12 +288,11 @@ async def test_race_two_consent_calls_write_each_thing_once(test_db: AsyncSessio
 async def test_race_two_consent_on_existing_profile_dedup(test_db: AsyncSession, maker) -> None:
     """Two concurrent consents on a PRE-EXISTING profile → exactly one consent + one phone_shared.
 
-    The per-user serializer here is the MANDATORY ``UPDATE customer_profile SET registration_source``
-    that runs before the guards — its row lock is held until commit, so the second racer waits and
-    then sees the first's committed consent/phone_shared. The explicit ``.with_for_update()`` above
-    that UPDATE is redundant defense-in-depth on this path: audit PR-A mutation-verified that
-    removing it keeps this test green. The load-bearing, directly mutation-tested profile lock is
-    the one in ``activate_code`` (see the deterministic race tests in test_loyalty_activation.py).
+    Happy-path dedup-contract check over plain ``asyncio.gather``: it does NOT deterministically
+    force the two transactions to overlap (localhost Postgres may let one commit before the other
+    reads), so on its own it is not a mutation-honest lock test. The deterministic, barrier-forced
+    proof that the profile ``SELECT … FOR UPDATE`` is the SOLE serializer (reddening when the lock
+    is removed) is ``test_race_consent_barriered_committed_profile_dedup`` below.
     """
     await _seed_verified_user_with_profile(maker, 70011)  # profile ALREADY exists, no consent yet
     tg = TelegramUser(id=70011, first_name="RaceExisting")
@@ -305,6 +304,109 @@ async def test_race_two_consent_on_existing_profile_dedup(test_db: AsyncSession,
         )
     assert all(isinstance(r, ConsentOutcome) for r in results), results
     assert sum(r.joined for r in results) == 0  # profile pre-existed → neither call emits joined
+    assert sum(r.consent_recorded for r in results) == 1
+    assert sum(r.phone_shared for r in results) == 1
+    async with maker() as s:
+        assert (await s.execute(select(func.count()).select_from(Consent))).scalar_one() == 1
+        assert await _count_events(s, CustomerEventType.PHONE_SHARED) == 1
+
+
+async def _seed_matched_verified_user_with_profile(
+    sm: async_sessionmaker[AsyncSession], tg: TelegramUser
+) -> int:
+    """Commit a verified-phone user whose identity EXACTLY matches ``tg`` + a COMMITTED empty
+    profile (no consent yet). Both details make the ``customer_profile`` ``FOR UPDATE`` the ONLY
+    serializer of a concurrent consent race (see :func:`_consent_two_forced_concurrent`): the
+    identity match means ``get_or_create_user`` writes no ``UPDATE users`` (no masking users-row
+    lock), and the committed profile means the ``ON CONFLICT`` insert is a no-op (not a second
+    serializer). Mirrors ``_seed_matched_user_with_profile`` in test_loyalty_activation.py.
+    """
+    async with sm() as s, s.begin():
+        user = User(
+            telegram_id=tg.id,
+            username=tg.username,
+            first_name=tg.first_name,
+            last_name=tg.last_name,
+            language_code=tg.language_code or "ru",
+            phone="+998901112233",
+            phone_verified_at=datetime.now(UTC),
+        )
+        s.add(user)
+        await s.flush()
+        s.add(CustomerProfile(user_id=user.id))
+        return user.id
+
+
+def _sleep_after_read_from(session: AsyncSession, target_table: Table, delay: float = 0.25) -> None:
+    """Patch ``session.execute`` to sleep right AFTER any SELECT that reads ``target_table``.
+
+    ``record_consent``/``submit_survey`` have no mid-critical-section service call to wrap (unlike
+    ``activate_code`` → ``get_unit_price``), so we widen the window at the guard SELECT itself: both
+    racers pause just after reading the dedup table but before committing. With the profile
+    ``FOR UPDATE``, the second racer is still blocked at the lock and never reaches this read until
+    the first commits (→ one write); without the lock (mutation), both reach the read, both see
+    "absent", both write (→ two): deterministic red↔green.
+
+    The target is matched by statement introspection (``get_final_froms``), not SQL text, so a later
+    rewrite of the guard cannot silently stop triggering the sleep and quietly return to false-green.
+    """
+    real_execute = session.execute
+
+    async def _execute(statement, *args, **kwargs):
+        result = await real_execute(statement, *args, **kwargs)
+        if isinstance(statement, Select) and target_table in statement.get_final_froms():
+            await asyncio.sleep(delay)
+        return result
+
+    session.execute = _execute  # type: ignore[method-assign]
+
+
+async def _consent_two_forced_concurrent(maker, monkeypatch, tg: TelegramUser) -> list[object]:
+    """Force two ``record_consent`` calls to overlap deterministically (barrier + guard-read sleep).
+
+    A barrier around ``get_or_create_user`` releases both racers into the lock region together; a
+    sleep after each racer's ``SELECT … FROM consent`` guard read holds the window open past the
+    other's read. With the profile ``FOR UPDATE`` the second racer blocks at the lock and only reads
+    consent after the first commits (one consent + one phone_shared); without it both read "absent"
+    and each insert (two): deterministic. Preconditions met by
+    :func:`_seed_matched_verified_user_with_profile` (matched identity → no ``UPDATE users`` that
+    would deadlock the barrier; committed profile → ON CONFLICT is a no-op).
+    """
+    from src.loyalty import service as svc
+
+    real_get_or_create = svc.get_or_create_user
+    barrier = asyncio.Barrier(2)
+
+    async def _barriered(db: AsyncSession, telegram_user: TelegramUser) -> User:
+        user = await real_get_or_create(db, telegram_user)
+        await asyncio.wait_for(barrier.wait(), timeout=10)  # both enter the lock region together
+        return user
+
+    monkeypatch.setattr(svc, "get_or_create_user", _barriered)
+    async with maker() as s1, maker() as s2:
+        _sleep_after_read_from(s1, Consent.__table__)
+        _sleep_after_read_from(s2, Consent.__table__)
+        return await asyncio.gather(
+            record_consent(s1, telegram_user=tg, source=RegistrationSource.QR),
+            record_consent(s2, telegram_user=tg, source=RegistrationSource.QR),
+            return_exceptions=True,
+        )
+
+
+async def test_race_consent_barriered_committed_profile_dedup(
+    test_db: AsyncSession, maker, monkeypatch
+) -> None:
+    """Barrier-forced concurrent consents (matched identity, committed profile) → exactly one
+    consent + one phone_shared.
+
+    The profile ``SELECT … FOR UPDATE`` is the SOLE serializer (the mandatory UPDATE now runs AFTER
+    the guards). Removing that ``.with_for_update()`` → both racers read "no consent" and each
+    insert → two rows: mutation RED. Deterministic via the barrier + matched-identity seed.
+    """
+    tg = TelegramUser(id=70050, first_name="Matched", language_code="ru")
+    await _seed_matched_verified_user_with_profile(maker, tg)
+    results = await _consent_two_forced_concurrent(maker, monkeypatch, tg)
+    assert all(isinstance(r, ConsentOutcome) for r in results), results
     assert sum(r.consent_recorded for r in results) == 1
     assert sum(r.phone_shared for r in results) == 1
     async with maker() as s:
