@@ -166,26 +166,13 @@ async def record_consent(
                 )
             )
 
-        # Redundant defense-in-depth (audit PR-A, mutation-verified: removing it keeps the consent
-        # race test green). The real per-user serializer is the MANDATORY `UPDATE customer_profile
-        # SET registration_source` just below — an UPDATE holds the profile row lock until commit,
-        # so the guarded consent/phone_shared writes serialize even on an activate-first user (where
-        # the ON CONFLICT insert above is a no-op for both racers). Kept as a deliberate backstop —
-        # do NOT just delete it; whether to reorder so THIS lock is the primary serializer is the
-        # tracked audit follow-up. The load-bearing, directly mutation-tested lock is in activate_code.
+        # Primary per-user serializer: lock the profile row so the two guarded dedup writes below
+        # (consent, phone_shared) serialize across concurrent calls. This is the SOLE serializer on
+        # this path — the mandatory `UPDATE customer_profile SET registration_source` was moved to
+        # AFTER the guards so this lock alone is directly mutation-tested (removing it reddens the
+        # consent race test). The load-bearing money lock is in activate_code.
         await db.execute(
             select(CustomerProfile.id).where(CustomerProfile.user_id == user_id).with_for_update()
-        )
-
-        # registration_source is set once (first writer wins): an activate-first user whose profile
-        # was created without a source gets it backfilled here; a repeat call is a COALESCE no-op.
-        await db.execute(
-            update(CustomerProfile)
-            .where(CustomerProfile.user_id == user_id)
-            .values(
-                registration_source=func.coalesce(CustomerProfile.registration_source, source.value)
-            )
-            .execution_options(synchronize_session=False)
         )
 
         # data_processing consent — idempotent: write a row only when there is no active grant.
@@ -238,6 +225,18 @@ async def record_consent(
                 )
                 phone_shared = True
 
+        # registration_source is set once (first writer wins): an activate-first user whose profile
+        # was created without a source gets it backfilled here; a repeat call is a COALESCE no-op.
+        # Runs AFTER the guards so the FOR UPDATE above is the sole (and testable) serializer.
+        await db.execute(
+            update(CustomerProfile)
+            .where(CustomerProfile.user_id == user_id)
+            .values(
+                registration_source=func.coalesce(CustomerProfile.registration_source, source.value)
+            )
+            .execution_options(synchronize_session=False)
+        )
+
         await db.flush()
         return ConsentOutcome(
             consent_recorded=consent_recorded, joined=joined, phone_shared=phone_shared
@@ -278,11 +277,11 @@ async def submit_survey(
         if user is None:
             raise NotFoundException("Not a club member")
 
-        # SELECT resolves membership (None → not a member). The FOR UPDATE lock is redundant
-        # defense-in-depth for the survey_done dedup (audit PR-A, mutation-verified: removing it
-        # keeps the survey race test green). The real per-user serializer is the MANDATORY
-        # `UPDATE customer_profile SET **updates` just below, whose row lock is held until commit.
-        # Kept as a backstop; the load-bearing, mutation-tested lock is in activate_code.
+        # SELECT resolves membership (None → not a member) AND is the primary per-user serializer:
+        # the FOR UPDATE row lock makes concurrent survey calls serialize on the survey_done dedup
+        # below. This is the SOLE serializer — the mandatory `UPDATE customer_profile SET **updates`
+        # was moved to AFTER the guard so this lock alone is directly mutation-tested (removing it
+        # reddens the survey race test). The load-bearing money lock is in activate_code.
         locked = (
             await db.execute(
                 select(CustomerProfile.id)
@@ -292,13 +291,6 @@ async def submit_survey(
         ).one_or_none()
         if locked is None:
             raise NotFoundException("Not a club member")
-
-        await db.execute(
-            update(CustomerProfile)
-            .where(CustomerProfile.user_id == user.id)
-            .values(**updates)
-            .execution_options(synchronize_session=False)
-        )
 
         survey_done = False
         prior_survey_event = (
@@ -320,6 +312,16 @@ async def submit_survey(
                 )
             )
             survey_done = True
+
+        # Present fields overwrite the stored value (no COALESCE): the survey is progressive, so a
+        # member may correct/extend it on a later call. Runs AFTER the survey_done guard so the
+        # FOR UPDATE above is the sole (and testable) serializer.
+        await db.execute(
+            update(CustomerProfile)
+            .where(CustomerProfile.user_id == user.id)
+            .values(**updates)
+            .execution_options(synchronize_session=False)
+        )
 
         await db.flush()
         return SurveyOutcome(updated_fields=updated_fields, survey_done=survey_done)

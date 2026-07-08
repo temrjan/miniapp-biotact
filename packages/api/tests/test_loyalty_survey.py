@@ -10,7 +10,7 @@ import asyncio
 import pytest
 import pytest_asyncio
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import Select, Table, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.auth.schemas import TelegramUser
@@ -249,12 +249,11 @@ def test_survey_request_rejects_unknown_gender() -> None:
 async def test_race_two_survey_calls_write_survey_done_once(test_db: AsyncSession, maker) -> None:
     """Two concurrent survey calls (same member) → exactly one survey_done event.
 
-    The per-user serializer here is the MANDATORY ``UPDATE customer_profile SET **updates`` that
-    runs before the ``survey_done`` guard — its row lock is held until commit, so the second racer
-    waits and then sees the first's committed event. The explicit ``.with_for_update()`` above that
-    UPDATE is redundant defense-in-depth on this path: audit PR-A mutation-verified that removing it
-    keeps this test green. The load-bearing, directly mutation-tested profile lock is the one in
-    ``activate_code`` (see the deterministic race tests in test_loyalty_activation.py).
+    Happy-path dedup-contract check over plain ``asyncio.gather``: it does NOT deterministically
+    force the two transactions to overlap, so on its own it is not a mutation-honest lock test. The
+    deterministic, barrier-forced proof that the profile ``SELECT … FOR UPDATE`` is the SOLE
+    serializer (reddening when the lock is removed) is
+    ``test_race_survey_barriered_committed_profile_dedup`` below.
     """
     await _seed_member(maker, 80010)
     tg = TelegramUser(id=80010, first_name="Race")
@@ -264,6 +263,106 @@ async def test_race_two_survey_calls_write_survey_done_once(test_db: AsyncSessio
             submit_survey(s2, telegram_user=tg, payload=SurveyRequest(city="Andijan")),
             return_exceptions=True,
         )
+    assert all(isinstance(r, SurveyOutcome) for r in results), results
+    assert sum(r.survey_done for r in results) == 1
+    async with maker() as s:
+        assert await _count_survey_done_events(s) == 1
+
+
+def _sleep_after_read_from(session: AsyncSession, target_table: Table, delay: float = 0.25) -> None:
+    """Patch ``session.execute`` to sleep right AFTER any SELECT that reads ``target_table``.
+
+    ``submit_survey`` has no mid-critical-section service call to wrap (unlike ``activate_code`` →
+    ``get_unit_price``), so we widen the window at the ``survey_done`` guard SELECT itself: both
+    racers pause just after reading ``customer_event`` but before committing. With the profile
+    ``FOR UPDATE`` the second racer is still blocked at the lock and never reaches this read until
+    the first commits (→ one event); without the lock (mutation), both reach the read, both see
+    "absent", both write (→ two): deterministic red↔green.
+
+    The target is matched by statement introspection (``get_final_froms``), not SQL text, so a later
+    rewrite of the guard cannot silently stop triggering the sleep and quietly return to false-green.
+    """
+    real_execute = session.execute
+
+    async def _execute(statement, *args, **kwargs):
+        result = await real_execute(statement, *args, **kwargs)
+        if isinstance(statement, Select) and target_table in statement.get_final_froms():
+            await asyncio.sleep(delay)
+        return result
+
+    session.execute = _execute  # type: ignore[method-assign]
+
+
+async def _seed_matched_member(sm: async_sessionmaker[AsyncSession], tg: TelegramUser) -> int:
+    """Commit a member whose identity matches ``tg`` + a COMMITTED empty profile.
+
+    The committed profile makes the ``customer_profile`` ``FOR UPDATE`` the sole serializer of a
+    concurrent survey race (see :func:`_survey_two_forced_concurrent`). Identity match keeps the
+    seed honest even though ``submit_survey`` resolves via ``get_user_by_telegram_id`` (a plain
+    SELECT that takes no users-row lock).
+    """
+    async with sm() as s, s.begin():
+        user = User(
+            telegram_id=tg.id,
+            username=tg.username,
+            first_name=tg.first_name,
+            last_name=tg.last_name,
+            language_code=tg.language_code or "ru",
+        )
+        s.add(user)
+        await s.flush()
+        s.add(CustomerProfile(user_id=user.id))
+        return user.id
+
+
+async def _survey_two_forced_concurrent(
+    maker, monkeypatch, tg: TelegramUser, p1: SurveyRequest, p2: SurveyRequest
+) -> list[object]:
+    """Force two ``submit_survey`` calls to overlap deterministically (barrier + guard-read sleep).
+
+    A barrier around ``get_user_by_telegram_id`` releases both racers into the lock region together;
+    a sleep after each racer's ``SELECT … FROM customer_event`` (the ``survey_done`` guard) holds
+    the window open past the other's read. With the profile ``FOR UPDATE`` the second racer blocks
+    at the lock and only reads after the first commits (one ``survey_done``); without it both read
+    "absent" and each insert (two): deterministic. Committed matched member seeded by
+    :func:`_seed_matched_member`.
+    """
+    from src.loyalty import service as svc
+
+    real_get_user = svc.get_user_by_telegram_id
+    barrier = asyncio.Barrier(2)
+
+    async def _barriered(db: AsyncSession, telegram_id: int) -> User | None:
+        user = await real_get_user(db, telegram_id)
+        await asyncio.wait_for(barrier.wait(), timeout=10)  # both enter the lock region together
+        return user
+
+    monkeypatch.setattr(svc, "get_user_by_telegram_id", _barriered)
+    async with maker() as s1, maker() as s2:
+        _sleep_after_read_from(s1, CustomerEvent.__table__)
+        _sleep_after_read_from(s2, CustomerEvent.__table__)
+        return await asyncio.gather(
+            submit_survey(s1, telegram_user=tg, payload=p1),
+            submit_survey(s2, telegram_user=tg, payload=p2),
+            return_exceptions=True,
+        )
+
+
+async def test_race_survey_barriered_committed_profile_dedup(
+    test_db: AsyncSession, maker, monkeypatch
+) -> None:
+    """Barrier-forced concurrent survey calls (matched member, committed profile) → exactly one
+    survey_done event.
+
+    The profile ``SELECT … FOR UPDATE`` is the SOLE serializer (the mandatory UPDATE now runs AFTER
+    the survey_done guard). Removing that ``.with_for_update()`` → both racers read "no survey_done"
+    and each insert → two events: mutation RED. Deterministic via barrier + guard-read sleep.
+    """
+    tg = TelegramUser(id=80050, first_name="Matched", language_code="ru")
+    await _seed_matched_member(maker, tg)
+    results = await _survey_two_forced_concurrent(
+        maker, monkeypatch, tg, SurveyRequest(age=22), SurveyRequest(city="Andijan")
+    )
     assert all(isinstance(r, SurveyOutcome) for r in results), results
     assert sum(r.survey_done for r in results) == 1
     async with maker() as s:
