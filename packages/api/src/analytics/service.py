@@ -1,17 +1,36 @@
 """Analytics service."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.analytics.schemas import (
+    ActivationDataPoint,
+    AgeBucketCount,
+    CityCount,
     DashboardStats,
+    Demographics,
+    FunnelStep,
+    GenderCount,
+    LoyaltyStats,
     OrderStatusCount,
+    PointsByReason,
     RecentOrderItem,
     RevenueDataPoint,
     TopProductItem,
+)
+from src.loyalty.models import (
+    CodeBatch,
+    Consent,
+    CustomerEvent,
+    CustomerEventType,
+    CustomerProfile,
+    LoyaltyStatus,
+    PointLedger,
+    QrCode,
+    QrCodeStatus,
 )
 from src.orders.models import Order, OrderItem, OrderStatus
 from src.users.models import User
@@ -204,4 +223,235 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 30) -> DashboardStat
         buyers_30d=buyers_30d,
         new_users_today=new_users_today,
         new_users_7d=new_users_7d,
+    )
+
+
+async def get_loyalty_stats(db: AsyncSession, days: int = 30) -> LoyaltyStats:
+    """Get Biotact Club monitoring statistics (admin only, read-only, no writes).
+
+    Live aggregation over the loyalty tables. Every count/sum is guarded so an empty
+    program (the current prod state — 0 activations) returns zeros and 200, never 500.
+    Enum columns (``customer_profile.status``, stored in PG as the StrEnum NAME) are
+    filtered by the enum MEMBER for clarity and to match the codebase canon; SQLAlchemy's
+    Enum binder maps the member to the stored NAME. String columns
+    (``customer_event.event_type``, ``point_ledger.reason``, ``qr_codes.status``) store the
+    enum VALUE and are filtered by ``.value``.
+    """
+    now = datetime.now(UTC)
+    start_7d = now - timedelta(days=7)
+    start_30d = now - timedelta(days=30)
+    trend_start = now - timedelta(days=days)
+
+    # --- Block 1: QR activations (hero) ---
+    qr_generated = await db.scalar(select(func.count(QrCode.id))) or 0
+    qr_activated = (
+        await db.scalar(
+            select(func.count(QrCode.id)).where(QrCode.status == QrCodeStatus.USED.value)
+        )
+        or 0
+    )
+    batches_count = await db.scalar(select(func.count(CodeBatch.id))) or 0
+
+    qr_activated_7d = (
+        await db.scalar(
+            select(func.count(CustomerEvent.id)).where(
+                CustomerEvent.event_type == CustomerEventType.QR_ACTIVATED.value,
+                CustomerEvent.occurred_at >= start_7d,
+            )
+        )
+        or 0
+    )
+    qr_activated_30d = (
+        await db.scalar(
+            select(func.count(CustomerEvent.id)).where(
+                CustomerEvent.event_type == CustomerEventType.QR_ACTIVATED.value,
+                CustomerEvent.occurred_at >= start_30d,
+            )
+        )
+        or 0
+    )
+    activation_rate = round(qr_activated / qr_generated * 100, 1) if qr_generated else 0.0
+
+    # Activation trend over the `days` window; fill missing days with zero (like revenue_data).
+    trend_query = (
+        select(
+            func.date(CustomerEvent.occurred_at).label("date"),
+            func.count(CustomerEvent.id).label("cnt"),
+        )
+        .where(
+            CustomerEvent.event_type == CustomerEventType.QR_ACTIVATED.value,
+            CustomerEvent.occurred_at >= trend_start,
+        )
+        .group_by(func.date(CustomerEvent.occurred_at))
+        .order_by(func.date(CustomerEvent.occurred_at))
+    )
+    trend_rows = (await db.execute(trend_query)).all()
+    trend_dict = {row.date: int(row.cnt) for row in trend_rows}
+
+    activations_by_day: list[ActivationDataPoint] = []
+    current_date = trend_start.date()
+    end_date = now.date()
+    while current_date <= end_date:
+        activations_by_day.append(
+            ActivationDataPoint(
+                date=current_date.isoformat(),
+                count=trend_dict.get(current_date, 0),
+            )
+        )
+        current_date += timedelta(days=1)
+
+    # --- Block 2: Members ---
+    profiles_total = await db.scalar(select(func.count(CustomerProfile.id))) or 0
+    phone_verified = (
+        await db.scalar(select(func.count(User.id)).where(User.phone_verified_at.isnot(None))) or 0
+    )
+    friends = (
+        await db.scalar(
+            select(func.count(CustomerProfile.id)).where(
+                CustomerProfile.status == LoyaltyStatus.BIOTACT_FRIEND
+            )
+        )
+        or 0
+    )
+
+    # --- Block 3: Registration funnel (distinct users per step, fixed order) ---
+    funnel: list[FunnelStep] = []
+    for event_type in (
+        CustomerEventType.JOINED,
+        CustomerEventType.PHONE_SHARED,
+        CustomerEventType.QR_ACTIVATED,
+        CustomerEventType.SURVEY_DONE,
+    ):
+        step_users = (
+            await db.scalar(
+                select(func.count(func.distinct(CustomerEvent.user_id))).where(
+                    CustomerEvent.event_type == event_type.value
+                )
+            )
+            or 0
+        )
+        funnel.append(FunnelStep(step=event_type.value, users=step_users))
+
+    consents_ever_granted = (
+        await db.scalar(
+            select(func.count(func.distinct(Consent.user_id))).where(Consent.granted.is_(True))
+        )
+        or 0
+    )
+
+    # --- Block 4: Points economy (balance = SUM, never a stored column) ---
+    points_earned = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(PointLedger.amount), 0)).where(PointLedger.amount > 0)
+        )
+        or 0
+    )
+    points_spent = -int(
+        await db.scalar(
+            select(func.coalesce(func.sum(PointLedger.amount), 0)).where(PointLedger.amount < 0)
+        )
+        or 0
+    )
+    points_outstanding = int(
+        await db.scalar(select(func.coalesce(func.sum(PointLedger.amount), 0))) or 0
+    )
+    reason_rows = (
+        await db.execute(
+            select(
+                PointLedger.reason,
+                func.coalesce(func.sum(PointLedger.amount), 0).label("total"),
+            )
+            .group_by(PointLedger.reason)
+            .order_by(func.coalesce(func.sum(PointLedger.amount), 0).desc())
+        )
+    ).all()
+    points_by_reason = [
+        PointsByReason(reason=row.reason, total=int(row.total)) for row in reason_rows
+    ]
+
+    # --- Block 5: Demographics (survey-derived, with honest coverage) ---
+    gender_rows = (
+        await db.execute(
+            select(CustomerProfile.gender, func.count(CustomerProfile.id).label("cnt"))
+            .group_by(CustomerProfile.gender)
+            .order_by(func.count(CustomerProfile.id).desc())
+        )
+    ).all()
+    gender = [
+        GenderCount(
+            gender=row.gender.value if row.gender is not None else "unknown",
+            count=int(row.cnt),
+        )
+        for row in gender_rows
+    ]
+
+    age_bucket = case(
+        (CustomerProfile.age.is_(None), "unknown"),
+        (CustomerProfile.age < 25, "18-24"),
+        (CustomerProfile.age < 35, "25-34"),
+        (CustomerProfile.age < 45, "35-44"),
+        (CustomerProfile.age < 55, "45-54"),
+        else_="55+",
+    )
+    age_rows = (
+        await db.execute(
+            select(age_bucket.label("bucket"), func.count(CustomerProfile.id).label("cnt"))
+            .group_by(age_bucket)
+            .order_by(func.count(CustomerProfile.id).desc())
+        )
+    ).all()
+    age_buckets = [AgeBucketCount(bucket=row.bucket, count=int(row.cnt)) for row in age_rows]
+
+    city_rows = (
+        await db.execute(
+            select(CustomerProfile.city, func.count(CustomerProfile.id).label("cnt"))
+            .where(CustomerProfile.city.isnot(None))
+            .group_by(CustomerProfile.city)
+            .order_by(func.count(CustomerProfile.id).desc())
+            .limit(5)
+        )
+    ).all()
+    top_cities = [CityCount(city=row.city, count=int(row.cnt)) for row in city_rows]
+
+    profiles_with_survey = (
+        await db.scalar(
+            select(func.count(CustomerProfile.id)).where(
+                or_(
+                    CustomerProfile.gender.isnot(None),
+                    CustomerProfile.age.isnot(None),
+                    CustomerProfile.city.isnot(None),
+                    CustomerProfile.purchase_goal.isnot(None),
+                    CustomerProfile.purchase_for_whom.isnot(None),
+                )
+            )
+        )
+        or 0
+    )
+    survey_coverage = (
+        round(profiles_with_survey / profiles_total * 100, 1) if profiles_total else 0.0
+    )
+
+    return LoyaltyStats(
+        qr_generated=qr_generated,
+        qr_activated=qr_activated,
+        qr_activated_7d=qr_activated_7d,
+        qr_activated_30d=qr_activated_30d,
+        activation_rate=activation_rate,
+        batches_count=batches_count,
+        activations_by_day=activations_by_day,
+        profiles_total=profiles_total,
+        phone_verified=phone_verified,
+        friends=friends,
+        funnel=funnel,
+        consents_ever_granted=consents_ever_granted,
+        points_earned=points_earned,
+        points_spent=points_spent,
+        points_outstanding=points_outstanding,
+        points_by_reason=points_by_reason,
+        demographics=Demographics(
+            gender=gender,
+            age_buckets=age_buckets,
+            top_cities=top_cities,
+            survey_coverage=survey_coverage,
+        ),
     )

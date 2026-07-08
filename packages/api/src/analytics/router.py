@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.analytics import service
-from src.analytics.schemas import DashboardStats
+from src.analytics.schemas import DashboardStats, LoyaltyStats
 from src.config import settings
 from src.database import get_db
 from src.users.models import User
@@ -69,3 +69,12 @@ async def get_dashboard(
 ) -> DashboardStats:
     """Get dashboard statistics (admin only)."""
     return await service.get_dashboard_stats(db, days=days)
+
+
+@router.get("/loyalty", response_model=LoyaltyStats, dependencies=[Depends(require_admin)])
+async def get_loyalty(
+    db: DbSession,
+    days: int = Query(30, ge=1, le=365, description="Number of days for the activation trend"),
+) -> LoyaltyStats:
+    """Get Biotact Club loyalty monitoring statistics (admin only)."""
+    return await service.get_loyalty_stats(db, days=days)
