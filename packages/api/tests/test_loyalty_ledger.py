@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.loyalty.codes import generate_batch
 from src.loyalty.models import LedgerReason, PointLedger
-from src.loyalty.pricing import UnknownProductError, compute_cashback, get_unit_price
+from src.loyalty.pricing import (
+    NonPositivePriceError,
+    UnknownProductError,
+    compute_cashback,
+    get_unit_price,
+)
 from src.loyalty.service import earn_row_reconciles, get_balance
 from src.products.models import Product
 from src.users.models import User
@@ -86,6 +91,30 @@ async def test_get_unit_price_rejects_fractional(test_db: AsyncSession) -> None:
     """A fractional price is rejected loudly — money must not be silently truncated."""
     pid = await _make_product(test_db, price="100.50")
     with pytest.raises(ValueError, match="fractional"):
+        await get_unit_price(test_db, pid)
+
+
+async def test_get_unit_price_rejects_zero(test_db: AsyncSession) -> None:
+    """A zero price is rejected — a burned QR must never silently accrue 0 points."""
+    pid = await _make_product(test_db, price="0")
+    with pytest.raises(NonPositivePriceError):
+        await get_unit_price(test_db, pid)
+
+
+async def test_get_unit_price_rejects_negative(test_db: AsyncSession) -> None:
+    """A negative price is rejected before a negative amount can corrupt the append-only ledger."""
+    pid = await _make_product(test_db, price="-100")
+    with pytest.raises(NonPositivePriceError) as exc:
+        await get_unit_price(test_db, pid)
+    assert exc.value.product_id == pid  # product_id stays available for the ops log
+
+
+async def test_get_unit_price_negative_fractional_is_nonpositive_not_fractional(
+    test_db: AsyncSession,
+) -> None:
+    """A negative fractional price is non-positive, not fractional — pins the ≤0-before-fractional order."""
+    pid = await _make_product(test_db, price="-5.50")
+    with pytest.raises(NonPositivePriceError):
         await get_unit_price(test_db, pid)
 
 
