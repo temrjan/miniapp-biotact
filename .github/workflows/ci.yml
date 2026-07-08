@@ -195,6 +195,15 @@ jobs:
       - name: Check model-migration parity
         run: alembic check
 
+      # Round-trip: каждая миграция обязана чисто откатываться и накатываться заново
+      # (ловит утечку объектов, не дропнутых в downgrade — напр. PG enum orderstatus, PR-C).
+      # Бьёт по DR/dev-reset до того, как это всплывёт в бою. Финальный check — parity после re-upgrade.
+      - name: Migration round-trip (downgrade base → re-upgrade)
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+          alembic check
+
   bot:
     name: Bot (aiogram)
     runs-on: ubuntu-latest

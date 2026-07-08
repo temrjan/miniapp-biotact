@@ -129,3 +129,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_categories_slug'), table_name='categories')
     op.drop_table('categories')
     # ### end Alembic commands ###
+    # The orderstatus enum was created implicitly by the orders.status column and is NOT
+    # auto-dropped with the table. Drop it last, after orders is gone, so nothing depends on it —
+    # otherwise downgrade→re-upgrade leaks the type and CREATE TYPE fails (DuplicateObjectError).
+    sa.Enum(name='orderstatus').drop(op.get_bind())
