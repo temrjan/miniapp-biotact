@@ -21,8 +21,9 @@ from src.products.models import Product
 class PricingError(Exception):
     """A product cannot be priced for cashback right now — surfaced loudly, never accrued as 0.
 
-    Either the product is missing/unpriced (:class:`UnknownProductError`) or its price is not
-    whole UZS (:class:`FractionalPriceError`). Both are real operational events: the activation
+    Either the product is missing/unpriced (:class:`UnknownProductError`), its price is
+    non-positive (:class:`NonPositivePriceError`), or it is not whole UZS
+    (:class:`FractionalPriceError`). All are real operational events: the activation
     rolls the claim back and the caller maps them to a retryable error — money is never silently
     wrong. Carries ``product_id`` for the ops log.
     """
@@ -49,19 +50,37 @@ class FractionalPriceError(PricingError, ValueError):
         super().__init__(product_id, f"fractional price {price}")
 
 
+class NonPositivePriceError(PricingError):
+    """The product's ``price`` is zero or negative — not real money, never accrue on it.
+
+    Unreachable through the admin/API (``price`` is validated ``gt=0``); this guards the cashback
+    money-path against a non-positive price arriving out-of-band (direct SQL, restore, import) —
+    a zero price would silently accrue 0 on a burned QR, a negative one would corrupt the ledger.
+    """
+
+    def __init__(self, product_id: int, price: Decimal) -> None:
+        super().__init__(product_id, f"non-positive price {price}")
+
+
 async def get_unit_price(session: AsyncSession, product_id: int) -> int:
     """Cashback base price (integer UZS incl. VAT) for ``product_id`` = ``products.price``.
 
     Looked up by primary key (unique, indexed, deterministic). Raises a :class:`PricingError`
     — :class:`UnknownProductError` if the product is missing or its ``price`` is NULL,
-    :class:`FractionalPriceError` if the price is not whole UZS — never returns 0. Cashback is
-    priced regardless of ``is_active`` (a purchased box still earns even if later delisted).
+    :class:`NonPositivePriceError` if the price is zero or negative,
+    :class:`FractionalPriceError` if the price is not whole UZS. Never returns a non-positive or
+    fractional value. Cashback is priced regardless of ``is_active`` (a purchased box still earns
+    even if later delisted).
     """
     price = (
         await session.execute(select(Product.price).where(Product.id == product_id))
     ).scalar_one_or_none()
     if price is None:
         raise UnknownProductError(product_id)
+    # Checked before the fractional guard: a non-positive price is fundamentally invalid money,
+    # not a rounding concern (e.g. -5.50 is non-positive, never "fractional").
+    if price <= 0:
+        raise NonPositivePriceError(product_id, price)
     # Cashback base must be whole UZS — guard against a silent truncation if a fractional
     # price ever lands in the column (the schema allows Numeric(12,2)).
     if price != price.to_integral_value():
