@@ -39,6 +39,18 @@ describe('DemographicsBreakdown', () => {
     expect(screen.getByText('Покрытие анкеты: 42.5%')).toBeInTheDocument()
   })
 
+  it('Ф2: неизвестные gender/bucket (ВНЕ карты) рендерятся сырыми — ветка фолбэка, не «found in map»', () => {
+    const demographics: Demographics = {
+      gender: [{ gender: '__new_gender__', count: 1 }],
+      age_buckets: [{ bucket: '__new_bucket__', count: 1 }],
+      top_cities: [],
+      survey_coverage: 0,
+    }
+    render(<DemographicsBreakdown demographics={demographics} profilesTotal={50} />)
+    expect(screen.getByText('__new_gender__')).toBeInTheDocument()
+    expect(screen.getByText('__new_bucket__')).toBeInTheDocument()
+  })
+
   it('пустая демография → «Нет данных анкеты» в каждом срезе', () => {
     render(<DemographicsBreakdown demographics={emptyDemographics} profilesTotal={50} />)
     expect(screen.getAllByText('Нет данных анкеты')).toHaveLength(3)
