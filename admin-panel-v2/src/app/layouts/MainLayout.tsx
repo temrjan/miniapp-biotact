@@ -16,6 +16,7 @@ import {
   X,
   Contact,
   Send,
+  Award,
 } from "lucide-react"
 import { Button } from "@/shared/components/ui/button"
 import { useAuth, useLogout } from "@/features/auth/hooks/useAuth"
@@ -35,6 +36,7 @@ const navItems = [
   { href: "/banners", label: "Баннеры", icon: Image },
   { href: "/users", label: "Пользователи", icon: Users },
   { href: "/customers", label: "CRM", icon: Contact },
+  { href: "/loyalty", label: "Biotact Club", icon: Award },
   { href: "/broadcasts", label: "Рассылки", icon: Send },
   { href: "/settings", label: "Настройки", icon: Settings },
 ]
