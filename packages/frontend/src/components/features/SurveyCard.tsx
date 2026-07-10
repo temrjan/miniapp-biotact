@@ -15,6 +15,13 @@ interface SurveyCardProps {
   city: string | null;
 }
 
+// Shared entrance animation for both branches (filled row / form) of this card.
+const ENTRANCE = {
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0 },
+  transition: { delay: 0.05 },
+} as const;
+
 // Progressive survey (member-only, rendered by LoyaltySection next to LoyaltyCard). Optional
 // gender/age/city. Saved at least once (any field non-null) → the form collapses to a compact
 // "survey filled" row with an edit button; the edit form is pre-filled from the saved values.
@@ -50,11 +57,7 @@ export function SurveyCard({ gender: savedGender, age: savedAge, city: savedCity
 
   if (filled && !editing) {
     return (
-      <motion.section
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-      >
+      <motion.section {...ENTRANCE}>
         <Card className="p-4">
           <div className="flex items-center gap-2">
             <Check size={18} className="text-[var(--primary)]" aria-hidden />
@@ -69,11 +72,7 @@ export function SurveyCard({ gender: savedGender, age: savedAge, city: savedCity
   }
 
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.05 }}
-    >
+    <motion.section {...ENTRANCE}>
       <Card className="p-4 space-y-3">
         <div className="flex items-center gap-2">
           <ClipboardList size={18} className="text-[var(--primary)]" aria-hidden />

@@ -18,12 +18,19 @@ function setup(props: Partial<SurveyCardProps> = {}) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
-  render(
+  const view = render(
     <QueryClientProvider client={client}>
       <SurveyCard gender={null} age={null} city={null} {...props} />
     </QueryClientProvider>
   );
-  return { invalidateSpy };
+  // Simulates the refetched summary arriving: LoyaltySection re-renders us with new props.
+  const rerenderWith = (next: Partial<SurveyCardProps>) =>
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <SurveyCard gender={null} age={null} city={null} {...next} />
+      </QueryClientProvider>
+    );
+  return { invalidateSpy, rerenderWith };
 }
 
 describe('SurveyCard', () => {
@@ -86,6 +93,23 @@ describe('SurveyCard', () => {
 
     expect(await screen.findByText(/Что-то пошло не так/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Сохранить' })).toBeInTheDocument();
+  });
+
+  it('collapses the form after the first save once the refetched summary flips the props', async () => {
+    surveyMock.mockResolvedValue({ updatedFields: ['city'], surveyDone: true });
+    const { invalidateSpy, rerenderWith } = setup();
+
+    fireEvent.change(screen.getByLabelText('Город'), { target: { value: 'Ташкент' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['loyalty', 'me'] })
+    );
+
+    // The invalidated query refetches; LoyaltySection re-renders us with the saved survey.
+    rerenderWith({ city: 'Ташкент' });
+
+    expect(screen.getByText('Анкета заполнена')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Город')).not.toBeInTheDocument();
   });
 
   it('collapses to the filled state instead of the form once the survey is saved', () => {

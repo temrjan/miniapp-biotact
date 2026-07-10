@@ -240,3 +240,20 @@ async def test_me_happy_e2e_echoes_survey(client, maker, monkeypatch) -> None:
     assert body["gender"] == "female"  # StrEnum VALUE on the wire — what the mini-app types expect
     assert body["age"] == 30
     assert body["city"] == "Самарканд"
+
+
+async def test_me_echoes_out_of_range_stored_age_verbatim(client, maker, monkeypatch) -> None:
+    """A stored age outside the write-side 1..120 bound (no DB CHECK) still echoes as 200.
+
+    Locks the deliberate design decision on ``LoyaltySummaryResponse``: the response is an
+    UNCONSTRAINED mirror of the DB — re-adding ``SurveyAge`` bounds there would 500 this member.
+    """
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    await _seed_profile(maker, 70013, lifetime=1, age=200)
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70013, "first_name": "Legacy"})
+    }
+    resp = await client.get("/api/v1/loyalty/me", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["age"] == 200
