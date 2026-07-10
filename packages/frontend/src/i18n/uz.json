@@ -163,7 +163,9 @@
     "ageLabel": "Yosh",
     "cityLabel": "Shahar",
     "saveButton": "Saqlash",
-    "success": "Rahmat! Anketa saqlandi."
+    "success": "Rahmat! Anketa saqlandi.",
+    "filledTitle": "Anketa to'ldirilgan",
+    "editButton": "O'zgartirish"
   },
   "orders": {
     "title": "Buyurtmalarim",

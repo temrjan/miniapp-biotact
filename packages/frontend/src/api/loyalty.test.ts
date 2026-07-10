@@ -22,6 +22,9 @@ describe('loyaltyApi.getMe', () => {
       lifetime_activations: 3,
       activations_to_friend: 7,
       is_member: true,
+      gender: 'male',
+      age: 47,
+      city: 'Ташкент',
     });
 
     const result = await loyaltyApi.getMe();
@@ -33,8 +36,28 @@ describe('loyaltyApi.getMe', () => {
       lifetimeActivations: 3,
       activationsToFriend: 7,
       isMember: true,
+      gender: 'male',
+      age: 47,
+      city: 'Ташкент',
     });
     expect(getMock).toHaveBeenCalledWith('/loyalty/me');
+  });
+
+  it('maps survey fields absent from an older API response (deploy window) to null', async () => {
+    // An older API omits the survey keys entirely — they must land as null, not undefined.
+    getMock.mockResolvedValue({
+      tier: 'newbie',
+      balance: 0,
+      lifetime_activations: 0,
+      activations_to_friend: 10,
+      is_member: true,
+    });
+
+    const result = await loyaltyApi.getMe();
+
+    expect(result.gender).toBeNull();
+    expect(result.age).toBeNull();
+    expect(result.city).toBeNull();
   });
 });
 
