@@ -73,6 +73,20 @@ class LoyaltySummary:
     city: str | None
 
 
+def _non_member_summary(balance: int) -> LoyaltySummary:
+    """Newbie default for both non-member states (unknown user / user without a profile)."""
+    return LoyaltySummary(
+        tier=LoyaltyStatus.NEWBIE,
+        balance=balance,
+        lifetime_activations=0,
+        activations_to_friend=FRIEND_THRESHOLD,
+        is_member=False,
+        gender=None,
+        age=None,
+        city=None,
+    )
+
+
 async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> LoyaltySummary:
     """Read-only loyalty summary for a Telegram user — never writes (safe on a GET).
 
@@ -83,16 +97,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     """
     user = await get_user_by_telegram_id(session, telegram_id)
     if user is None:
-        return LoyaltySummary(
-            tier=LoyaltyStatus.NEWBIE,
-            balance=0,
-            lifetime_activations=0,
-            activations_to_friend=FRIEND_THRESHOLD,
-            is_member=False,
-            gender=None,
-            age=None,
-            city=None,
-        )
+        return _non_member_summary(balance=0)
 
     profile = (
         await session.execute(
@@ -107,16 +112,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     ).one_or_none()
     balance = await get_balance(session, user.id)
     if profile is None:
-        return LoyaltySummary(
-            tier=LoyaltyStatus.NEWBIE,
-            balance=balance,
-            lifetime_activations=0,
-            activations_to_friend=FRIEND_THRESHOLD,
-            is_member=False,
-            gender=None,
-            age=None,
-            city=None,
-        )
+        return _non_member_summary(balance)
 
     tier: LoyaltyStatus = profile.status
     lifetime = int(profile.lifetime_activations)

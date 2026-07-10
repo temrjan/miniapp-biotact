@@ -138,6 +138,18 @@ describe('SurveyCard', () => {
     expect(screen.getByLabelText('Город')).toHaveValue('Ташкент');
   });
 
+  it('cancel in edit mode returns to the filled state without saving', () => {
+    setup({ gender: 'male', age: 47, city: 'Ташкент' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }));
+    fireEvent.change(screen.getByLabelText('Город'), { target: { value: 'Самарканд' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+
+    expect(screen.getByText('Анкета заполнена')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Город')).not.toBeInTheDocument();
+    expect(surveyMock).not.toHaveBeenCalled();
+  });
+
   it('returns to the filled state after a successful save in edit mode', async () => {
     surveyMock.mockResolvedValue({ updatedFields: ['age'], surveyDone: false });
     setup({ gender: 'male', age: 47, city: 'Ташкент' });

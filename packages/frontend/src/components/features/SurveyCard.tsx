@@ -119,9 +119,20 @@ export function SurveyCard({ gender: savedGender, age: savedAge, city: savedCity
         )}
         {survey.isSuccess && <p className="text-sm text-[var(--primary)]">{t('survey.success')}</p>}
 
-        <Button fullWidth disabled={isEmpty} isLoading={survey.isPending} onClick={handleSave}>
-          {t('survey.saveButton')}
-        </Button>
+        {editing ? (
+          <div className="flex gap-2">
+            <Button variant="ghost" fullWidth onClick={() => setEditing(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button fullWidth disabled={isEmpty} isLoading={survey.isPending} onClick={handleSave}>
+              {t('survey.saveButton')}
+            </Button>
+          </div>
+        ) : (
+          <Button fullWidth disabled={isEmpty} isLoading={survey.isPending} onClick={handleSave}>
+            {t('survey.saveButton')}
+          </Button>
+        )}
       </Card>
     </motion.section>
   );
