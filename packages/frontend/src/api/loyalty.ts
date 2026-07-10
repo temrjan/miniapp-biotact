@@ -3,6 +3,7 @@ import type {
   ActivationResult,
   ActivationStatus,
   ConsentResult,
+  Gender,
   LoyaltySummary,
   LoyaltyTier,
   RegistrationSource,
@@ -21,6 +22,9 @@ interface LoyaltySummaryDto {
   lifetime_activations: number;
   activations_to_friend: number;
   is_member: boolean;
+  gender: Gender | null;
+  age: number | null;
+  city: string | null;
 }
 
 interface ConsentResponseDto {
@@ -54,6 +58,11 @@ export const loyaltyApi = {
       lifetimeActivations: dto.lifetime_activations,
       activationsToFriend: dto.activations_to_friend,
       isMember: dto.is_member,
+      // `?? null` — an older API (deploy window) omits these keys entirely; the domain
+      // type promises `| null`, so absent must not leak through as `undefined`.
+      gender: dto.gender ?? null,
+      age: dto.age ?? null,
+      city: dto.city ?? null,
     };
   },
 

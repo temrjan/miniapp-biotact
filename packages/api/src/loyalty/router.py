@@ -118,6 +118,7 @@ async def get_loyalty_me(
 
     Same dark gate (404 while ``loyalty_enabled`` is off) and initData HMAC auth as activation.
     Pure read — never creates a user/profile row (see :func:`service.get_loyalty_summary`).
+    Echoes the stored survey (gender/age/city) so the mini-app stops re-asking once saved.
     """
     summary = await service.get_loyalty_summary(db, telegram_user.id)
     return LoyaltySummaryResponse(
@@ -126,6 +127,9 @@ async def get_loyalty_me(
         lifetime_activations=summary.lifetime_activations,
         activations_to_friend=summary.activations_to_friend,
         is_member=summary.is_member,
+        gender=summary.gender,
+        age=summary.age,
+        city=summary.city,
     )
 
 

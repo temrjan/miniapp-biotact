@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,17 +10,27 @@ vi.mock('@/api', () => ({ loyaltyApi: { survey: vi.fn() } }));
 
 const surveyMock = vi.mocked(loyaltyApi.survey);
 
-function setup() {
+type SurveyCardProps = ComponentProps<typeof SurveyCard>;
+
+// Default = a member who never answered (all nulls) — the pre-existing "always ask" state.
+function setup(props: Partial<SurveyCardProps> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
-  render(
+  const view = render(
     <QueryClientProvider client={client}>
-      <SurveyCard />
+      <SurveyCard gender={null} age={null} city={null} {...props} />
     </QueryClientProvider>
   );
-  return { invalidateSpy };
+  // Simulates the refetched summary arriving: LoyaltySection re-renders us with new props.
+  const rerenderWith = (next: Partial<SurveyCardProps>) =>
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <SurveyCard gender={null} age={null} city={null} {...next} />
+      </QueryClientProvider>
+    );
+  return { invalidateSpy, rerenderWith };
 }
 
 describe('SurveyCard', () => {
@@ -82,5 +93,76 @@ describe('SurveyCard', () => {
 
     expect(await screen.findByText(/Что-то пошло не так/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Сохранить' })).toBeInTheDocument();
+  });
+
+  it('collapses the form after the first save once the refetched summary flips the props', async () => {
+    surveyMock.mockResolvedValue({ updatedFields: ['city'], surveyDone: true });
+    const { invalidateSpy, rerenderWith } = setup();
+
+    fireEvent.change(screen.getByLabelText('Город'), { target: { value: 'Ташкент' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['loyalty', 'me'] })
+    );
+
+    // The invalidated query refetches; LoyaltySection re-renders us with the saved survey.
+    rerenderWith({ city: 'Ташкент' });
+
+    expect(screen.getByText('Анкета заполнена')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Город')).not.toBeInTheDocument();
+  });
+
+  it('collapses to the filled state instead of the form once the survey is saved', () => {
+    setup({ gender: 'male', age: 47, city: 'Ташкент' });
+
+    expect(screen.getByText('Анкета заполнена')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Изменить' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Город')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument();
+  });
+
+  it('treats a partially answered survey (single field) as filled', () => {
+    setup({ city: 'Ташкент' });
+
+    expect(screen.getByText('Анкета заполнена')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Город')).not.toBeInTheDocument();
+  });
+
+  it('opens the form pre-filled with the saved values on edit', () => {
+    setup({ gender: 'male', age: 47, city: 'Ташкент' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }));
+
+    expect(screen.getByLabelText('Пол')).toHaveValue('male');
+    expect(screen.getByLabelText('Возраст')).toHaveValue(47);
+    expect(screen.getByLabelText('Город')).toHaveValue('Ташкент');
+  });
+
+  it('cancel in edit mode returns to the filled state without saving', () => {
+    setup({ gender: 'male', age: 47, city: 'Ташкент' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }));
+    fireEvent.change(screen.getByLabelText('Город'), { target: { value: 'Самарканд' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+
+    expect(screen.getByText('Анкета заполнена')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Город')).not.toBeInTheDocument();
+    expect(surveyMock).not.toHaveBeenCalled();
+  });
+
+  it('returns to the filled state after a successful save in edit mode', async () => {
+    surveyMock.mockResolvedValue({ updatedFields: ['age'], surveyDone: false });
+    setup({ gender: 'male', age: 47, city: 'Ташкент' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }));
+    fireEvent.change(screen.getByLabelText('Возраст'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    // The edited form submits ALL pre-filled fields (present fields overwrite server-side).
+    await waitFor(() =>
+      expect(surveyMock).toHaveBeenCalledWith({ gender: 'male', age: 30, city: 'Ташкент' })
+    );
+    expect(await screen.findByText('Анкета заполнена')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Возраст')).not.toBeInTheDocument();
   });
 });

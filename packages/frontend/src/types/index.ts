@@ -120,6 +120,10 @@ export interface LoyaltySummary {
   lifetimeActivations: number;
   activationsToFriend: number;
   isMember: boolean; // true once the user joined the club (a customer_profile row exists)
+  // Survey echo — null until answered; lets the profile stop re-asking once saved.
+  gender: Gender | null;
+  age: number | null;
+  city: string | null;
 }
 
 // How the customer entered the program (sent to POST /loyalty/consent).
