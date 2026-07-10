@@ -92,6 +92,12 @@ class LoyaltySummaryResponse(BaseModel):
     is_member: bool = Field(
         description="Whether the user has joined the club (a customer_profile row exists)"
     )
+    # Survey echo — deliberately UNCONSTRAINED Optional types (no SurveyAge/StringConstraints):
+    # the response mirrors what is stored, it does not validate input; a copied ge/le bound
+    # would 500 the whole /me for a member whose stored value ever falls outside it.
+    gender: Gender | None = Field(description="Survey gender; null until answered")
+    age: int | None = Field(description="Survey age; null until answered")
+    city: str | None = Field(description="Survey city; null until answered")
 
 
 SurveyAge = Annotated[int, Field(ge=1, le=120)]

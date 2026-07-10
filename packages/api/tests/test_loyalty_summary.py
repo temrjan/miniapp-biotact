@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
-from src.loyalty.models import CustomerProfile, LedgerReason, LoyaltyStatus, PointLedger
+from src.loyalty.models import CustomerProfile, Gender, LedgerReason, LoyaltyStatus, PointLedger
 from src.loyalty.service import get_loyalty_summary
 from src.users.models import User
 from tests.conftest import _make_init_data
@@ -42,13 +42,25 @@ async def _seed_profile(
     lifetime: int,
     status: LoyaltyStatus = LoyaltyStatus.NEWBIE,
     balance: int = 0,
+    gender: Gender | None = None,
+    age: int | None = None,
+    city: str | None = None,
 ) -> int:
-    """Commit a user + profile (lifetime/status), optionally a ledger row for a non-zero balance."""
+    """Commit a user + profile (lifetime/status/survey), optionally a ledger row for a balance."""
     async with sm() as s, s.begin():
         user = User(telegram_id=telegram_id, first_name="Seed")
         s.add(user)
         await s.flush()
-        s.add(CustomerProfile(user_id=user.id, lifetime_activations=lifetime, status=status))
+        s.add(
+            CustomerProfile(
+                user_id=user.id,
+                lifetime_activations=lifetime,
+                status=status,
+                gender=gender,
+                age=age,
+                city=city,
+            )
+        )
         if balance:
             s.add(PointLedger(user_id=user.id, amount=balance, reason=LedgerReason.CASHBACK))
         return user.id
@@ -127,6 +139,39 @@ async def test_summary_newbie_past_threshold_clamps_to_zero(test_db: AsyncSessio
     assert summary.activations_to_friend == 0  # max(0, 10 - 12) guard — not -2
 
 
+async def test_summary_echoes_saved_survey_fields(test_db: AsyncSession, maker) -> None:
+    """A member who saved the survey → the summary echoes gender/age/city exactly as stored."""
+    await _seed_profile(maker, 70006, lifetime=1, gender=Gender.MALE, age=47, city="Ташкент")
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70006)
+    assert summary.gender is Gender.MALE
+    assert summary.age == 47
+    assert summary.city == "Ташкент"
+
+
+async def test_summary_member_without_survey_has_null_survey_fields(
+    test_db: AsyncSession, maker
+) -> None:
+    """A member who never saved the survey → all three survey fields are None (mini-app asks)."""
+    await _seed_profile(maker, 70007, lifetime=1)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70007)
+    assert summary.is_member is True
+    assert (summary.gender, summary.age, summary.city) == (None, None, None)
+
+
+async def test_summary_non_member_has_null_survey_fields(test_db: AsyncSession, maker) -> None:
+    """Both non-member states (unknown user / bare user without profile) → survey fields None."""
+    await _seed_user(maker, 70008)
+    async with maker() as s:
+        unknown = await get_loyalty_summary(s, 79999)
+        bare = await get_loyalty_summary(s, 70008)
+    assert unknown.is_member is False
+    assert (unknown.gender, unknown.age, unknown.city) == (None, None, None)
+    assert bare.is_member is False
+    assert (bare.gender, bare.age, bare.city) == (None, None, None)
+
+
 # --------------------------------------------------------------------------- #
 # HTTP endpoint — dark gate, auth, end-to-end
 # --------------------------------------------------------------------------- #
@@ -179,3 +224,19 @@ async def test_me_happy_e2e_unknown_user_default(client, monkeypatch) -> None:
     assert body["balance"] == 0
     assert body["activations_to_friend"] == 10
     assert body["is_member"] is False
+
+
+async def test_me_happy_e2e_echoes_survey(client, maker, monkeypatch) -> None:
+    """HTTP: a member with a saved survey → 200 body carries gender/age/city verbatim."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    await _seed_profile(maker, 70012, lifetime=2, gender=Gender.FEMALE, age=30, city="Самарканд")
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70012, "first_name": "Survey"})
+    }
+    resp = await client.get("/api/v1/loyalty/me", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["gender"] == "female"  # StrEnum VALUE on the wire — what the mini-app types expect
+    assert body["age"] == 30
+    assert body["city"] == "Самарканд"

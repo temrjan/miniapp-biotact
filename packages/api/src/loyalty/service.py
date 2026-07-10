@@ -15,6 +15,7 @@ from src.loyalty.models import (
     CustomerEvent,
     CustomerEventType,
     CustomerProfile,
+    Gender,
     LedgerReason,
     LoyaltyStatus,
     PointLedger,
@@ -66,6 +67,10 @@ class LoyaltySummary:
     lifetime_activations: int
     activations_to_friend: int  # remaining activations until "Друг"; 0 once a friend
     is_member: bool  # True once a customer_profile row exists (the canonical "joined" signal)
+    # Survey echo — lets the mini-app stop re-asking once the member saved the survey.
+    gender: Gender | None
+    age: int | None
+    city: str | None
 
 
 async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> LoyaltySummary:
@@ -73,6 +78,8 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
 
     An unknown user, or a known user whose profile is not created yet, returns the newbie
     default without inserting any row (so merely opening the profile card costs no writes).
+    Survey fields (gender/age/city) are echoed as stored so the mini-app can show the
+    "survey filled" state instead of re-asking; ``None`` means "not answered yet".
     """
     user = await get_user_by_telegram_id(session, telegram_id)
     if user is None:
@@ -82,13 +89,20 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
             lifetime_activations=0,
             activations_to_friend=FRIEND_THRESHOLD,
             is_member=False,
+            gender=None,
+            age=None,
+            city=None,
         )
 
     profile = (
         await session.execute(
-            select(CustomerProfile.status, CustomerProfile.lifetime_activations).where(
-                CustomerProfile.user_id == user.id
-            )
+            select(
+                CustomerProfile.status,
+                CustomerProfile.lifetime_activations,
+                CustomerProfile.gender,
+                CustomerProfile.age,
+                CustomerProfile.city,
+            ).where(CustomerProfile.user_id == user.id)
         )
     ).one_or_none()
     balance = await get_balance(session, user.id)
@@ -99,10 +113,13 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
             lifetime_activations=0,
             activations_to_friend=FRIEND_THRESHOLD,
             is_member=False,
+            gender=None,
+            age=None,
+            city=None,
         )
 
-    tier: LoyaltyStatus = profile[0]
-    lifetime = int(profile[1])
+    tier: LoyaltyStatus = profile.status
+    lifetime = int(profile.lifetime_activations)
     remaining = 0 if tier == LoyaltyStatus.BIOTACT_FRIEND else max(0, FRIEND_THRESHOLD - lifetime)
     return LoyaltySummary(
         tier=tier,
@@ -110,6 +127,9 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
         lifetime_activations=lifetime,
         activations_to_friend=remaining,
         is_member=True,
+        gender=profile.gender,
+        age=profile.age,
+        city=profile.city,
     )
 
 
