@@ -42,7 +42,9 @@ async def _seed_admin(sm: async_sessionmaker[AsyncSession]) -> None:
         s.add(User(id=1, telegram_id=90001, first_name="Admin", is_admin=True))
         await s.flush()
         await s.execute(
-            text("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users))")
+            text(
+                "SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users))"
+            )
         )
 
 
@@ -58,10 +60,11 @@ async def _seed_customer(
     age: int | None = None,
     city: str | None = None,
     ledger: tuple[int, ...] = (),
+    symptoms: list[str] | None = None,
 ) -> int:
     """Commit a user, optionally with a club profile and point-ledger rows; return user id."""
     async with sm() as s, s.begin():
-        user = User(telegram_id=telegram_id, first_name=first_name)
+        user = User(telegram_id=telegram_id, first_name=first_name, symptoms=symptoms or [])
         s.add(user)
         await s.flush()
         if member:
@@ -212,6 +215,83 @@ async def test_customers_rejects_unknown_club_value(
 
     resp = await client.get(CUSTOMERS_URL, params={"club": "vip"}, headers=admin_headers)
     assert resp.status_code == 422
+
+
+async def test_customer_single_unknown_telegram_id_is_404(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """An unknown telegram_id on the single-customer endpoint → 404 (first coverage of it)."""
+    await _seed_admin(maker)
+
+    resp = await client.get(CUSTOMER_URL.format(999999), headers=admin_headers)
+    assert resp.status_code == 404
+
+
+async def test_customers_page_of_non_members_only(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """A whole page without a single member → every loyalty is null (empty-profiles branch)."""
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80010, "PlainOne")
+
+    resp = await client.get(CUSTOMERS_URL, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["items"]
+    assert len(items) == 2  # admin + PlainOne
+    assert all(item["loyalty"] is None for item in items)
+
+
+async def test_customers_club_composes_with_problem_filter(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """club=qr AND problem=immunity → only the QR member carrying that symptom."""
+    await _seed_admin(maker)
+    await _seed_customer(
+        maker, 80021, "QrImmunity", member=True, source="qr", symptoms=["immunity"]
+    )
+    await _seed_customer(maker, 80022, "QrNoSymptoms", member=True, source="qr")
+
+    resp = await client.get(
+        CUSTOMERS_URL, params={"club": "qr", "problem": "immunity"}, headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 1
+    assert [item["telegram_id"] for item in body["items"]] == [80021]
+
+
+async def test_customers_filtered_pagination_math(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """13 members (+1 plain user around) → club=member page=2 holds exactly 1, total honest."""
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80050, "PlainAround")  # must not leak into the filtered pages
+    for i in range(13):
+        await _seed_customer(maker, 80100 + i, f"Member{i:02d}", member=True, source="direct")
+
+    resp = await client.get(
+        CUSTOMERS_URL,
+        params={"club": "member", "page": 2, "size": 12},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 13
+    assert body["pages"] == 2
+    assert len(body["items"]) == 1
+    assert body["items"][0]["loyalty"] is not None
+
+
+async def test_customer_negative_balance_is_serialized(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """A ledger summing below zero (future REDEEM) serializes as a negative int, not a clamp."""
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80060, "Overdrawn", member=True, source="qr", ledger=(100, -600))
+
+    resp = await client.get(CUSTOMER_URL.format(80060), headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["loyalty"]["balance"] == -500
 
 
 # --------------------------------------------------------------------------- #

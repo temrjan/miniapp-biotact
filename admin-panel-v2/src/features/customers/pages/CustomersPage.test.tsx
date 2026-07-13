@@ -64,9 +64,39 @@ describe("CustomersPage — фильтр Biotact Club", () => {
     expect(screen.getByText("Все клиенты")).toBeInTheDocument()
   })
 
-  it("выбор «Пришли по QR» перезапрашивает список с club='qr' и page=1", async () => {
+  it("выбор «Пришли по QR» со 2-й страницы сбрасывает на page=1 и шлёт club='qr'", async () => {
+    // Непустая выдача на 3 страницы (для пагинации); клубный фильтр возвращает пусто —
+    // заодно проверяем сообщение пустого состояния под активным фильтром.
+    const oneCustomer = {
+      telegram_id: 500,
+      first_name: "Клиент",
+      last_name: null,
+      username: null,
+      language_code: "ru",
+      phone: null,
+      problems: [],
+      family: [],
+      purchased_products: [],
+      ai_notes: null,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    }
+    getAllMock.mockImplementation((params = {}) =>
+      Promise.resolve(
+        params.club
+          ? { items: [], total: 0, page: 1, size: 12, pages: 0 }
+          : { items: [oneCustomer], total: 36, page: params.page ?? 1, size: 12, pages: 3 }
+      )
+    )
+
     renderPage()
     await waitFor(() => expect(getAllMock).toHaveBeenCalled())
+
+    // Реально уходим на 2-ю страницу — иначе сброс page=1 нечем отличить от дефолта.
+    fireEvent.click(await screen.findByRole("button", { name: "Вперёд" }))
+    await waitFor(() =>
+      expect(getAllMock).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }))
+    )
 
     fireEvent.pointerDown(screen.getByText("Все клиенты"), {
       button: 0,
@@ -79,7 +109,11 @@ describe("CustomersPage — фильтр Biotact Club", () => {
     fireEvent.click(option)
 
     await waitFor(() =>
-      expect(getAllMock).toHaveBeenCalledWith(expect.objectContaining({ club: "qr", page: 1 }))
+      expect(getAllMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ club: "qr", page: 1 })
+      )
     )
+    // Пустой результат под активным фильтром — «не найдены», а не «пока нет клиентов».
+    expect(await screen.findByText("Клиенты не найдены")).toBeInTheDocument()
   })
 })

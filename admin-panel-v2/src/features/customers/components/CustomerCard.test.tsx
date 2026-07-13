@@ -77,4 +77,31 @@ describe("CustomerCard — Biotact Club", () => {
     render(<CustomerCard customer={{ ...baseCustomer, loyalty: clubQr }} />)
     expect(screen.getByText("Новичок · активаций: 2 · баллов: 5 500")).toBeInTheDocument()
   })
+
+  it("статус «Друг» рендерится по своей метке", () => {
+    render(
+      <CustomerCard
+        customer={{ ...baseCustomer, loyalty: { ...clubQr, status: "biotact_friend" } }}
+      />
+    )
+    expect(screen.getByText(/^Друг · активаций/)).toBeInTheDocument()
+  })
+
+  it("неизвестные значения статуса и пола с провода падают в сырое эхо (unconstrained БД)", () => {
+    render(
+      <CustomerCard
+        customer={{
+          ...baseCustomer,
+          loyalty: {
+            ...clubQr,
+            // Касты нарочно: ответ сервера — эхо БД, провод может принести неизвестное значение.
+            status: "vip" as CustomerLoyalty["status"],
+            gender: "other" as CustomerLoyalty["gender"],
+          },
+        }}
+      />
+    )
+    expect(screen.getByText(/^vip · активаций/)).toBeInTheDocument()
+    expect(screen.getByText("Ташкент · other · 47")).toBeInTheDocument()
+  })
 })

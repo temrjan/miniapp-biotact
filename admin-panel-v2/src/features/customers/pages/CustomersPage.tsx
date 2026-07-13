@@ -136,7 +136,7 @@ export function CustomersPage() {
       ) : (
         <div className="text-center py-12">
           <p className="text-muted-foreground">
-            {search || problem !== "all"
+            {search || problem !== "all" || club !== "all"
               ? "Клиенты не найдены"
               : "Пока нет клиентов с CRM-данными"}
           </p>
