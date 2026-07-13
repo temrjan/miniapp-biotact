@@ -13,28 +13,10 @@ import { api } from '@/api/client';
 import { useUserStore } from '@stores/userStore';
 import { useCartItems, useCartTotalAmount } from '@stores/cartStore';
 import { useLocationStore, getDisplayAddress } from '@stores/locationStore';
+import { buildOrderRequest } from '@/utils/order';
 
 type CheckoutStep = 'phone' | 'delivery' | 'address' | 'confirm';
 type DeliveryType = 'delivery' | 'pickup';
-
-interface OrderItem {
-  product_id: number;
-  product_name: string;
-  product_price: number;
-  quantity: number;
-  total: number;
-}
-
-interface CreateOrderRequest {
-  subtotal: number;
-  delivery_fee: number;
-  total: number;
-  delivery_address: string | null;
-  delivery_phone: string | null;
-  delivery_name: string | null;
-  customer_note: string | null;
-  items: OrderItem[];
-}
 
 interface OrderResponse {
   id: number;
@@ -154,24 +136,11 @@ export function CheckoutPage() {
     setIsProcessing(true);
     haptic.success();
     try {
-      const orderItems: OrderItem[] = items.map((item) => ({
-        product_id: parseInt(item.productId, 10),
-        product_name: item.product.name,
-        product_price: item.product.price,
-        quantity: item.quantity,
-        total: item.product.price * item.quantity,
-      }));
-      const deliveryAddress = deliveryType === 'delivery' && address ? getDisplayAddress(address) : null;
-      const orderRequest: CreateOrderRequest = {
-        subtotal: totalAmount,
-        delivery_fee: 0,
-        total: totalAmount,
-        delivery_address: deliveryAddress,
-        delivery_phone: phone,
-        delivery_name: profile?.first_name || null,
-        customer_note: null,
-        items: orderItems,
-      };
+      const orderRequest = buildOrderRequest(items, {
+        deliveryAddress: deliveryType === 'delivery' && address ? getDisplayAddress(address) : null,
+        phone,
+        name: profile?.first_name || null,
+      });
       const order = await api.post<OrderResponse>('/orders', orderRequest);
       const returnUrl = window.location.origin + '/payment/success?order_id=' + order.order_number;
       const payment = await api.post<PaymentResponse>('/payments/create', { order_id: order.id, return_url: returnUrl });
@@ -182,7 +151,7 @@ export function CheckoutPage() {
       alert(error instanceof Error ? error.message : t('common.error'));
       setIsProcessing(false);
     }
-  }, [items, deliveryType, address, totalAmount, phone, profile, haptic, t]);
+  }, [items, deliveryType, address, phone, profile, haptic, t]);
 
   const getMainButtonConfig = useCallback(() => {
     switch (step) {
