@@ -6,6 +6,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import get_current_user
+from src.common.exceptions import ForbiddenException
 from src.config import settings
 from src.database import get_db
 from src.notifications.service import telegram_notifier
@@ -17,12 +19,14 @@ from src.payments.schemas import (
     SuccessCallbackData,
 )
 from src.payments.service import build_ofd_items, multicard_client
+from src.users.models import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 @router.post("/create", response_model=PaymentResponse)
@@ -30,8 +34,13 @@ async def create_payment(
     request: CreatePaymentRequest,
     req: Request,
     db: DbSession,
+    user: CurrentUser,
 ) -> PaymentResponse:
-    """Create payment for order."""
+    """Create a Multicard invoice for the caller's own order.
+
+    Identity is required: this endpoint used to accept any ``order_id`` from anyone, which both
+    invoiced other people's orders and fired the admin Telegram notification below on demand.
+    """
     # Get order with items
     order = await orders_service.get_order_with_items(db, request.order_id)
     if not order:
@@ -40,10 +49,23 @@ async def create_payment(
             detail="Order not found",
         )
 
+    # Ownership is checked before payment state, so a stranger cannot even learn whether
+    # somebody else's order is already paid.
+    if order.user_id != user.id:
+        raise ForbiddenException("Not your order")
+
     if order.payment_status == "paid":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Order already paid",
+        )
+
+    # Multicard does not document a zero invoice; the server prices every order, so a
+    # non-positive total means bad catalogue data — fail loudly instead of charging 0.
+    if order.total <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Order total must be positive",
         )
 
     # Build callback URL

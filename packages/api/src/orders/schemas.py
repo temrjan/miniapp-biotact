@@ -17,10 +17,19 @@ class OrderItemBase(BaseModel):
     total: Decimal
 
 
-class OrderItemCreate(OrderItemBase):
-    """Create order item schema."""
+class OrderItemCreate(BaseModel):
+    """One requested line — identity and quantity ONLY; the money comes from the catalogue.
 
-    pass
+    Deliberately NOT derived from :class:`OrderItemBase`: prices are never taken from the client
+    (:func:`src.orders.service.create_order` prices every line from ``products``). Pydantic ignores
+    unknown fields, so an older mini-app build that still posts ``product_name``/``product_price``/
+    ``total`` keeps working through the deploy window — those values are simply dropped.
+    """
+
+    product_id: int
+    # Upper bound guards against an absurd invoice (quantity=1_000_000 → a billion-sum charge).
+    # It is NOT stock control: ``stock_quantity`` is not enforced anywhere yet.
+    quantity: int = Field(ge=1, le=99)
 
 
 class OrderItemResponse(OrderItemBase):
@@ -45,10 +54,18 @@ class OrderBase(BaseModel):
     customer_note: str | None = None
 
 
-class OrderCreate(OrderBase):
-    """Create order schema."""
+class OrderCreate(BaseModel):
+    """Create-order request: delivery details + requested lines.
 
-    items: list[OrderItemCreate]
+    Carries NO money. ``subtotal``/``delivery_fee``/``total`` are computed by the server from the
+    catalogue — a client-declared total is exactly the hole this schema closes.
+    """
+
+    items: list[OrderItemCreate] = Field(min_length=1)
+    delivery_address: str | None = None
+    delivery_phone: str | None = None
+    delivery_name: str | None = None
+    customer_note: str | None = None
 
 
 class OrderResponse(OrderBase):
