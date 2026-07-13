@@ -61,6 +61,7 @@ async def _seed_product(
     slug: str,
     price: Decimal = CATALOGUE_PRICE,
     in_stock: bool = True,
+    active: bool = True,
 ) -> int:
     """Commit one catalogue product; return its id."""
     async with sm() as session, session.begin():
@@ -69,6 +70,7 @@ async def _seed_product(
             slug=slug,
             price=price,
             is_in_stock=in_stock,
+            is_active=active,
         )
         session.add(product)
         await session.flush()
@@ -228,6 +230,25 @@ async def test_out_of_stock_product_is_rejected(client: AsyncClient, maker) -> N
     )
 
     assert resp.status_code == 422
+
+
+async def test_delisted_product_is_rejected(client: AsyncClient, maker) -> None:
+    """A product the admin took off sale (is_active=false) cannot be ordered, even if in stock.
+
+    Gate-2 MINOR: ``is_active`` is the flag the storefront filters on, so a delisted product is
+    invisible in the shop — but its id is sequential and guessable, and before this it still earned
+    a real Multicard invoice and fiscal receipt. Prod carried two such products live (ids 11, 12).
+    """
+    product_id = await _seed_product(maker, slug="delisted", in_stock=True, active=False)
+
+    resp = await client.post(
+        ORDERS_URL,
+        json={"items": [{"product_id": product_id, "quantity": 1}]},
+        headers=_headers(70009),
+    )
+
+    assert resp.status_code == 422
+    assert str(product_id) in resp.text  # delisted reads as "unknown", not as a priceable line
 
 
 async def test_empty_items_rejected(client: AsyncClient) -> None:

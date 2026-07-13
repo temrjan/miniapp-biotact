@@ -22,7 +22,12 @@ class OrderValidationError(Exception):
 
 
 class UnknownProductError(OrderValidationError):
-    """One or more ``product_id`` values do not exist in the catalogue."""
+    """One or more ``product_id`` values are not on sale: absent, or delisted (``is_active=false``).
+
+    Delisted is deliberately not a distinct error: the storefront hides such products, so from a
+    buyer's point of view they simply do not exist — and saying "this delisted product exists"
+    would leak the catalogue's private state.
+    """
 
     def __init__(self, product_ids: list[int]) -> None:
         self.product_ids = product_ids
@@ -96,7 +101,20 @@ async def _price_lines(
     """
     product_ids = {line.product_id for line in lines}
     products = (
-        (await db.execute(select(Product).where(Product.id.in_(product_ids)))).scalars().all()
+        (
+            await db.execute(
+                select(Product).where(
+                    Product.id.in_(product_ids),
+                    # ``is_active`` is how an admin takes a product off sale — the storefront filters
+                    # on exactly this flag (products/service.py). Without it here, a delisted product
+                    # stays orderable by its (sequential, guessable) id and still earns a real
+                    # Multicard invoice and fiscal receipt. Delisted reads as "does not exist".
+                    Product.is_active.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
     )
     by_id = {product.id: product for product in products}
 
