@@ -213,6 +213,15 @@ class PointLedger(Base):
             unique=True,
             postgresql_where=text("qr_code_id IS NOT NULL"),
         ),
+        # Redeem side of the same guarantee: one redeem row per order. A double-submit that races
+        # past the balance check still cannot debit the same order twice.
+        Index(
+            "uq_point_ledger_order_id_reason",
+            "order_id",
+            "reason",
+            unique=True,
+            postgresql_where=text("order_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -227,6 +236,21 @@ class PointLedger(Base):
         BigInteger,
         ForeignKey("qr_codes.id", ondelete="RESTRICT", name="fk_point_ledger_qr_codes"),
         index=True,
+    )
+
+    # Idempotency key for the redeem row of an order (Stage 6). Mirrors ``qr_code_id`` on the earn
+    # side: at most one ``redeem`` per order, even under a concurrent double-submit.
+    #
+    # RESTRICT blocks a DIRECT ``DELETE FROM orders`` — and only that. It does NOT survive a cascade
+    # through the user: ``point_ledger.user_id`` and ``orders.user_id`` are both ON DELETE CASCADE,
+    # so deleting a user first removes this very row, and RESTRICT then has no witness left to
+    # protect. Verified on the real schema: DELETE FROM users takes the user, the order and the
+    # accounting row with it, silently. There is no DELETE /users endpoint today, so nothing
+    # exploits it — but a "delete my data" (PDn/GDPR) feature would, and the fix is an architectural
+    # call (RESTRICT on orders.user_id too? soft-delete users with financial history?), not a column
+    # tweak. Tracked in the Stage 6 spec backlog; do NOT paper over it here.
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="RESTRICT", name="fk_point_ledger_order"), index=True
     )
 
     # Provenance snapshot — earn rows only; NULL for redeem/expiry/adjust.
