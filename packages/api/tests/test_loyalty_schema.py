@@ -1,6 +1,7 @@
 """Schema tests for the loyalty module (Stage 1 — consent + customer_profile + customer_event)."""
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select, text
@@ -14,8 +15,11 @@ from src.loyalty.models import (
     CustomerEventType,
     CustomerProfile,
     Gender,
+    LedgerReason,
     LoyaltyStatus,
+    PointLedger,
 )
+from src.orders.models import Order
 from src.users.models import User
 
 
@@ -295,3 +299,94 @@ async def test_customer_event_cascades_on_user_delete(test_db: AsyncSession) -> 
         .all()
     )
     assert remaining == []
+
+
+# --------------------------------------------------------------------------- #
+# Stage 6 — redeem lives on the order (accounting truth); one redeem per order
+# --------------------------------------------------------------------------- #
+
+
+async def _order(test_db: AsyncSession, user_id: int, total: str = "80000.00") -> Order:
+    """A committed-enough order to hang ledger rows on."""
+    order = Order(
+        order_number=f"ORD-SCHEMA-{user_id}",
+        user_id=user_id,
+        subtotal=Decimal(total),
+        total=Decimal(total),
+    )
+    test_db.add(order)
+    await test_db.flush()
+    return order
+
+
+async def test_order_points_applied_defaults_to_zero(test_db: AsyncSession) -> None:
+    """A money order carries points_applied = 0 without anyone setting it (server_default).
+
+    This is what backfills the existing prod orders when the migration lands — no data migration.
+    """
+    user = User(telegram_id=30010, first_name="Payer")
+    test_db.add(user)
+    await test_db.flush()
+
+    order = await _order(test_db, user.id)
+    await test_db.refresh(order)
+
+    assert order.points_applied == 0
+
+
+async def test_one_redeem_per_order(test_db: AsyncSession) -> None:
+    """The partial UNIQUE(order_id, reason) refuses a second redeem for the same order.
+
+    This is the redeem-side mirror of UNIQUE(qr_code_id, reason) on the earn side: a double-submit
+    that slips past the balance check still cannot debit the same order twice.
+    """
+    user = User(telegram_id=30011, first_name="Doubler")
+    test_db.add(user)
+    await test_db.flush()
+    order = await _order(test_db, user.id)
+
+    test_db.add(
+        PointLedger(user_id=user.id, amount=-80000, reason=LedgerReason.REDEEM, order_id=order.id)
+    )
+    await test_db.flush()
+
+    test_db.add(
+        PointLedger(user_id=user.id, amount=-80000, reason=LedgerReason.REDEEM, order_id=order.id)
+    )
+    with pytest.raises(IntegrityError):
+        await test_db.flush()
+
+
+async def test_order_with_a_redeem_cannot_be_deleted(test_db: AsyncSession) -> None:
+    """FK RESTRICT keeps money truth: an order that spent points cannot vanish under its ledger row."""
+    user = User(telegram_id=30012, first_name="Spender")
+    test_db.add(user)
+    await test_db.flush()
+    order = await _order(test_db, user.id)
+    test_db.add(
+        PointLedger(user_id=user.id, amount=-80000, reason=LedgerReason.REDEEM, order_id=order.id)
+    )
+    await test_db.flush()
+
+    await test_db.delete(order)
+    with pytest.raises(IntegrityError):
+        await test_db.flush()
+
+
+async def test_earn_rows_are_unaffected_by_the_order_key(test_db: AsyncSession) -> None:
+    """Earn rows keep order_id NULL, and the partial index does not collide across NULLs."""
+    user = User(telegram_id=30013, first_name="Earner")
+    test_db.add(user)
+    await test_db.flush()
+
+    test_db.add(PointLedger(user_id=user.id, amount=5000, reason=LedgerReason.CASHBACK))
+    test_db.add(PointLedger(user_id=user.id, amount=2500, reason=LedgerReason.WELCOME))
+    await test_db.flush()
+
+    rows = (
+        (await test_db.execute(select(PointLedger).where(PointLedger.user_id == user.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    assert all(row.order_id is None for row in rows)
