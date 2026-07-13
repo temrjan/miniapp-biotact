@@ -18,6 +18,7 @@ export function CustomersPage() {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState("")
   const [problem, setProblem] = useState<ProblemTag | "all">("all")
+  const [club, setClub] = useState<"all" | "member" | "qr">("all")
 
   const { data: stats, isLoading: statsLoading } = useCustomersStats()
   const { data: customers, isLoading: customersLoading } = useCustomers({
@@ -25,6 +26,7 @@ export function CustomersPage() {
     size: 12,
     search: search || undefined,
     problem: problem === "all" ? undefined : problem,
+    club: club === "all" ? undefined : club,
   })
 
   return (
@@ -73,6 +75,22 @@ export function CustomersPage() {
             ))}
           </SelectContent>
         </Select>
+        <Select
+          value={club}
+          onValueChange={(value) => {
+            setClub(value as "all" | "member" | "qr")
+            setPage(1)
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="Biotact Club" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Все клиенты</SelectItem>
+            <SelectItem value="member">Участники Клуба</SelectItem>
+            <SelectItem value="qr">Пришли по QR</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Customers Grid */}
@@ -118,7 +136,7 @@ export function CustomersPage() {
       ) : (
         <div className="text-center py-12">
           <p className="text-muted-foreground">
-            {search || problem !== "all"
+            {search || problem !== "all" || club !== "all"
               ? "Клиенты не найдены"
               : "Пока нет клиентов с CRM-данными"}
           </p>

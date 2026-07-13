@@ -1,7 +1,7 @@
 """CRM API router for admin panel frontend."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from jose import JWTError, jwt
@@ -12,6 +12,8 @@ from sqlalchemy.orm import selectinload
 
 from src.config import settings
 from src.database import get_db
+from src.loyalty.models import CustomerProfile, PointLedger
+from src.loyalty.schemas import RegistrationSource
 from src.orders.models import Order
 from src.users.models import User
 
@@ -76,6 +78,22 @@ class FamilyMemberSchema(BaseModel):
     problems: list[str] = []
 
 
+class CustomerLoyaltySchema(BaseModel):
+    """Biotact Club slice of a customer — present only for club members.
+
+    Survey fields are an UNCONSTRAINED echo of the DB (same decision as GET /loyalty/me):
+    the response mirrors what is stored, it does not validate input.
+    """
+
+    source: str | None = None  # 'qr' | 'direct' | None (column is nullable, first writer wins)
+    status: str  # LoyaltyStatus VALUE on the wire: 'newbie' | 'biotact_friend'
+    lifetime_activations: int
+    gender: str | None = None
+    age: int | None = None
+    city: str | None = None
+    balance: int  # SUM(point_ledger.amount); may go negative once REDEEM exists
+
+
 class CustomerSchema(BaseModel):
     """Customer schema for frontend."""
 
@@ -93,6 +111,7 @@ class CustomerSchema(BaseModel):
     ai_notes: str | None = None
     created_at: datetime
     updated_at: datetime
+    loyalty: CustomerLoyaltySchema | None = None  # None ⇔ not a Biotact Club member
 
 
 class PaginatedCustomers(BaseModel):
@@ -115,6 +134,57 @@ class CustomersStats(BaseModel):
     by_problem: dict[str, int] = {}
 
 
+async def _loyalty_by_user_id(
+    db: AsyncSession, user_ids: list[int]
+) -> dict[int, CustomerLoyaltySchema]:
+    """Biotact Club data for a set of users in exactly two queries (profiles + balances).
+
+    Users without a ``customer_profile`` row are simply absent from the result — the
+    caller renders them as non-members (``loyalty=None``).
+    """
+    if not user_ids:
+        return {}
+
+    profiles = (
+        await db.execute(
+            select(
+                CustomerProfile.user_id,
+                CustomerProfile.registration_source,
+                CustomerProfile.status,
+                CustomerProfile.lifetime_activations,
+                CustomerProfile.gender,
+                CustomerProfile.age,
+                CustomerProfile.city,
+            ).where(CustomerProfile.user_id.in_(user_ids))
+        )
+    ).all()
+    if not profiles:
+        return {}
+
+    member_ids = [row.user_id for row in profiles]
+    balance_rows = (
+        await db.execute(
+            select(PointLedger.user_id, func.sum(PointLedger.amount).label("total"))
+            .where(PointLedger.user_id.in_(member_ids))
+            .group_by(PointLedger.user_id)
+        )
+    ).all()
+    balances = {row.user_id: int(row.total) for row in balance_rows}
+
+    return {
+        row.user_id: CustomerLoyaltySchema(
+            source=row.registration_source,
+            status=row.status.value,
+            lifetime_activations=int(row.lifetime_activations),
+            gender=row.gender.value if row.gender is not None else None,
+            age=row.age,
+            city=row.city,
+            balance=balances.get(row.user_id, 0),  # no ledger rows yet → 0
+        )
+        for row in profiles
+    }
+
+
 # ==================== Endpoints ====================
 
 
@@ -125,12 +195,24 @@ async def get_customers(
     size: int = Query(12, ge=1, le=100),
     search: str | None = Query(None),
     problem: str | None = Query(None),
+    club: Literal["member", "qr"] | None = Query(None),
 ) -> PaginatedCustomers:
     """Get all customers (leads) - everyone who pressed /start."""
 
     # Base query - ALL users (everyone is a potential lead)
     query = select(User).options(selectinload(User.family_members))
     count_query = select(func.count(User.id))
+
+    # Biotact Club filter — INNER JOIN on the (unique-per-user) loyalty profile row.
+    # Applied to BOTH the data and the count query, or total/pages would lie.
+    if club is not None:
+        query = query.join(CustomerProfile, CustomerProfile.user_id == User.id)
+        count_query = count_query.join(CustomerProfile, CustomerProfile.user_id == User.id)
+        if club == "qr":
+            # The column stores the enum VALUE ('qr'), so compare with .value explicitly.
+            qr_source = RegistrationSource.QR.value
+            query = query.where(CustomerProfile.registration_source == qr_source)
+            count_query = count_query.where(CustomerProfile.registration_source == qr_source)
 
     # Search filter
     if search:
@@ -177,6 +259,9 @@ async def get_customers(
                     if isinstance(item, dict) and "name" in item:
                         purchased_products[row.user_id].add(item["name"])
 
+    # Biotact Club data for the page (2 queries total, not N+1)
+    loyalty_by_user_id = await _loyalty_by_user_id(db, user_ids)
+
     # Build response
     items = []
     for user in users:
@@ -204,6 +289,7 @@ async def get_customers(
                 ai_notes=user.ai_notes,
                 created_at=user.created_at,
                 updated_at=user.updated_at,
+                loyalty=loyalty_by_user_id.get(user.id),
             )
         )
 
@@ -322,4 +408,5 @@ async def get_customer(
         ai_notes=user.ai_notes,
         created_at=user.created_at,
         updated_at=user.updated_at,
+        loyalty=(await _loyalty_by_user_id(db, [user.id])).get(user.id),
     )

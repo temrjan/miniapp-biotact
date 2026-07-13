@@ -7,6 +7,17 @@ export interface FamilyMember {
   problems: string[]
 }
 
+// Biotact Club slice — present only for club members (null/absent otherwise).
+export interface CustomerLoyalty {
+  source: "qr" | "direct" | null
+  status: "newbie" | "biotact_friend"
+  lifetime_activations: number
+  gender: "male" | "female" | null
+  age: number | null
+  city: string | null
+  balance: number
+}
+
 export interface Customer {
   telegram_id: number
   first_name: string | null
@@ -20,6 +31,8 @@ export interface Customer {
   ai_notes: string | null
   created_at: string
   updated_at: string
+  // Optional: an older API omits the key entirely (deploy window) — treat as non-member.
+  loyalty?: CustomerLoyalty | null
 }
 
 export interface CustomersParams {
@@ -27,6 +40,7 @@ export interface CustomersParams {
   size?: number | undefined
   search?: string | undefined
   problem?: ProblemTag | undefined
+  club?: "member" | "qr" | undefined
 }
 
 export interface PaginatedCustomers {
@@ -57,4 +71,16 @@ export const PROBLEM_COLORS: Record<ProblemTag, string> = {
   gut: "bg-green-100 text-green-800",
   stress: "bg-purple-100 text-purple-800",
   skin: "bg-orange-100 text-orange-800",
+}
+
+// Record<string, string> (not the union) on purpose: an unknown wire value indexes to
+// undefined under noUncheckedIndexedAccess and falls back to the raw value at the call site.
+export const CLUB_STATUS_LABELS: Record<string, string> = {
+  newbie: "Новичок",
+  biotact_friend: "Друг",
+}
+
+export const GENDER_SHORT: Record<string, string> = {
+  male: "муж",
+  female: "жен",
 }

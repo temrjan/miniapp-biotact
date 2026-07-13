@@ -1,8 +1,14 @@
-import { User, Phone, Users, ShoppingBag } from "lucide-react"
+import { User, Phone, Users, ShoppingBag, ClipboardList, Award } from "lucide-react"
 import { Card, CardContent } from "@/shared/components/ui/card"
 import { Badge } from "@/shared/components/ui/badge"
 import type { Customer } from "../types/customer.types"
-import { PROBLEM_LABELS, PROBLEM_COLORS, type ProblemTag } from "../types/customer.types"
+import {
+  PROBLEM_LABELS,
+  PROBLEM_COLORS,
+  CLUB_STATUS_LABELS,
+  GENDER_SHORT,
+  type ProblemTag,
+} from "../types/customer.types"
 
 interface CustomerCardProps {
   customer: Customer
@@ -12,6 +18,17 @@ export function CustomerCard({ customer }: CustomerCardProps) {
   const fullName = [customer.first_name, customer.last_name]
     .filter(Boolean)
     .join(" ") || customer.username || `ID: ${customer.telegram_id}`
+
+  // Explicit != null checks (not truthiness): the DB is an unconstrained echo, so even
+  // an anomalous age of 0 must stay visible rather than silently drop out of the line.
+  const loyalty = customer.loyalty
+  const surveyParts: string[] = []
+  if (loyalty) {
+    if (loyalty.city != null) surveyParts.push(loyalty.city)
+    if (loyalty.gender != null) surveyParts.push(GENDER_SHORT[loyalty.gender] ?? loyalty.gender)
+    if (loyalty.age != null) surveyParts.push(String(loyalty.age))
+  }
+  const surveyLine = surveyParts.join(" · ")
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -29,6 +46,11 @@ export function CustomerCard({ customer }: CustomerCardProps) {
               )}
             </div>
           </div>
+          {loyalty && (
+            <Badge variant="secondary" className="bg-amber-100 text-amber-800 whitespace-nowrap">
+              {loyalty.source === "qr" ? "Biotact Club · QR" : "Biotact Club"}
+            </Badge>
+          )}
         </div>
 
         {/* Contact */}
@@ -36,6 +58,26 @@ export function CustomerCard({ customer }: CustomerCardProps) {
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
             <Phone className="h-4 w-4" />
             <span>{customer.phone}</span>
+          </div>
+        )}
+
+        {/* Biotact Club */}
+        {loyalty && (
+          <div className="space-y-1 mb-3">
+            {surveyLine && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <ClipboardList className="h-4 w-4" />
+                <span>{surveyLine}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Award className="h-4 w-4" />
+              <span>
+                {CLUB_STATUS_LABELS[loyalty.status] ?? loyalty.status} · активаций:{" "}
+                {loyalty.lifetime_activations} · баллов:{" "}
+                {loyalty.balance.toLocaleString("ru-RU")}
+              </span>
+            </div>
           </div>
         )}
 
