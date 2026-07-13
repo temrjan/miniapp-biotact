@@ -60,7 +60,7 @@ feature-branch → push → CI (type-check + lint + test + build) → PR → mer
 - No hardcoded secrets — use .env
 - Named exports in React (not default)
 
-## Biotact Club (программа лояльности — Этап 1 CRM в работе; 3 PR на проде)
+## Biotact Club (программа лояльности — 🚀 ЖИВАЯ НА ПРОДЕ, go-live 2026-07-06)
 
 Полная программа лояльности/оцифровки поверх этого мини-аппа.
 
@@ -68,13 +68,17 @@ feature-branch → push → CI (type-check + lint + test + build) → PR → mer
 
 **Источники правды (по порядку):**
 1. **План ФИНАЛ v4** (выше) — что строим в целом.
-2. **Текущая инженерная спека:** `.claude/specs/2026-06-25-stage0-1-gate-crm.md` — Этап 0+1 (по ней идёт текущий PR).
+2. **Инженерные спеки:** `.claude/specs/` — по одной на PR/этап (последняя: `2026-07-10-pr2-club-in-customers.md`); отчёты — в `.claude/reports/`.
 3. **Концепт для руководства:** `docs/biotact-club-concept.html`.
-4. **Состояние/resume:** memory `handoff-biotact-club` (единственный актуальный хэндофф; старые описания НЕ актуальны — объём менялся).
+4. **Состояние/resume:** memory `handoff-biotact-club` (единственный актуальный хэндофф; старые описания НЕ актуальны — объём менялся) + локальный трекер `.claude/workflow-state.json`.
 
 Суть: уникальный QR на коробке (несёт SKU) → бот (лаунчер + шеринг телефона) → мини-апп под initData пишет CRM/лоялти. Кэшбэк 5%/8% + статус «Друг» (10 активаций lifetime) + welcome ×1.5 + трата баллов в мини-аппе + розыгрыш. **Инкрементальная customer-модель:** `consent`/`customer_profile`/`customer_event` рядом с `users`; `balance = SUM(point_ledger)` (единый источник, не колонка). Лоялти живёт в `customer_profile`, НЕ на `users` (у бота своя `User`-модель).
 
-⚠️ **КРИТИЧНО — урок инцидента 2026-06-19:** в этом репо **merge в `main` = деплой на прод** (CD по `workflow_run`). Schema-PR #30 уронил прод (деплой не накатывал миграции) → откат #31 → `deploy.yml` укреплён (`alembic upgrade head` + откат кода + health-check). ✅ **Happy-path ДОКАЗАН на реальной схеме** (PR-1.1 #38: `CREATE TABLE consent` на проде чисто, health OK). Перед ЛЮБЫМ schema-PR: гейт **`Migration parity`** (CI-паритет модель↔миграция на чистом PG) + миграция руками против чистой parity-БД (НЕ автоген против прода) + enum-DROP в downgrade. Новые колонки `users` — только `nullable`/`server_default`. ⚠️ fail-rollback-путь деплоя ещё не проверен (Issue #34, гейтит Этап 2).
+⚠️ **КРИТИЧНО — урок инцидента 2026-06-19:** в этом репо **merge в `main` = деплой на прод** (CD по `workflow_run`). Schema-PR #30 уронил прод (деплой не накатывал миграции) → откат #31 → `deploy.yml` укреплён (`alembic upgrade head` + откат кода + health-check). ✅ **Happy-path ДОКАЗАН на реальной схеме** (PR-1.1 #38: `CREATE TABLE consent` на проде чисто, health OK). Перед ЛЮБЫМ schema-PR: гейт **`Migration parity`** (CI-паритет модель↔миграция на чистом PG **+ round-trip up→down→up**, #69) + миграция руками против чистой parity-БД (НЕ автоген против прода) + enum-DROP в downgrade. Новые колонки `users` — только `nullable`/`server_default`. Happy-path деплой-гейта доказан на реальной схеме многократно (#38/#40/#41/#55); fail-rollback-путь по-прежнему не прогонялся вживую (Issue #34).
 🚫 **НЕ ре-мёржить `origin/feat/loyalty-pr1-schema`** — это та самая схема, что клала прод (откатана #31). Устаревшие лоялти-ветки на origin (`feat/loyalty-pr0/pr1`, `revert/restore-prod-pre-loyalty`, `wip/ai-integration-snapshot-*`) — к удалению.
 
-**Прогресс (план §7):** ✅ **0 Гейт** (PR-0.1 parity-gate+reconcile #32 · PR-0.2 флаг `loyalty_enabled=false` #37) → 🔵 **1 CRM-фундамент** (`consent` ✅ #38 на проде → **next PR-1.2 `customer_profile`**+`users.phone_verified_at` → PR-1.3 `customer_event`) → 2 коды+активация+кэшбэк → 3 статус «Друг» → 4 регистрация-поток → 5 розыгрыш → 6 трата баллов → 7 бонусы/рефералы/сгорание.
+**Прогресс (план §7):** ✅ **0 Гейт** · ✅ **1 CRM-фундамент** (`consent`/`customer_profile`/`customer_event`) · ✅ **2 коды+активация+кэшбэк** · ✅ **3 статус «Друг»** · ✅ **4 регистрация-поток** → 🚀 **GO-LIVE 2026-07-06** (`loyalty_enabled=true`, e2e на проде) → ⬜ **5 розыгрыш** · ⬜ **6 трата баллов (REDEEM — к тиражу коробок)** · ⬜ 7 бонусы/рефералы/сгорание.
+
+**Поверх этапов уже на проде:** дашборд «Biotact Club» (#72/#73) · ручной ввод кода в боте (#74) · анкета не переспрашивается в мини-аппе (#76) · **клубный срез в админском списке «Клиенты» — бейдж/анкета/статус/баланс + фильтры «Участники Клуба»/«Пришли по QR» (#77)**.
+
+🔑 **Модель начисления (не выдумывать другое):** баллы **только за активацию QR**; покупка кэшбэк НЕ даёт. Трата баллов (REDEEM) ещё не построена.
