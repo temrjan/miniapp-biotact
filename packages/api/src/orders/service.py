@@ -9,7 +9,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.orders.models import Order, OrderItem, OrderStatus
-from src.orders.schemas import OrderCreate, OrderListResponse
+from src.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
+from src.products.models import Product
+
+# Delivery is free today and the server is the single source of that truth — the client used to
+# declare it. There is no delivery-pricing rule anywhere in the project to read it from.
+DELIVERY_FEE = Decimal("0")
+
+
+class OrderValidationError(Exception):
+    """The requested lines cannot become an order — mapped to 422 by the router."""
+
+
+class UnknownProductError(OrderValidationError):
+    """One or more ``product_id`` values do not exist in the catalogue."""
+
+    def __init__(self, product_ids: list[int]) -> None:
+        self.product_ids = product_ids
+        super().__init__(f"Unknown product(s): {product_ids}")
+
+
+class ProductOutOfStockError(OrderValidationError):
+    """One or more requested products are flagged ``is_in_stock = false``."""
+
+    def __init__(self, product_ids: list[int]) -> None:
+        self.product_ids = product_ids
+        super().__init__(f"Product(s) out of stock: {product_ids}")
 
 
 def generate_order_number() -> str:
@@ -59,34 +84,72 @@ async def get_order_by_payment_uuid(
     return result.scalar_one_or_none()
 
 
+async def _price_lines(
+    db: AsyncSession,
+    lines: list[OrderItemCreate],
+) -> tuple[list[OrderItem], Decimal]:
+    """Turn requested (product_id, quantity) lines into priced ``OrderItem`` rows + the subtotal.
+
+    Every money value is read from ``products`` in a single query — the client's numbers never
+    reach the database, so a tampered ``product_price`` cannot become a Multicard invoice. Name and
+    price are snapshotted onto the line, so a later catalogue edit does not rewrite past orders.
+    """
+    product_ids = {line.product_id for line in lines}
+    products = (
+        (await db.execute(select(Product).where(Product.id.in_(product_ids)))).scalars().all()
+    )
+    by_id = {product.id: product for product in products}
+
+    missing = sorted(product_ids - by_id.keys())
+    if missing:
+        raise UnknownProductError(missing)
+
+    out_of_stock = sorted(pid for pid in product_ids if not by_id[pid].is_in_stock)
+    if out_of_stock:
+        raise ProductOutOfStockError(out_of_stock)
+
+    items: list[OrderItem] = []
+    subtotal = Decimal("0")
+    for line in lines:
+        product = by_id[line.product_id]
+        line_total = product.price * line.quantity
+        subtotal += line_total
+        items.append(
+            OrderItem(
+                product_id=product.id,
+                product_name=product.name,
+                product_price=product.price,
+                quantity=line.quantity,
+                total=line_total,
+            )
+        )
+    return items, subtotal
+
+
 async def create_order(
     db: AsyncSession,
     order_data: OrderCreate,
     user_id: int,
 ) -> Order:
-    """Create new order."""
+    """Create an order priced by the SERVER; the client supplies identity and quantity only.
+
+    Raises :class:`OrderValidationError` (unknown product / out of stock) — the router maps it to
+    422.
+    """
+    items, subtotal = await _price_lines(db, order_data.items)
+
     order = Order(
         order_number=generate_order_number(),
         user_id=user_id,
-        subtotal=order_data.subtotal,
-        delivery_fee=order_data.delivery_fee or Decimal("0"),
-        total=order_data.total,
+        subtotal=subtotal,
+        delivery_fee=DELIVERY_FEE,
+        total=subtotal + DELIVERY_FEE,
         delivery_address=order_data.delivery_address,
         delivery_phone=order_data.delivery_phone,
         delivery_name=order_data.delivery_name,
         customer_note=order_data.customer_note,
     )
-
-    # Add order items
-    for item_data in order_data.items:
-        item = OrderItem(
-            product_id=item_data.product_id,
-            product_name=item_data.product_name,
-            product_price=item_data.product_price,
-            quantity=item_data.quantity,
-            total=item_data.total,
-        )
-        order.items.append(item)
+    order.items.extend(items)
 
     db.add(order)
     await db.flush()
