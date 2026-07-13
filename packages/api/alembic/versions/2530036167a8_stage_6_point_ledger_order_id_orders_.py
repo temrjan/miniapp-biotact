@@ -26,8 +26,12 @@ def upgrade() -> None:
     — no invoice, no fiscal receipt, no bank statement. These two columns ARE the accounting record
     that goes to the bookkeeper, which is why the link lives in the schema instead of being inferred:
 
-    * ``point_ledger.order_id`` — which order a redeem row paid for (RESTRICT: an order that spent
-      points cannot be deleted out from under its ledger row).
+    * ``point_ledger.order_id`` — which order a redeem row paid for. RESTRICT blocks a DIRECT
+      ``DELETE FROM orders``, and only that: it does NOT survive a cascade through the user (both
+      ``point_ledger.user_id`` and ``orders.user_id`` are ON DELETE CASCADE, so deleting a user
+      removes the witness row before RESTRICT can fire — verified on the real schema). No
+      ``DELETE /users`` endpoint exists today; closing that hole is an architectural call, tracked
+      in the Stage 6 spec backlog.
     * partial ``UNIQUE(order_id, reason)`` — one redeem per order, the mirror of the earn side's
       ``UNIQUE(qr_code_id, reason)``; a double-submit cannot debit the same order twice.
     * ``orders.points_applied`` — how many points paid the order (0 ⇔ paid with money).
