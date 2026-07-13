@@ -3,7 +3,13 @@
 [extend]
 useDefault = true
 
-[[allowlists]]
+# MUST be the singular [allowlist], not the [[allowlists]] array: with `extend.useDefault`,
+# gitleaks 8.24.3 silently IGNORES the array form, so this allowlist did nothing at all and the
+# scheduled full-history scan failed on the example below. Verified on the exact CI image
+# (ghcr.io/gitleaks/gitleaks:v8.24.3, full-history `detect`): [allowlist] -> "no leaks found",
+# [[allowlists]] -> "leaks found: 1". The PR-scoped scans never caught this because they only
+# read the diff, where these paths never appear.
+[allowlist]
 description = "Env templates and removed vendored docs (placeholders / teaching examples, not real secrets)"
 condition = "OR"
 paths = [
