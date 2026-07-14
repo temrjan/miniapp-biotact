@@ -105,18 +105,30 @@ class TelegramNotifier:
         customer_phone: str | None = None,
         delivery_address: str | None = None,
         invoice_uuid: str | None = None,
+        points_applied: int = 0,
     ) -> bool:
-        """Notify about successful payment."""
+        """Notify about successful payment.
+
+        ``points_applied > 0`` marks the same request «ОПЛАЧЕНО БАЛЛАМИ» and shows the debit —
+        an all-or-nothing points order has no invoice and no fiscal receipt, so this line is
+        how the fulfilment group tells the two payment kinds apart.
+        """
         items_text = self._format_items(items)
         now = datetime.now().strftime("%d.%m.%Y %H:%M")
+        header = "✅ <b>ОПЛАЧЕНО БАЛЛАМИ</b>" if points_applied else "✅ <b>ОПЛАЧЕНО</b>"
+        points_line = (
+            f"\n💎 <b>Списано баллов:</b> {self._format_price(points_applied)}"
+            if points_applied
+            else ""
+        )
 
         message = f"""📱 <b>Biotact Mini-App</b>
-✅ <b>ОПЛАЧЕНО</b>
+{header}
 
 📦 <b>Товары:</b>
 {items_text}
 
-💰 <b>Сумма:</b> {self._format_price(total)} сум
+💰 <b>Сумма:</b> {self._format_price(total)} сум{points_line}
 
 👤 <b>Клиент:</b>
 Имя: {customer_name or "Не указано"}

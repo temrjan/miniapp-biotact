@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -59,9 +60,15 @@ class OrderCreate(BaseModel):
 
     Carries NO money. ``subtotal``/``delivery_fee``/``total`` are computed by the server from the
     catalogue — a client-declared total is exactly the hole this schema closes.
+
+    ``payment_method`` selects HOW the order is paid, never how much: ``card`` (default —
+    today's Multicard path, unchanged; older clients that do not send the field land here) or
+    ``points`` (Stage 6 — the whole total is debited from the Biotact Club balance,
+    all-or-nothing, Multicard never involved).
     """
 
     items: list[OrderItemCreate] = Field(min_length=1)
+    payment_method: Literal["card", "points"] = "card"
     delivery_address: str | None = None
     delivery_phone: str | None = None
     delivery_name: str | None = None
@@ -78,6 +85,9 @@ class OrderResponse(OrderBase):
     payment_uuid: str | None = None
     payment_status: str | None = None
     paid_at: datetime | None = None
+    # Points that paid this order (0 ⇔ paid with money) — the mini-app success/history screens
+    # and the admin read it from here; all-or-nothing, so >0 means "paid with points" outright.
+    points_applied: int = 0
     currency: str = "UZS"
     created_at: datetime
     updated_at: datetime
