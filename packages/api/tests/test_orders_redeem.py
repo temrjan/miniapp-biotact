@@ -22,7 +22,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
@@ -273,7 +273,32 @@ async def test_zero_total_is_refused_for_points(
     resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80004))
 
     assert resp.status_code == 422, resp.text
+    # Same invariants the fractional case pins (Gate-2 NIT): a refusal writes NOTHING.
     assert await _committed_order_count(maker) == 0
+    assert await _committed_redeem_rows(maker) == []
+    assert await _committed_balance(maker, user_id) == 1_000
+
+
+async def test_one_point_short_is_refused(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """``balance == required - 1`` → refused. The tight side of the ``<`` boundary.
+
+    Its twin (``balance == required`` → accepted) is ``test_exact_balance_pays_order…``; together
+    they pin the comparison from both sides, so it cannot drift to ``<=`` or to ``< amount - 1``
+    unnoticed (Gate-2 NIT: mutation-coverage of the boundary itself).
+    """
+    user_id = await _seed_user(maker, telegram_id=80005)
+    product_id = await _seed_product(maker, slug="redeem-one-short")
+    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE - 1)
+
+    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80005))
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["deficit"] == 1
+    assert await _committed_order_count(maker) == 0
+    assert await _committed_redeem_rows(maker) == []
+    assert await _committed_balance(maker, user_id) == POINTS_FOR_ONE - 1
 
 
 # --------------------------------------------------------------------------- #
@@ -442,6 +467,55 @@ async def test_notification_failure_does_not_fail_the_order(
     assert resp.status_code == 201, resp.text
     assert len(await _committed_redeem_rows(maker)) == 1
     assert await _committed_balance(maker, user_id) == 0
+
+
+async def test_notification_runs_after_commit_and_holds_no_lock(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """While the notification is in flight, the redeem is COMMITTED and the profile is UNLOCKED.
+
+    [Gate-2 MINOR] The send is a network call with a 10s httpx timeout. If it ran inside the
+    still-open request transaction, it would hold ``redeem_points``' ``FOR UPDATE`` lock on this
+    customer's ``customer_profile`` row for its whole duration — stalling every other loyalty
+    write for the same user (QR activation, survey, another redeem) behind a Telegram outage.
+    And a commit failing after the send would have announced a phantom order to the group.
+
+    The probe runs INSIDE the notifier: an independent connection tries ``SELECT … FOR UPDATE
+    NOWAIT`` on the very row the handler locked. Postgres raises 55P03 (lock_not_available)
+    immediately if the lock is still held, instead of waiting — so the test states the property
+    without sleeping. Mutation: drop ``await db.commit()`` from the router and this turns red.
+    """
+    user_id = await _seed_user(maker, telegram_id=80042)
+    product_id = await _seed_product(maker, slug="redeem-notify-lock")
+    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE)
+
+    observed: dict[str, object] = {}
+
+    async def _probe_while_sending(text: str, parse_mode: str = "HTML") -> bool:
+        async with maker() as probe, probe.begin():
+            try:
+                await probe.execute(
+                    select(CustomerProfile.id)
+                    .where(CustomerProfile.user_id == user_id)
+                    .with_for_update(nowait=True)
+                )
+                observed["profile_lock_free"] = True
+            except DBAPIError as exc:  # 55P03 — the handler is still holding the row lock
+                observed["profile_lock_free"] = False
+                observed["lock_error"] = str(exc.orig)
+        # Committed-truth read on a fresh connection: the debit must already be durable.
+        observed["committed_redeem_rows"] = len(await _committed_redeem_rows(maker))
+        return True
+
+    monkeypatch.setattr(telegram_notifier, "send_message", _probe_while_sending)
+
+    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80042))
+
+    assert resp.status_code == 201, resp.text
+    assert observed["profile_lock_free"] is True, (
+        f"the profile row was still locked during the Telegram call: {observed.get('lock_error')}"
+    )
+    assert observed["committed_redeem_rows"] == 1, "the debit was not committed before the send"
 
 
 # --------------------------------------------------------------------------- #

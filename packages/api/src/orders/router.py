@@ -63,10 +63,23 @@ async def create_order(
         ) from exc
 
     if order.points_applied:
+        # Commit BEFORE the network call. Two reasons, both specific to the points path:
+        #
+        #   * ``redeem_points`` holds a ``FOR UPDATE`` lock on this customer's profile row —
+        #     the same row every accrual locks. ``get_db`` would otherwise commit only after
+        #     this handler returns, so a slow/unreachable Telegram (httpx timeout: 10s) would
+        #     keep that lock — and every other loyalty write for THIS user (QR activation,
+        #     survey, another redeem) — waiting behind a notification. [Gate-2 MINOR]
+        #   * Order of truth: the money is settled first, the message is sent about a fact.
+        #     Sending first would let a failing commit announce a phantom order to the group.
+        #
+        # The later ``get_db`` commit is a harmless no-op on the already-committed session.
+        await db.commit()
+
         # The same admin request card payments produce, marked «оплачено баллами» (Captain,
         # 2026-07-13). For a card order it fires from the payments router on invoice/callback;
         # a points order never gets there, so this is its only send. Failure must not fail the
-        # order — mirror of the payments-router pattern.
+        # order — the debit is already committed; mirror of the payments-router pattern.
         try:
             items_data = [
                 {
