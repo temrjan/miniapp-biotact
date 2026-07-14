@@ -1,5 +1,6 @@
 """Order API router."""
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_user, verify_admin_jwt
 from src.common.exceptions import ForbiddenException
 from src.database import get_db
+from src.loyalty.service import InsufficientPointsError
+from src.notifications.service import telegram_notifier
 from src.orders import service
 from src.orders.models import Order
 from src.orders.schemas import (
@@ -17,6 +20,8 @@ from src.orders.schemas import (
     OrderStatusUpdate,
 )
 from src.users.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,14 +38,57 @@ async def create_order(
     db: DbSession,
     user: CurrentUser,
 ) -> Order:
-    """Create a new order. Prices come from the catalogue — the request carries no money."""
+    """Create a new order. Prices come from the catalogue — the request carries no money.
+
+    ``payment_method='points'`` settles the whole order from the club balance in this same
+    request; a shortfall is a 409 whose detail carries the exact deficit (all-or-nothing —
+    nothing is debited, no order is created).
+    """
     try:
-        return await service.create_order(db, order_data, user_id=user.id)
+        order = await service.create_order(db, order_data, user_id=user.id)
+    except InsufficientPointsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "insufficient_points",
+                "balance": exc.balance,
+                "required": exc.required,
+                "deficit": exc.deficit,
+            },
+        ) from exc
     except service.OrderValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+
+    if order.points_applied:
+        # The same admin request card payments produce, marked «оплачено баллами» (Captain,
+        # 2026-07-13). For a card order it fires from the payments router on invoice/callback;
+        # a points order never gets there, so this is its only send. Failure must not fail the
+        # order — mirror of the payments-router pattern.
+        try:
+            items_data = [
+                {
+                    "product_name": item.product_name,
+                    "quantity": item.quantity,
+                    "product_price": item.product_price,
+                }
+                for item in order.items
+            ]
+            await telegram_notifier.notify_payment_success(
+                order_number=order.order_number,
+                total=float(order.total),
+                items=items_data,
+                customer_name=order.delivery_name,
+                customer_phone=order.delivery_phone,
+                delivery_address=order.delivery_address,
+                points_applied=order.points_applied,
+            )
+        except Exception as exc:  # notification is best-effort, never blocks money
+            logger.error("Failed to send Telegram notification: %s", exc)
+
+    return order
 
 
 @router.get("", response_model=OrderListResponse)

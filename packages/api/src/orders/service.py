@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.loyalty import service as loyalty_service
 from src.orders.models import Order, OrderItem, OrderStatus
 from src.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
 from src.products.models import Product
@@ -40,6 +41,30 @@ class ProductOutOfStockError(OrderValidationError):
     def __init__(self, product_ids: list[int]) -> None:
         self.product_ids = product_ids
         super().__init__(f"Product(s) out of stock: {product_ids}")
+
+
+class TotalNotPayableWithPointsError(OrderValidationError):
+    """The order total is not a positive whole number of sums — points cannot pay it.
+
+    Points are whole integers (1 балл = 1 сум) and a points order leaves no trace outside this
+    database, so the DB is the accounting record itself: a fractional total is REFUSED loudly,
+    never silently rounded (the same stance ``get_unit_price`` takes with FractionalPriceError
+    on the earn side). A non-positive total is refused for the same reason the card path
+    refuses it at invoice time — except here "paid" would be stamped with no invoice to catch
+    it. Both are unreachable from the storefront today (catalogue prices validate ``gt=0`` and
+    whole); this guards against out-of-band catalogue data, not a client path.
+    """
+
+    def __init__(self, total: Decimal) -> None:
+        self.total = total
+        super().__init__(f"Order total {total} cannot be paid with points")
+
+
+def _points_total(total: Decimal) -> int:
+    """The exact whole-sum point amount for ``total``, or a loud refusal — never a rounding."""
+    if total <= 0 or total != total.to_integral_value():
+        raise TotalNotPayableWithPointsError(total)
+    return int(total)
 
 
 def generate_order_number() -> str:
@@ -151,26 +176,52 @@ async def create_order(
 ) -> Order:
     """Create an order priced by the SERVER; the client supplies identity and quantity only.
 
-    Raises :class:`OrderValidationError` (unknown product / out of stock) — the router maps it to
-    422.
+    ``payment_method='card'`` (the default) is today's path, byte-for-byte: the order is
+    created ``pending``/``unpaid`` and money moves later via Multicard.
+
+    ``payment_method='points'`` pays the WHOLE total from the Biotact Club balance inside this
+    one request (= one transaction — ``get_db`` commits at request end, any raise rolls
+    everything back): the redeem debit and the order row live or die together. On success the
+    order is immediately ``paid`` + ``confirmed`` (there is no gateway to wait for); Multicard
+    is never contacted, so this row is the only accounting trace the purchase has.
+
+    Raises :class:`OrderValidationError` (unknown product / out of stock / total not payable
+    with points) — the router maps it to 422 — and
+    :class:`~src.loyalty.service.InsufficientPointsError` — mapped to 409, nothing persisted.
     """
     items, subtotal = await _price_lines(db, order_data.items)
+    total = subtotal + DELIVERY_FEE
+
+    pay_with_points = order_data.payment_method == "points"
+    points_to_apply = _points_total(total) if pay_with_points else 0
 
     order = Order(
         order_number=generate_order_number(),
         user_id=user_id,
         subtotal=subtotal,
         delivery_fee=DELIVERY_FEE,
-        total=subtotal + DELIVERY_FEE,
+        total=total,
         delivery_address=order_data.delivery_address,
         delivery_phone=order_data.delivery_phone,
         delivery_name=order_data.delivery_name,
         customer_note=order_data.customer_note,
     )
+    if pay_with_points:
+        order.points_applied = points_to_apply
+        order.payment_status = "paid"
+        order.status = OrderStatus.CONFIRMED
+        order.paid_at = datetime.utcnow()
     order.items.extend(items)
 
     db.add(order)
     await db.flush()
+    if pay_with_points:
+        # After the flush so the ledger row can carry this order's id; the balance check and
+        # the debit serialize on the customer_profile row lock inside redeem_points, so the
+        # flushed-but-uncommitted order above cannot outlive a refusal (409 → rollback).
+        await loyalty_service.redeem_points(
+            db, user_id=user_id, order_id=order.id, amount=points_to_apply
+        )
     await db.refresh(order)
     return order
 

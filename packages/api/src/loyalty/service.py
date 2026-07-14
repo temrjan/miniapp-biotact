@@ -58,6 +58,65 @@ def earn_row_reconciles(entry: PointLedger) -> bool:
     return entry.amount == compute_cashback(entry.unit_price, entry.rate_bps)
 
 
+class InsufficientPointsError(Exception):
+    """All-or-nothing redeem refused: balance < required — nothing was written.
+
+    All-or-nothing is the ratified model (Captain 2026-07-13): there is no partial debit and
+    no card top-up, so the only outcomes are "the whole order is paid with points" or "no
+    points move at all". Carries the numbers the mini-app needs to say «не хватает N».
+    """
+
+    def __init__(self, *, balance: int, required: int) -> None:
+        self.balance = balance
+        self.required = required
+        self.deficit = required - balance
+        super().__init__(f"insufficient points: balance={balance}, required={required}")
+
+
+async def redeem_points(db: AsyncSession, *, user_id: int, order_id: int, amount: int) -> None:
+    """Debit ``amount`` points against ``order_id`` — all-or-nothing, race-safe (Stage 6).
+
+    Runs inside the caller's ambient transaction and only flushes; the caller owns
+    commit/rollback, so a refusal (or any later failure in the same request) leaves NO trace.
+
+    Race safety, mirroring the accrual side exactly:
+
+    * Per-user serializer: ``SELECT customer_profile … FOR UPDATE`` — the same row every
+      accrual locks (:func:`activate_code`), so a redeem cannot interleave with an accrual or
+      another redeem for the same user. Two concurrent orders racing one balance serialize
+      here; the loser re-reads the committed ledger and is refused. Directly mutation-tested:
+      removing ``.with_for_update()`` turns the race test red.
+    * The check and the debit happen under that one lock — the balance cannot go negative.
+    * Partial ``UNIQUE(order_id, reason)`` backstops the same order being debited twice.
+
+    A user without a ``customer_profile`` row has never earned a point (every earn path
+    lazy-creates the profile before its first ledger row), so there is nothing to lock and
+    the redeem is refused on balance 0 — deliberately NOT computed from a ledger that cannot
+    have rows, so an out-of-band orphan row never becomes spendable un-serialized money.
+    """
+    if amount <= 0:
+        # A zero redeem would mark an order "paid" for free; a negative one would CREDIT
+        # points through the redeem path. Both are internal-misuse, never client-reachable.
+        raise ValueError(f"redeem amount must be positive, got {amount}")
+    profile_locked = (
+        await db.execute(
+            select(CustomerProfile.id).where(CustomerProfile.user_id == user_id).with_for_update()
+        )
+    ).one_or_none()
+    balance = await get_balance(db, user_id) if profile_locked is not None else 0
+    if balance < amount:
+        raise InsufficientPointsError(balance=balance, required=amount)
+    db.add(
+        PointLedger(
+            user_id=user_id,
+            amount=-amount,
+            reason=LedgerReason.REDEEM,
+            order_id=order_id,
+        )
+    )
+    await db.flush()
+
+
 @dataclass(frozen=True)
 class LoyaltySummary:
     """Read-only loyalty snapshot for the mini-app profile card (Stage 3)."""
