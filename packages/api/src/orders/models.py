@@ -56,12 +56,14 @@ class Order(Base):
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="UZS")
 
-    # Biotact Club points that paid for this order (1 балл = 1 сум). 0 ⇔ paid with money.
-    # An order paid with points never reaches Multicard, so it leaves NO trace outside this
-    # database — no invoice, no fiscal receipt, no bank statement. This column is therefore the
-    # accounting record itself, which is why the fact lives in the schema and is not inferred.
-    # All-or-nothing by design (Captain, 2026-07-13): partial point payment does not exist, so
-    # ``points_applied > 0`` unambiguously means "paid with points" — no second source of truth.
+    # Biotact Club points applied to this order (1 балл = 1 сум). 0 ⇔ pure card payment.
+    # Points spent leave NO trace outside this database — no invoice, no fiscal receipt, no bank
+    # statement for the points part — so this column is part of the accounting record itself, which
+    # is why the fact is stored and not inferred.
+    # Since partial redemption (Stage 6, Captain 2026-07-15): ``points_applied > 0`` means points
+    # were spent, NOT that the order is paid. Full coverage (points == total) is settled outright
+    # at creation; a partial order stays ``unpaid`` until Multicard collects the remainder. The sole
+    # source of "paid" is ``payment_status == 'paid'``.
     points_applied: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0", default=0
     )

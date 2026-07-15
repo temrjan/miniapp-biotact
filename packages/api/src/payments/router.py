@@ -62,23 +62,26 @@ async def create_payment(
             detail="Order already paid",
         )
 
-    # Multicard does not document a zero invoice; the server prices every order, so a
-    # non-positive total means bad catalogue data — fail loudly instead of charging 0.
-    if order.total <= 0:
+    # Points may already cover part of the goods; Multicard collects only the card remainder.
+    # Multicard does not document a zero invoice, and a fully-covered order is already ``paid``
+    # (rejected above), so a non-positive remainder here means bad catalogue data — fail loudly
+    # instead of asking the gateway to charge 0.
+    amount_due = order.total - order.points_applied
+    if amount_due <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Order total must be positive",
+            detail="Order remainder must be positive",
         )
 
     # Build callback URL
     base_url = str(req.base_url).rstrip("/")
     callback_url = f"{base_url}{settings.api_v1_prefix}/payments/callback"
 
-    # Build OFD items
-    ofd_items = build_ofd_items(order.items)
+    # Amount charged to the card, in tiyins — the remainder after points.
+    amount_tiyins = int(amount_due * 100)
 
-    # Amount in tiyins
-    amount_tiyins = int(order.total * 100)
+    # OFD line items scaled so their totals sum EXACTLY to the charged amount (discount model).
+    ofd_items = build_ofd_items(order.items, amount_tiyins=amount_tiyins)
 
     # Create payment data
     payment_data = PaymentCreateData(
@@ -125,6 +128,7 @@ async def create_payment(
                 customer_phone=order.delivery_phone,
                 delivery_address=order.delivery_address,
                 invoice_uuid=result.uuid,
+                points_applied=order.points_applied,
             )
         except Exception as e:
             logger.error(f"Failed to send Telegram notification: {e}")
@@ -173,6 +177,7 @@ async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) ->
         customer_phone=order.delivery_phone,
         delivery_address=order.delivery_address,
         invoice_uuid=invoice_uuid,
+        points_applied=order.points_applied,
     )
 
 

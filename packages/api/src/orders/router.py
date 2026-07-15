@@ -56,14 +56,29 @@ async def create_order(
                 "deficit": exc.deficit,
             },
         ) from exc
+    except service.InvalidRedeemAmountError as exc:
+        # Structured 422 so the mini-app can clamp its points stepper to the returned ceiling
+        # without a second round-trip. Must precede the generic OrderValidationError below — it is
+        # a subclass, and Python matches the first handler.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": "invalid_redeem_amount",
+                "points_to_apply": exc.points,
+                "max_redeemable": exc.max_redeemable,
+            },
+        ) from exc
     except service.OrderValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
-    if order.points_applied:
-        # Commit BEFORE the network call. Two reasons, both specific to the points path:
+    if order.payment_status == "paid":
+        # Reached only by a FULLY points-covered order — the sole shape ``create_order`` stamps
+        # ``paid`` (a card order is ``unpaid`` until Multicard; a PARTIAL points order stays
+        # ``unpaid`` too and is notified later from the payments router). Commit BEFORE the network
+        # call, for two reasons specific to that points settlement:
         #
         #   * ``redeem_points`` holds a ``FOR UPDATE`` lock on this customer's profile row —
         #     the same row every accrual locks. ``get_db`` would otherwise commit only after
@@ -77,9 +92,9 @@ async def create_order(
         await db.commit()
 
         # The same admin request card payments produce, marked «оплачено баллами» (Captain,
-        # 2026-07-13). For a card order it fires from the payments router on invoice/callback;
-        # a points order never gets there, so this is its only send. Failure must not fail the
-        # order — the debit is already committed; mirror of the payments-router pattern.
+        # 2026-07-13). A fully-covered points order never reaches the payments router, so this is
+        # its only send. Failure must not fail the order — the debit is already committed; mirror
+        # of the payments-router pattern.
         try:
             items_data = [
                 {

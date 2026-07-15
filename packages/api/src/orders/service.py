@@ -17,6 +17,16 @@ from src.products.models import Product
 # declare it. There is no delivery-pricing rule anywhere in the project to read it from.
 DELIVERY_FEE = Decimal("0")
 
+# Redeem rules (Captain-ratified 2026-07-14/15). Points cover the goods (subtotal) only, never
+# delivery. A redemption is at least MIN_REDEEM, floored to REDEEM_STEP, and must leave the card
+# either nothing to collect or at least MIN_CARD_REMAINDER — the 1..MIN_CARD_REMAINDER-1 band is
+# forbidden: it fences off Multicard's undocumented minimum invoice without relying on their
+# (unresponsive) support.
+MIN_REDEEM = 500
+REDEEM_STEP = 100
+MIN_CARD_REMAINDER = 5000
+_REDEEM_STEP_DECIMAL = Decimal(REDEEM_STEP)
+
 
 class OrderValidationError(Exception):
     """The requested lines cannot become an order — mapped to 422 by the router."""
@@ -43,28 +53,79 @@ class ProductOutOfStockError(OrderValidationError):
         super().__init__(f"Product(s) out of stock: {product_ids}")
 
 
-class TotalNotPayableWithPointsError(OrderValidationError):
-    """The order total is not a positive whole number of sums — points cannot pay it.
+class InvalidRedeemAmountError(OrderValidationError):
+    """``points_to_apply`` breaks a redeem rule — a malformed amount (422), not a balance shortfall.
 
-    Points are whole integers (1 балл = 1 сум) and a points order leaves no trace outside this
-    database, so the DB is the accounting record itself: a fractional total is REFUSED loudly,
-    never silently rounded (the same stance ``get_unit_price`` takes with FractionalPriceError
-    on the earn side). A non-positive total is refused for the same reason the card path
-    refuses it at invoice time — except here "paid" would be stamped with no invoice to catch
-    it. Both are unreachable from the storefront today (catalogue prices validate ``gt=0`` and
-    whole); this guards against out-of-band catalogue data, not a client path.
+    Distinct from :class:`~src.loyalty.service.InsufficientPointsError` (a live-balance 409): this
+    is an amount the caller could have formed correctly — below the minimum, off the step, over the
+    ceiling, or leaving the card in the forbidden 1..MIN_CARD_REMAINDER-1 band. Carries the computed
+    :func:`max_redeemable` so the mini-app can clamp its stepper without a second round-trip.
     """
 
-    def __init__(self, total: Decimal) -> None:
-        self.total = total
-        super().__init__(f"Order total {total} cannot be paid with points")
+    def __init__(self, *, points: int, max_redeemable: int) -> None:
+        self.points = points
+        self.max_redeemable = max_redeemable
+        super().__init__(
+            f"invalid redeem amount {points}: expected a multiple of {REDEEM_STEP} in "
+            f"[{MIN_REDEEM}, {max_redeemable}] leaving the card 0 or ≥ {MIN_CARD_REMAINDER}"
+        )
 
 
-def _points_total(total: Decimal) -> int:
-    """The exact whole-sum point amount for ``total``, or a loud refusal — never a rounding."""
-    if total <= 0 or total != total.to_integral_value():
-        raise TotalNotPayableWithPointsError(total)
-    return int(total)
+def _floor_to_step(value: Decimal) -> int:
+    """Largest multiple of :data:`REDEEM_STEP` not exceeding ``value`` (i.e. rounded down)."""
+    return int((Decimal(value) // _REDEEM_STEP_DECIMAL) * _REDEEM_STEP_DECIMAL)
+
+
+def max_redeemable(*, balance: int, subtotal: Decimal, total: Decimal) -> int:
+    """Largest point amount applicable to an order — ``0`` when redemption is unavailable.
+
+    Only the goods are redeemable (``eligible = subtotal``); delivery is never paid with points.
+    Two shapes qualify and the larger wins:
+
+    * **Full cover** — spend exactly ``subtotal`` (only when it is itself a whole multiple of
+      :data:`REDEEM_STEP`, else no such legal amount exists) if the balance affords it and the card
+      is left either nothing (delivery-free today) or at least :data:`MIN_CARD_REMAINDER`.
+    * **Partial** — the largest step-aligned amount leaving the card at least
+      :data:`MIN_CARD_REMAINDER`, capped by both the balance and ``eligible``.
+
+    Pure function of three numbers: cheap to unit-test, and the exact ceiling the request validator
+    and the mini-app stepper both clamp to.
+    """
+    eligible = subtotal
+    candidates: list[int] = []
+
+    if balance >= eligible and eligible == _floor_to_step(eligible):
+        card_remainder = total - eligible
+        if card_remainder == 0 or card_remainder >= MIN_CARD_REMAINDER:
+            candidates.append(int(eligible))
+
+    partial = _floor_to_step(min(Decimal(balance), eligible, total - MIN_CARD_REMAINDER))
+    if partial >= MIN_REDEEM:
+        candidates.append(partial)
+
+    return max(candidates, default=0)
+
+
+def _validate_redeem_amount(
+    points: int, *, balance: int, subtotal: Decimal, total: Decimal
+) -> None:
+    """Reject a ``points_to_apply`` that breaks any redeem rule (min / step / ceiling / dead-zone).
+
+    A form-level UX filter reading the balance WITHOUT a lock. The authoritative balance check
+    stays inside :func:`~src.loyalty.service.redeem_points` under ``FOR UPDATE``; if a concurrent
+    order drains the balance after this passes, that check refuses with a 409 and the balance never
+    goes negative. The dead-zone (card remainder in ``1..MIN_CARD_REMAINDER-1``) is checked
+    explicitly — it is not implied by ``points <= max_redeemable`` for an arbitrary amount.
+    """
+    max_allowed = max_redeemable(balance=balance, subtotal=subtotal, total=total)
+    card_remainder = total - points
+    if (
+        points < MIN_REDEEM
+        or points % REDEEM_STEP != 0
+        or points > max_allowed
+        or (card_remainder != 0 and card_remainder < MIN_CARD_REMAINDER)
+    ):
+        raise InvalidRedeemAmountError(points=points, max_redeemable=max_allowed)
 
 
 def generate_order_number() -> str:
@@ -176,24 +237,29 @@ async def create_order(
 ) -> Order:
     """Create an order priced by the SERVER; the client supplies identity and quantity only.
 
-    ``payment_method='card'`` (the default) is today's path, byte-for-byte: the order is
+    ``points_to_apply == 0`` (the default) is today's card path, byte-for-byte: the order is
     created ``pending``/``unpaid`` and money moves later via Multicard.
 
-    ``payment_method='points'`` pays the WHOLE total from the Biotact Club balance inside this
-    one request (= one transaction — ``get_db`` commits at request end, any raise rolls
-    everything back): the redeem debit and the order row live or die together. On success the
-    order is immediately ``paid`` + ``confirmed`` (there is no gateway to wait for); Multicard
-    is never contacted, so this row is the only accounting trace the purchase has.
+    ``points_to_apply > 0`` spends that many Biotact Club points now — validated against the redeem
+    rules first (malformed amount → 422) — inside this one request (= one transaction: ``get_db``
+    commits at request end, any raise rolls everything back), so the redeem debit and the order row
+    live or die together. Full coverage (``points == total``) settles the order outright — ``paid``
+    + ``confirmed``, Multicard never contacted. A partial redemption keeps the order ``unpaid`` /
+    ``pending``: the points are debited now and the card is invoiced for the remainder later.
 
-    Raises :class:`OrderValidationError` (unknown product / out of stock / total not payable
-    with points) — the router maps it to 422 — and
-    :class:`~src.loyalty.service.InsufficientPointsError` — mapped to 409, nothing persisted.
+    Raises :class:`OrderValidationError` (unknown product / out of stock / invalid redeem amount)
+    — the router maps it to 422 — and :class:`~src.loyalty.service.InsufficientPointsError` —
+    mapped to 409, nothing persisted.
     """
     items, subtotal = await _price_lines(db, order_data.items)
     total = subtotal + DELIVERY_FEE
 
-    pay_with_points = order_data.payment_method == "points"
-    points_to_apply = _points_total(total) if pay_with_points else 0
+    points = order_data.points_to_apply
+    if points > 0:
+        # Form-level UX guard on an UNLOCKED balance read; redeem_points re-checks the same balance
+        # under FOR UPDATE, so a concurrent drain becomes a truthful 409, never a negative balance.
+        balance = await loyalty_service.get_balance(db, user_id)
+        _validate_redeem_amount(points, balance=balance, subtotal=subtotal, total=total)
 
     order = Order(
         order_number=generate_order_number(),
@@ -206,22 +272,23 @@ async def create_order(
         delivery_name=order_data.delivery_name,
         customer_note=order_data.customer_note,
     )
-    if pay_with_points:
-        order.points_applied = points_to_apply
-        order.payment_status = "paid"
-        order.status = OrderStatus.CONFIRMED
-        order.paid_at = datetime.utcnow()
+    if points > 0:
+        order.points_applied = points
+        if total - points == 0:  # full coverage — settled outright, no Multicard leg to wait for
+            order.payment_status = "paid"
+            order.status = OrderStatus.CONFIRMED
+            order.paid_at = datetime.utcnow()
+        # A partial redemption keeps the default unpaid/pending — the card collects the remainder.
     order.items.extend(items)
 
     db.add(order)
     await db.flush()
-    if pay_with_points:
-        # After the flush so the ledger row can carry this order's id; the balance check and
-        # the debit serialize on the customer_profile row lock inside redeem_points, so the
-        # flushed-but-uncommitted order above cannot outlive a refusal (409 → rollback).
-        await loyalty_service.redeem_points(
-            db, user_id=user_id, order_id=order.id, amount=points_to_apply
-        )
+    if points > 0:
+        # After the flush so the ledger row can carry this order's id; the balance check and the
+        # debit serialize on the customer_profile row lock inside redeem_points, so the flushed-
+        # but-uncommitted order above cannot outlive a refusal (409 → rollback). The debit is the
+        # full ``points`` amount whether or not the card later collects a remainder.
+        await loyalty_service.redeem_points(db, user_id=user_id, order_id=order.id, amount=points)
     await db.refresh(order)
     return order
 

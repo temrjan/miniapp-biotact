@@ -183,27 +183,77 @@ class MultiCardClient:
 multicard_client = MultiCardClient()
 
 
-def build_ofd_items(order_items: list[OrderItem]) -> list[OFDItem]:
-    """Build OFD items from order items."""
-    ofd_items = []
+def _scale_line_totals(full_totals: list[int], *, amount_tiyins: int, sum_full: int) -> list[int]:
+    """Spread ``amount_tiyins`` across lines pro-rata by full total; the last line absorbs residue.
 
-    for item in order_items:
-        # Price in tiyins (sum * 100)
-        price_tiyins = int(item.product_price * 100)
-        total_tiyins = int(item.total * 100)
+    Each line floors to ``full_i * amount_tiyins // sum_full`` (so the running sum never overshoots),
+    then the final line takes the leftover tiyins — making ``sum(result) == amount_tiyins`` exact.
+    """
+    scaled = [full * amount_tiyins // sum_full for full in full_totals]
+    scaled[-1] += amount_tiyins - sum(scaled)
+    return scaled
 
-        # Get OFD data from product
-        product = item.product if hasattr(item, "product") else None
 
-        ofd_item = OFDItem(
-            mxik=product.mxik if product and product.mxik else "00000000000000000",
-            package_code=product.package_code if product and product.package_code else "0000000",
-            qty=item.quantity,
-            price=price_tiyins,
-            name=item.product_name[:256],
-            total=total_tiyins,
-            vat=product.vat if product and product.vat else None,
+def build_ofd_items(order_items: list[OrderItem], *, amount_tiyins: int) -> list[OFDItem]:
+    """Build OFD line items whose totals sum EXACTLY to ``amount_tiyins`` (the discount model).
+
+    A card order (or a fully points-covered one, which never reaches Multicard) is charged the full
+    catalogue sum, so ``amount_tiyins`` equals the untouched line totals and every line passes
+    through verbatim — byte-for-byte the pre-Stage-6 behaviour. A partially points-covered order is
+    charged only the card remainder: the points discount is spread across lines pro-rata by line
+    total, and the LAST line absorbs the rounding residue so ``sum(line.total) == amount_tiyins`` to
+    the tiyin.
+
+    The receipt is filed with the tax authority, so a fiscal document disagreeing with the sum
+    actually charged is a defect: the invariant is enforced with a ``raise`` (it survives
+    ``python -O``), never a strippable ``assert``.
+
+    Args:
+        order_items: The order's lines — each carries a catalogue price/total and OFD provenance.
+        amount_tiyins: The amount actually charged to the card, in tiyins (the caller's
+            ``total - points_applied``). Positive and never above the summed line totals.
+
+    Raises:
+        ValueError: If the charged amount cannot be reconciled to the line totals.
+    """
+    full_totals = [int(item.total * 100) for item in order_items]
+    sum_full = sum(full_totals)
+
+    if sum_full == amount_tiyins:
+        line_totals = full_totals  # card / full-coverage path — nothing to scale
+    else:
+        if not 0 < amount_tiyins < sum_full:
+            raise ValueError(
+                f"cannot build OFD items: charged {amount_tiyins} tiyins is outside "
+                f"(0, {sum_full}) — the summed line totals"
+            )
+        line_totals = _scale_line_totals(
+            full_totals, amount_tiyins=amount_tiyins, sum_full=sum_full
         )
-        ofd_items.append(ofd_item)
 
+    ofd_items: list[OFDItem] = []
+    for item, line_total in zip(order_items, line_totals, strict=True):
+        product = item.product if hasattr(item, "product") else None
+        ofd_items.append(
+            OFDItem(
+                mxik=product.mxik if product and product.mxik else "00000000000000000",
+                package_code=product.package_code
+                if product and product.package_code
+                else "0000000",
+                qty=item.quantity,
+                price=line_total // item.quantity,
+                name=item.product_name[:256],
+                total=line_total,
+                vat=product.vat if product and product.vat else None,
+            )
+        )
+
+    # Each line's ``total`` is set from ``line_totals`` verbatim, so this is the fiscal invariant on
+    # the document actually emitted: the receipt filed with the tax authority must equal the charge.
+    charged = sum(line_totals)
+    if charged != amount_tiyins:
+        raise ValueError(
+            f"OFD line totals sum to {charged} tiyins, expected {amount_tiyins} — refusing to emit "
+            f"a fiscal receipt that disagrees with the charge"
+        )
     return ofd_items
