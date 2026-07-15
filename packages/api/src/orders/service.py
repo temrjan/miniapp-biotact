@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -266,6 +266,31 @@ async def update_order_payment(
     await db.flush()
     await db.refresh(order)
     return order
+
+
+async def try_arm_payment_attempt(
+    db: AsyncSession,
+    order_id: int,
+    payment_uuid: str,
+) -> bool:
+    """Record a new Multicard attempt on the order — ONLY if it is not already paid.
+
+    Atomic ``UPDATE … WHERE payment_status != 'paid'`` closes the create-payment TOCTOU: the
+    caller checks ownership/paid-state, then calls Multicard (up to 30s), then arms the attempt.
+    A concurrent success callback can land ``paid`` inside that window; a blind write would then
+    stamp the order back to ``pending`` over a real payment. Guarding the write on the same
+    condition makes it a no-op instead — the row simply is not matched. Returns whether a row was
+    armed (``False`` ⇒ already paid, caller must not proceed).
+    """
+    armed = (
+        await db.execute(
+            update(Order)
+            .where(Order.id == order_id, Order.payment_status != "paid")
+            .values(payment_uuid=payment_uuid, payment_status="pending")
+            .returning(Order.id)
+        )
+    ).scalar_one_or_none()
+    return armed is not None
 
 
 async def get_user_orders(

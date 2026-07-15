@@ -12,11 +12,13 @@ from src.config import settings
 from src.database import get_db
 from src.notifications.service import telegram_notifier
 from src.orders import service as orders_service
+from src.payments.lifecycle import PaymentAmountMismatchError, process_payment_event
 from src.payments.schemas import (
     CreatePaymentRequest,
     PaymentCreateData,
     PaymentResponse,
     SuccessCallbackData,
+    WebhookData,
 )
 from src.payments.service import build_ofd_items, multicard_client
 from src.users.models import User
@@ -94,13 +96,16 @@ async def create_payment(
         if not result:
             raise HTTPException(status_code=502, detail="Payment service returned no result")
 
-        # Save payment UUID to order
-        await orders_service.update_order_payment(
-            db,
-            order.id,
-            payment_uuid=result.uuid,
-            payment_status="pending",
-        )
+        # Arm this attempt on the order — atomically, only if it is not already paid. Guards the
+        # TOCTOU between the paid-check above and here across the (up to 30s) Multicard call: a
+        # concurrent success callback may have paid the order meanwhile, and a blind write would
+        # stamp it back to pending over a real payment.
+        armed = await orders_service.try_arm_payment_attempt(db, order.id, payment_uuid=result.uuid)
+        if not armed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Order already paid",
+            )
 
         # Send Telegram notification about new order
         try:
@@ -130,6 +135,10 @@ async def create_payment(
             order_id=order.id,
         )
 
+    except HTTPException:
+        # Deliberate HTTP responses (e.g. "already paid" from the arm guard) must pass through —
+        # not be swallowed and relabelled as a 502 by the gateway-error handler below.
+        raise
     except Exception as e:
         logger.error(f"Failed to create payment: {e}")
         raise HTTPException(
@@ -138,13 +147,47 @@ async def create_payment(
         ) from e
 
 
+async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) -> None:
+    """Send the admin "paid" notification for ``order_id`` — best-effort, called AFTER commit.
+
+    Loads the order fresh with items (the lifecycle handler locks the bare row, not the lines).
+    Must run after the transaction is committed so the ``FOR UPDATE`` lock is not held across the
+    Telegram network call (up to 10s) — same lesson as the points path.
+    """
+    order = await orders_service.get_order_with_items(db, order_id)
+    if not order:
+        return
+    items_data = [
+        {
+            "product_name": item.product_name,
+            "quantity": item.quantity,
+            "product_price": item.product_price,
+        }
+        for item in order.items
+    ]
+    await telegram_notifier.notify_payment_success(
+        order_number=order.order_number,
+        total=float(order.total),
+        items=items_data,
+        customer_name=order.delivery_name,
+        customer_phone=order.delivery_phone,
+        delivery_address=order.delivery_address,
+        invoice_uuid=invoice_uuid,
+    )
+
+
 @router.post("/callback")
 async def payment_callback(
     callback: SuccessCallbackData,
     db: DbSession,
 ) -> dict[str, bool]:
-    """Handle success callback from Multicard."""
-    logger.info(f"Payment callback: uuid={callback.uuid}, invoice_id={callback.invoice_id}")
+    """Handle the success callback from Multicard (MD5-signed).
+
+    Idempotent: a duplicate callback (Multicard repeats it on any 2xx timeout) is a no-op — the
+    order is not re-written and admins are not re-notified. The amount is reconciled against what
+    the order owes before anything is applied.
+    """
+    logger.info("Payment callback: uuid=%s, invoice_id=%s", callback.uuid, callback.invoice_id)
 
     # Verify signature (MD5: store_id + invoice_id + amount + secret)
     if not multicard_client.verify_callback_sign(
@@ -153,57 +196,112 @@ async def payment_callback(
         callback.amount,
         callback.sign,
     ):
-        logger.warning(f"Invalid callback signature for {callback.uuid}")
+        logger.warning("Invalid callback signature for %s", callback.uuid)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid signature",
         )
 
-    # Get order by invoice_id (order_number)
-    order = await orders_service.get_order_by_number(db, callback.invoice_id)
-    if not order:
-        logger.error(f"Order not found: {callback.invoice_id}")
+    try:
+        outcome = await process_payment_event(
+            db,
+            payment_uuid=callback.uuid,
+            invoice_id=callback.invoice_id,
+            amount=callback.amount,
+            status="success",
+            payload=callback.model_dump(),
+            trust_success=True,  # MD5 callback is the authoritative success channel
+        )
+    except PaymentAmountMismatchError as exc:
+        # Non-2xx to a success callback = Multicard cancels+refunds — correct: we reject a
+        # payment for the wrong sum rather than mark the order paid.
+        logger.error("Callback amount mismatch for %s: %s", callback.uuid, exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Amount mismatch",
+        ) from exc
+
+    if outcome.order is None:
+        logger.error("Order not found for callback invoice_id=%s", callback.invoice_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",
         )
 
-    # Update order as paid
-    await orders_service.update_order_payment(
-        db,
-        order.id,
-        payment_uuid=callback.uuid,
-        payment_status="paid",
+    if outcome.newly_processed and outcome.applied_success:
+        logger.info("Order %s paid successfully via %s", callback.invoice_id, callback.ps)
+        # Commit BEFORE notifying so the order's FOR UPDATE lock is released before the Telegram
+        # call; the get_db commit that follows is then a harmless no-op.
+        await db.commit()
+        try:
+            await _notify_paid(db, outcome.order.id, invoice_uuid=callback.uuid)
+        except Exception as exc:  # notification is best-effort, never fails the callback
+            logger.error("Failed to send Telegram notification: %s", exc)
+
+    return {"success": True}
+
+
+@router.post("/webhook")
+async def payment_webhook(
+    webhook: WebhookData,
+    db: DbSession,
+) -> dict[str, bool]:
+    """Handle a payment lifecycle webhook from Multicard (SHA1-signed).
+
+    Covers the full status vocabulary the success callback does not: ``error`` (payment failed)
+    and ``revert`` (money refunded) cancel the order; ``draft``/``progress``/``hold`` are
+    recorded but move nothing. Multicard retries up to 5 times unless we answer 2xx, so every
+    outcome except a bad signature returns success — including an unknown invoice, so a stray
+    webhook stops retrying instead of hammering us.
+    """
+    logger.info(
+        "Payment webhook: uuid=%s, invoice_id=%s, status=%s",
+        webhook.uuid,
+        webhook.invoice_id,
+        webhook.status,
     )
-    # Update order status to confirmed
-    await orders_service.update_order_status(db, order.id, "confirmed")
 
-    logger.info(f"Order {order.order_number} paid successfully via {callback.ps}")
+    # Verify signature (SHA1: uuid + invoice_id + amount + secret)
+    if not multicard_client.verify_webhook_sign(
+        webhook.uuid,
+        webhook.invoice_id,
+        webhook.amount,
+        webhook.sign,
+    ):
+        logger.warning("Invalid webhook signature for %s", webhook.uuid)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid signature",
+        )
 
-    # Send Telegram notification about successful payment
     try:
-        # Get order with items for notification
-        order_with_items = await orders_service.get_order_with_items(db, order.id)
-        if order_with_items:
-            items_data = [
-                {
-                    "product_name": item.product_name,
-                    "quantity": item.quantity,
-                    "product_price": item.product_price,
-                }
-                for item in order_with_items.items
-            ]
-            await telegram_notifier.notify_payment_success(
-                order_number=order_with_items.order_number,
-                total=float(order_with_items.total),
-                items=items_data,
-                customer_name=order_with_items.delivery_name,
-                customer_phone=order_with_items.delivery_phone,
-                delivery_address=order_with_items.delivery_address,
-                invoice_uuid=callback.uuid,
-            )
-    except Exception as e:
-        logger.error(f"Failed to send Telegram notification: {e}")
+        outcome = await process_payment_event(
+            db,
+            payment_uuid=webhook.uuid,
+            invoice_id=webhook.invoice_id,
+            amount=webhook.amount,
+            status=webhook.status,
+            payload=webhook.model_dump(),
+            trust_success=False,  # webhook status is unsigned → not authoritative for success
+        )
+    except PaymentAmountMismatchError as exc:
+        logger.error("Webhook amount mismatch for %s: %s", webhook.uuid, exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Amount mismatch",
+        ) from exc
+
+    if outcome.order is None:
+        # Unknown invoice — still 2xx so Multicard stops retrying a webhook we cannot match.
+        logger.warning("Webhook for unknown invoice_id=%s (acknowledged)", webhook.invoice_id)
+        return {"success": True}
+
+    if outcome.newly_processed and outcome.applied_success:
+        await db.commit()
+        try:
+            await _notify_paid(db, outcome.order.id, invoice_uuid=webhook.uuid)
+        except Exception as exc:  # notification is best-effort, never fails the webhook
+            logger.error("Failed to send Telegram notification: %s", exc)
 
     return {"success": True}
 

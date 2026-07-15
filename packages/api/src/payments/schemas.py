@@ -63,6 +63,23 @@ class SuccessCallbackData(BaseModel):
     sign: str  # MD5: {store_id}{invoice_id}{amount}{secret}
 
 
+# Webhook from Multicard (POST to webhook URL, retried x5 until 2xx)
+class WebhookData(BaseModel):
+    """Payment lifecycle webhook from Multicard.
+
+    Distinct from the success callback: it is signed with SHA1 (not MD5) and carries the full
+    status vocabulary (``draft``/``progress``/``success``/``error``/``revert``/``hold``), not
+    just success. Multicard retries it up to 5 times unless we answer 2xx, so the handler must
+    be idempotent and must not 4xx/5xx on a status it merely ignores.
+    """
+
+    uuid: str
+    invoice_id: str
+    amount: int
+    status: str
+    sign: str  # SHA1: {uuid}{invoice_id}{amount}{secret}
+
+
 # Response to frontend
 class PaymentResponse(BaseModel):
     """Payment response to frontend."""
