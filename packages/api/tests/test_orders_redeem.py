@@ -578,6 +578,43 @@ async def test_race_two_partial_orders_never_go_negative(
     assert await _committed_balance(maker, user_id) == 0  # never negative
 
 
+async def test_insufficient_points_maps_to_structured_409(
+    client: AsyncClient,
+    maker: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 409 contract THROUGH the router: `InsufficientPointsError` → 409 with error/balance/deficit.
+
+    The service-level race test proves the debit never goes negative, but bypasses the HTTP layer —
+    so a typo in the router's 409 status or detail shape would pass unnoticed. A single request
+    cannot reach a shortfall (the unlocked form check and the locked debit see the same balance), and
+    a genuine HTTP race for one user serialises on the auth user-row write. So the shortfall — which
+    in production only arises from concurrency inside ``redeem_points`` — is injected at that exact
+    boundary, and this asserts the router's translation of it.
+    """
+    user_id = await _seed_user(maker, telegram_id=80070)
+    product_id = await _seed_product(maker, slug="redeem-409-map")
+    await _seed_points(maker, user_id=user_id, amount=60_000)
+
+    async def _refuse(db: object, *, user_id: int, order_id: int, amount: int) -> None:
+        raise InsufficientPointsError(balance=5, required=amount)
+
+    monkeypatch.setattr(loyalty_service, "redeem_points", _refuse)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=60_000), headers=_headers(80070)
+    )
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["error"] == "insufficient_points"
+    assert detail["balance"] == 5
+    assert detail["required"] == 60_000
+    assert detail["deficit"] == 60_000 - 5
+    # The injected refusal aborts the request → nothing persisted (rollback on the raise).
+    assert await _committed_order_count(maker) == 0
+
+
 async def test_same_order_cannot_be_debited_twice_unique_backstop(
     test_db: AsyncSession, maker: async_sessionmaker[AsyncSession]
 ) -> None:

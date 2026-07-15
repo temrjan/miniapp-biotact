@@ -40,9 +40,10 @@ async def create_order(
 ) -> Order:
     """Create a new order. Prices come from the catalogue — the request carries no money.
 
-    ``payment_method='points'`` settles the whole order from the club balance in this same
-    request; a shortfall is a 409 whose detail carries the exact deficit (all-or-nothing —
-    nothing is debited, no order is created).
+    ``points_to_apply > 0`` spends that many club points on this order (Stage 6 partial redemption):
+    full coverage settles it outright, a partial spend leaves the card the remainder. A malformed
+    amount is a 422 carrying ``max_redeemable``; a live-balance shortfall under concurrency is a 409
+    whose detail carries the exact deficit (nothing debited, no order created).
     """
     try:
         order = await service.create_order(db, order_data, user_id=user.id)

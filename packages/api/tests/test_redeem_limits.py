@@ -139,3 +139,41 @@ class TestBuildOfdItems:
         items = [_item(Decimal("69000"))]
         with pytest.raises(ValueError, match="outside"):
             build_ofd_items(items, amount_tiyins=0)
+
+    def test_multi_quantity_partial_line_stays_consistent_and_exact(self) -> None:
+        """qty > 1 with an indivisible discount: every line keeps ``total == price * qty`` AND the
+        receipt (``Σ price * qty``) equals the charge — the [Gate-2 BLOCKER] regression.
+
+        3 units of 69 000 = 207 000 goods; 100 000 spent as points leaves 107 000 to the card.
+        107 000 / 3 is not whole, so the line is split (2 units + 1 unit carrying the 2-tiyin
+        remainder) rather than emit a price whose ``price * qty`` disagrees with the total the
+        receipt shows.
+        """
+        items = [_item(Decimal("207000"), quantity=3, price=Decimal("69000"))]
+        charge = 10_700_000  # (207 000 - 100 000) * 100
+
+        ofd = build_ofd_items(items, amount_tiyins=charge)
+
+        assert all(o.total == o.price * o.qty for o in ofd)  # each line internally consistent
+        assert sum(o.price * o.qty for o in ofd) == charge  # the receipt equals the charge
+        assert sum(o.qty for o in ofd) == 3  # all three units still on the receipt
+        assert [(o.qty, o.price) for o in ofd] == [(2, 3_566_666), (1, 3_566_668)]
+
+    def test_multi_quantity_card_path_stays_consistent(self) -> None:
+        """A qty > 1 card order (no discount) keeps the catalogue unit price, total == price * qty."""
+        items = [_item(Decimal("207000"), quantity=3, price=Decimal("69000"))]
+        full = 3 * 6_900_000
+
+        ofd = build_ofd_items(items, amount_tiyins=full)
+
+        assert [(o.qty, o.price, o.total) for o in ofd] == [(3, 6_900_000, 20_700_000)]
+
+    def test_divisible_multi_quantity_needs_no_split(self) -> None:
+        """When the discounted total IS divisible by qty, one line suffices — no cosmetic split."""
+        items = [_item(Decimal("138000"), quantity=2, price=Decimal("69000"))]
+        charge = 6_900_000  # half of 13 800 000; 3 450 000 per unit, exact
+
+        ofd = build_ofd_items(items, amount_tiyins=charge)
+
+        assert [(o.qty, o.price, o.total) for o in ofd] == [(2, 3_450_000, 6_900_000)]
+        assert sum(o.price * o.qty for o in ofd) == charge
