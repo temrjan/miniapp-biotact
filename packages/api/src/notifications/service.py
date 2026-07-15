@@ -71,10 +71,22 @@ class TelegramNotifier:
         customer_phone: str | None = None,
         delivery_address: str | None = None,
         invoice_uuid: str | None = None,
+        points_applied: int = 0,
     ) -> bool:
-        """Notify about new order (payment initiated)."""
+        """Notify about a new order whose card invoice was just created (payment initiated).
+
+        ``points_applied`` is the club-points part already covered (Stage 6 partial redemption).
+        The headline is what the CARD will collect (``total - points_applied``), plus a debit line —
+        so the fulfilment group never reads the full catalogue sum as the card charge.
+        """
         items_text = self._format_items(items)
         now = datetime.now().strftime("%d.%m.%Y %H:%M")
+        amount_due = total - points_applied
+        points_line = (
+            f"\n💎 <b>Списано баллов:</b> {self._format_price(points_applied)}"
+            if points_applied
+            else ""
+        )
 
         message = f"""📱 <b>Biotact Mini-App</b>
 🔔 <b>НОВЫЙ ЗАКАЗ</b>
@@ -82,7 +94,7 @@ class TelegramNotifier:
 📦 <b>Товары:</b>
 {items_text}
 
-💰 <b>Сумма:</b> {self._format_price(total)} сум
+💰 <b>К оплате картой:</b> {self._format_price(amount_due)} сум{points_line}
 
 👤 <b>Клиент:</b>
 Имя: {customer_name or "Не указано"}
@@ -107,15 +119,20 @@ class TelegramNotifier:
         invoice_uuid: str | None = None,
         points_applied: int = 0,
     ) -> bool:
-        """Notify about successful payment.
+        """Notify about a successful payment.
 
-        ``points_applied > 0`` marks the same request «ОПЛАЧЕНО БАЛЛАМИ» and shows the debit —
-        an all-or-nothing points order has no invoice and no fiscal receipt, so this line is
-        how the fulfilment group tells the two payment kinds apart.
+        The header is «ОПЛАЧЕНО БАЛЛАМИ» only when points covered the order in FULL
+        (``points_applied >= total``) — such an order has no invoice or fiscal receipt at all. A
+        PARTIAL order is settled by the card success callback, where ``0 < points_applied < total``:
+        the header stays «ОПЛАЧЕНО» (the card collected the remainder) and the debit line records
+        the points part. A pure card order (``points_applied == 0``) shows neither.
         """
         items_text = self._format_items(items)
         now = datetime.now().strftime("%d.%m.%Y %H:%M")
-        header = "✅ <b>ОПЛАЧЕНО БАЛЛАМИ</b>" if points_applied else "✅ <b>ОПЛАЧЕНО</b>"
+        # Full coverage ⇒ «ОПЛАЧЕНО БАЛЛАМИ»; a partial order reaches this via the card callback
+        # (points alone never do), so there points_applied < total and «ОПЛАЧЕНО» is the truth.
+        fully_points = points_applied >= total
+        header = "✅ <b>ОПЛАЧЕНО БАЛЛАМИ</b>" if fully_points else "✅ <b>ОПЛАЧЕНО</b>"
         points_line = (
             f"\n💎 <b>Списано баллов:</b> {self._format_price(points_applied)}"
             if points_applied

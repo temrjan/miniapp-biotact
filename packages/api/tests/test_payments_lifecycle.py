@@ -265,6 +265,43 @@ async def test_amount_mismatch_is_rejected_and_not_paid(
     assert sent_messages == []
 
 
+async def test_partial_order_paid_via_callback_notifies_paid_not_ballami(
+    client: AsyncClient, maker, sent_messages: list[str]
+) -> None:
+    """A PARTIAL order settled by the card callback is «ОПЛАЧЕНО» + a debit line — NOT «БАЛЛАМИ».
+
+    Points covered 45 000 of a 50 000 order; the card collects the 5 000 remainder (amount reconciled
+    against ``total - points_applied``). The admin message must record the points spent (proving
+    ``_notify_paid`` forwards ``points_applied``) yet keep the «ОПЛАЧЕНО» header — the card, not
+    points, closed this order (the [ratified] header-by-coverage rule).
+    Mutation: drop ``points_applied=order.points_applied`` from ``_notify_paid`` → the «Списано
+    баллов» line disappears → red.
+    """
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-PARTIAL",
+        total=Decimal("50000.00"),
+        points_applied=45_000,
+        payment_uuid="u-partial",
+        payment_status="pending",
+    )
+    remainder_tiyins = (50_000 - 45_000) * 100  # what the card actually collects
+
+    resp = await client.post(
+        CALLBACK_URL,
+        json=_callback_body(uuid="u-partial", invoice_id="ORD-PARTIAL", amount=remainder_tiyins),
+    )
+
+    assert resp.status_code == 200, resp.text
+    order = await _committed_order(maker, order_id)
+    assert order.payment_status == "paid"
+    assert len(sent_messages) == 1
+    message = sent_messages[0]
+    assert "ОПЛАЧЕНО" in message
+    assert "ОПЛАЧЕНО БАЛЛАМИ" not in message  # the card closed it, not points
+    assert "Списано баллов" in message  # but the points spent are still recorded
+
+
 async def test_callback_unknown_invoice_returns_404(client: AsyncClient, maker) -> None:
     resp = await client.post(CALLBACK_URL, json=_callback_body(uuid="u-x", invoice_id="ORD-NOPE"))
     assert resp.status_code == 404

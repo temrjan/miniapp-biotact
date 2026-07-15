@@ -1,16 +1,19 @@
-"""Tests for paying an order with Biotact Club points (Stage 6, PR-6.3).
+"""Tests for spending Biotact Club points on an order (Stage 6, PR-6.3-v2 partial redemption).
 
-The model under test is all-or-nothing (Captain, 2026-07-13): either the club balance covers
-the WHOLE total — the order is created ``paid``/``confirmed`` and the ledger gets one
-``redeem`` row — or nothing at all is written (409 with the exact deficit). Multicard never
-participates; a points order leaves no trace outside this database, so what these tests pin
-IS the accounting record.
+``points_to_apply`` is the amount of points to spend: ``0`` is the card path; ``= subtotal`` covers
+the goods in full (settled outright, ``paid`` + ``confirmed``, Multicard never involved); anything
+between debits that many points NOW and leaves the order ``unpaid``/``pending`` so Multicard can
+collect the card remainder. Points cover goods only, never delivery.
 
-Unlike the sibling suites, requests here run through a ``get_db`` override that mirrors the
-production dependency exactly (commit on success, rollback on raise) — the conftest override
-neither commits nor rolls back, which would make "nothing was persisted" untestable. Committed
-truth is asserted through a second sessionmaker on the same test DB (READ COMMITTED), the same
-approach the loyalty suites use for seeding.
+A malformed amount (below the minimum, off the 100-step, over the ceiling, or leaving the card in
+the forbidden 1..4999 band) is a 422 carrying the computed ``max_redeemable`` — the caller could
+have formed it correctly. A 409 is reserved for a genuine live-balance shortfall under concurrency:
+the unlocked form check passes, then ``redeem_points`` re-checks under ``FOR UPDATE`` and refuses so
+the balance never goes negative.
+
+Requests run through a ``get_db`` override that mirrors production (commit on success, rollback on
+raise) — the conftest override does neither, which would make "a refusal persisted nothing"
+untestable. Committed truth is read through a second sessionmaker (READ COMMITTED).
 """
 
 import asyncio
@@ -35,6 +38,8 @@ from src.notifications.service import telegram_notifier
 from src.orders import service as orders_service
 from src.orders.models import Order
 from src.orders.schemas import OrderCreate, OrderItemCreate
+from src.payments.schemas import MultiCardPaymentResponse, PaymentCreateData
+from src.payments.service import multicard_client
 from src.products.models import Product
 from src.users.models import User
 from tests.conftest import _make_init_data
@@ -45,8 +50,9 @@ BOT_TOKEN = "test-bot-token-123"
 ORDERS_URL = "/api/v1/orders"
 PAYMENTS_URL = "/api/v1/payments/create"
 
-CATALOGUE_PRICE = Decimal("69000.00")
-POINTS_FOR_ONE = 69_000  # the same order total as an integer point amount (1 балл = 1 сум)
+# A whole, step-aligned price that leaves room for both a partial (remainder ≥ 5000) and a full
+# redemption — the workhorse for the money-path tests.
+GOODS_PRICE = Decimal("69000.00")
 
 
 def _headers(telegram_id: int, first_name: str = "Member") -> dict[str, str]:
@@ -56,15 +62,19 @@ def _headers(telegram_id: int, first_name: str = "Member") -> dict[str, str]:
     }
 
 
-def _points_payload(product_id: int, quantity: int = 1) -> dict[str, object]:
-    """A points-checkout request body for one product line."""
-    return {
+def _payload(
+    product_id: int, *, points_to_apply: int | None = None, quantity: int = 1
+) -> dict[str, object]:
+    """A checkout request body. ``points_to_apply=None`` omits the field entirely (old clients)."""
+    body: dict[str, object] = {
         "items": [{"product_id": product_id, "quantity": quantity}],
-        "payment_method": "points",
         "delivery_phone": "+998900000001",
         "delivery_name": "Points Buyer",
         "delivery_address": "Tashkent",
     }
+    if points_to_apply is not None:
+        body["points_to_apply"] = points_to_apply
+    return body
 
 
 @pytest.fixture(autouse=True)
@@ -75,11 +85,7 @@ def _pin_bot_token(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def sent_messages(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Capture every Telegram send instead of hitting the network; return the captured texts.
-
-    Autouse: a points order fires the admin notification inside ``POST /orders``, and no test
-    here may depend on api.telegram.org being reachable (or on dev .env credentials).
-    """
+    """Capture every Telegram send instead of hitting the network; return the captured texts."""
     captured: list[str] = []
 
     async def _capture(text: str, parse_mode: str = "HTML") -> bool:
@@ -92,10 +98,7 @@ def sent_messages(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest_asyncio.fixture
 async def maker(test_db: AsyncSession) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
-    """A sessionmaker on the same test DB — committed seeding + committed-truth asserts.
-
-    Depends on ``test_db`` so the schema exists before the first seed and is dropped after.
-    """
+    """A sessionmaker on the same test DB — committed seeding + committed-truth asserts."""
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     sm = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     yield sm
@@ -108,7 +111,7 @@ async def client(
 ) -> AsyncGenerator[AsyncClient, None]:
     """HTTP client whose DB dependency behaves EXACTLY like production ``get_db``.
 
-    Commit on success / rollback on raise is the property under test on the money path: a 409
+    Commit on success / rollback on raise is the property under test on the money path: a refusal
     must leave no order and no ledger row behind. The conftest ``client`` does neither, so a
     flushed-then-refused order would stay visible in its session and lie to the asserts.
     """
@@ -139,7 +142,7 @@ async def _seed_product(
     sm: async_sessionmaker[AsyncSession],
     *,
     slug: str,
-    price: Decimal = CATALOGUE_PRICE,
+    price: Decimal = GOODS_PRICE,
 ) -> int:
     """Commit one catalogue product; return its id."""
     async with sm() as session, session.begin():
@@ -197,60 +200,124 @@ async def _committed_redeem_rows(
 
 
 # --------------------------------------------------------------------------- #
-# refusals: all-or-nothing means REFUSED writes exactly nothing
+# refusals (422): a malformed amount writes exactly nothing, and returns the ceiling
 # --------------------------------------------------------------------------- #
 
 
-async def test_insufficient_balance_returns_409_with_deficit_and_writes_nothing(
+async def test_over_affordable_amount_is_422_with_max(
     client: AsyncClient, maker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Balance 100, order 69 000 → 409 carrying the exact shortfall; DB untouched."""
+    """Requesting more points than the balance affords → 422 carrying ``max_redeemable`` (not 409).
+
+    Balance 100, goods 69 000: nothing legal can be redeemed, so the ceiling is 0 and the malformed
+    amount is rejected at the form gate before any write. The old all-or-nothing model answered 409
+    here; the 409 is now reserved for the concurrency race below.
+    """
     user_id = await _seed_user(maker, telegram_id=80001)
-    product_id = await _seed_product(maker, slug="redeem-short")
+    product_id = await _seed_product(maker, slug="redeem-over")
     await _seed_points(maker, user_id=user_id, amount=100)
 
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80001))
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80001)
+    )
 
-    assert resp.status_code == 409, resp.text
+    assert resp.status_code == 422, resp.text
     detail = resp.json()["detail"]
-    assert detail["error"] == "insufficient_points"
-    assert detail["balance"] == 100
-    assert detail["required"] == POINTS_FOR_ONE
-    assert detail["deficit"] == POINTS_FOR_ONE - 100
-    # Nothing persisted: no order, no redeem row, balance untouched.
+    assert detail["error"] == "invalid_redeem_amount"
+    assert detail["max_redeemable"] == 0
     assert await _committed_order_count(maker) == 0
     assert await _committed_redeem_rows(maker) == []
     assert await _committed_balance(maker, user_id) == 100
 
 
-async def test_non_member_cannot_pay_with_points(
+async def test_non_member_requesting_points_is_422(
     client: AsyncClient, maker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """A user who never joined the club (no profile row) is refused on balance 0."""
+    """A user who never joined the club (no profile row, balance 0) cannot redeem → 422, max 0."""
     product_id = await _seed_product(maker, slug="redeem-nonmember")
 
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80002))
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=500), headers=_headers(80002)
+    )
 
-    assert resp.status_code == 409, resp.text
-    detail = resp.json()["detail"]
-    assert detail["balance"] == 0
-    assert detail["deficit"] == POINTS_FOR_ONE
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["max_redeemable"] == 0
     assert await _committed_order_count(maker) == 0
 
 
-async def test_fractional_total_is_refused_not_rounded(
+async def test_below_minimum_is_422(
     client: AsyncClient, maker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """A non-whole total (price seeded past the admin ``gt=0``-whole validation) → 422, DB clean.
-
-    This DB is the only accounting record of a points order — silently rounding here would
-    fabricate money. The refusal mirrors ``get_unit_price``'s FractionalPriceError on earn.
-    """
+    """``points_to_apply`` under MIN_REDEEM (500) is refused even when affordable."""
     user_id = await _seed_user(maker, telegram_id=80003)
+    product_id = await _seed_product(maker, slug="redeem-min")
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=400), headers=_headers(80003)
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["error"] == "invalid_redeem_amount"
+    assert await _committed_order_count(maker) == 0
+
+
+async def test_not_a_multiple_of_100_is_422(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """An amount off the 100-step is refused (the card remainder must stay a whole sum too)."""
+    user_id = await _seed_user(maker, telegram_id=80004)
+    product_id = await _seed_product(maker, slug="redeem-step")
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=60_050), headers=_headers(80004)
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert await _committed_order_count(maker) == 0
+
+
+async def test_dead_zone_remainder_is_422(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """A card remainder inside the forbidden 1..4999 band is refused, even under the ceiling.
+
+    Goods 69 000, balance rich (max = 69 000). ``points_to_apply=65 000`` is ≤ max, ≥ 500 and
+    step-aligned, yet leaves the card 4 000 — the dead zone — so it must be rejected. This is the
+    branch NOT implied by ``points <= max_redeemable``.
+    """
+    user_id = await _seed_user(maker, telegram_id=80005)
+    product_id = await _seed_product(maker, slug="redeem-deadzone")
+    await _seed_points(maker, user_id=user_id, amount=1_000_000)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=65_000), headers=_headers(80005)
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["max_redeemable"] == 69_000
+    assert await _committed_order_count(maker) == 0
+    assert await _committed_redeem_rows(maker) == []
+    assert await _committed_balance(maker, user_id) == 1_000_000
+
+
+async def test_fractional_subtotal_refuses_points(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """A non-step subtotal (price past the admin whole-sum norm) admits no legal amount → 422.
+
+    Points move whole sums and this DB is the only record of the debit; a fractional subtotal has
+    no step-aligned full cover and is too small for a partial, so the ceiling is 0 and any spend is
+    refused — never silently rounded.
+    """
+    user_id = await _seed_user(maker, telegram_id=80006)
     product_id = await _seed_product(maker, slug="redeem-fractional", price=Decimal("1000.50"))
     await _seed_points(maker, user_id=user_id, amount=1_000_000)
 
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80003))
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=1_000), headers=_headers(80006)
+    )
 
     assert resp.status_code == 422, resp.text
     assert await _committed_order_count(maker) == 0
@@ -258,121 +325,185 @@ async def test_fractional_total_is_refused_not_rounded(
     assert await _committed_balance(maker, user_id) == 1_000_000
 
 
-async def test_zero_total_is_refused_for_points(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
-) -> None:
-    """A zero-priced product (out-of-band data) cannot become a free order stamped "paid".
-
-    The card path is caught by the Multicard invoice guard (`total <= 0` → 400); the points
-    path has no invoice, so the same class of bad catalogue data must be refused here.
-    """
-    user_id = await _seed_user(maker, telegram_id=80004)
-    product_id = await _seed_product(maker, slug="redeem-zero", price=Decimal("0.00"))
-    await _seed_points(maker, user_id=user_id, amount=1_000)
-
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80004))
-
-    assert resp.status_code == 422, resp.text
-    # Same invariants the fractional case pins (Gate-2 NIT): a refusal writes NOTHING.
-    assert await _committed_order_count(maker) == 0
-    assert await _committed_redeem_rows(maker) == []
-    assert await _committed_balance(maker, user_id) == 1_000
-
-
-async def test_one_point_short_is_refused(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
-) -> None:
-    """``balance == required - 1`` → refused. The tight side of the ``<`` boundary.
-
-    Its twin (``balance == required`` → accepted) is ``test_exact_balance_pays_order…``; together
-    they pin the comparison from both sides, so it cannot drift to ``<=`` or to ``< amount - 1``
-    unnoticed (Gate-2 NIT: mutation-coverage of the boundary itself).
-    """
-    user_id = await _seed_user(maker, telegram_id=80005)
-    product_id = await _seed_product(maker, slug="redeem-one-short")
-    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE - 1)
-
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80005))
-
-    assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"]["deficit"] == 1
-    assert await _committed_order_count(maker) == 0
-    assert await _committed_redeem_rows(maker) == []
-    assert await _committed_balance(maker, user_id) == POINTS_FOR_ONE - 1
-
-
 # --------------------------------------------------------------------------- #
-# success: paid + confirmed + exactly one redeem row carrying the order id
+# full coverage: settled outright, paid + confirmed, marked «оплачено баллами»
 # --------------------------------------------------------------------------- #
 
 
-async def test_points_payment_marks_order_paid_and_writes_redeem_row(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+async def test_full_coverage_pays_confirms_and_notifies(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
 ) -> None:
-    """The happy path end to end: order fields, ledger row, remaining balance."""
+    """``points == total`` settles the order outright and fires the «ОПЛАЧЕНО БАЛЛАМИ» notice."""
     user_id = await _seed_user(maker, telegram_id=80010)
-    product_id = await _seed_product(maker, slug="redeem-happy")
-    await _seed_points(maker, user_id=user_id, amount=100_000)
+    product_id = await _seed_product(maker, slug="redeem-full")
+    await _seed_points(maker, user_id=user_id, amount=69_000)
 
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80010))
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80010)
+    )
 
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["points_applied"] == POINTS_FOR_ONE
+    assert body["points_applied"] == 69_000
     assert body["payment_status"] == "paid"
     assert body["status"] == "confirmed"
     assert body["paid_at"] is not None
     assert body["payment_uuid"] is None  # Multicard never touched this order
-    assert Decimal(body["total"]) == CATALOGUE_PRICE
 
     redeem_rows = await _committed_redeem_rows(maker)
     assert len(redeem_rows) == 1
-    row = redeem_rows[0]
-    assert row.user_id == user_id
-    assert row.order_id == body["id"]
-    assert row.amount == -POINTS_FOR_ONE
-    assert await _committed_balance(maker, user_id) == 100_000 - POINTS_FOR_ONE
+    assert redeem_rows[0].order_id == body["id"]
+    assert redeem_rows[0].amount == -69_000
+    assert await _committed_balance(maker, user_id) == 0
+
+    assert len(sent_messages) == 1
+    message = sent_messages[0]
+    assert "ОПЛАЧЕНО БАЛЛАМИ" in message
+    assert "Списано баллов" in message
 
 
-async def test_exact_balance_pays_order_and_zeroes_balance(
+async def test_full_points_order_cannot_be_invoiced_via_multicard(
     client: AsyncClient, maker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """``balance == total`` is sufficient (the check is ``<``, not ``<=``) → balance lands on 0."""
+    """`POST /payments/create` on a fully points-paid order → 400 (already paid), before any IO."""
     user_id = await _seed_user(maker, telegram_id=80011)
-    product_id = await _seed_product(maker, slug="redeem-exact")
-    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE)
+    product_id = await _seed_product(maker, slug="redeem-noinvoice")
+    await _seed_points(maker, user_id=user_id, amount=69_000)
 
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80011))
+    created = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80011)
+    )
+    assert created.status_code == 201, created.text
 
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["points_applied"] == POINTS_FOR_ONE
-    assert await _committed_balance(maker, user_id) == 0
+    resp = await client.post(
+        PAYMENTS_URL,
+        json={"order_id": created.json()["id"], "return_url": "https://x.uz"},
+        headers=_headers(80011),
+    )
+
+    assert resp.status_code == 400
+    assert "already paid" in resp.text.lower()
 
 
 # --------------------------------------------------------------------------- #
-# the card path is unchanged — byte for byte
+# partial redemption: points debited now, order UNPAID, card owes the remainder
+# --------------------------------------------------------------------------- #
+
+
+async def test_partial_redeem_debits_points_and_leaves_order_unpaid(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
+) -> None:
+    """Points spent now, order ``unpaid``/``pending``, exactly one debit — no notice yet (unpaid)."""
+    user_id = await _seed_user(maker, telegram_id=80020)
+    product_id = await _seed_product(maker, slug="redeem-partial")
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=60_000), headers=_headers(80020)
+    )
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["points_applied"] == 60_000
+    assert body["payment_status"] == "unpaid"
+    assert body["status"] == "pending"
+    assert body["paid_at"] is None
+
+    redeem_rows = await _committed_redeem_rows(maker)
+    assert len(redeem_rows) == 1
+    assert redeem_rows[0].amount == -60_000
+    assert await _committed_balance(maker, user_id) == 100_000 - 60_000
+    # An unpaid order is NOT announced as paid at creation — that would lie to the fulfilment group.
+    assert sent_messages == []
+
+
+async def test_remainder_exactly_the_floor_is_accepted(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Leaving the card exactly MIN_CARD_REMAINDER (5 000) is allowed — the tight edge of the band."""
+    user_id = await _seed_user(maker, telegram_id=80021)
+    product_id = await _seed_product(maker, slug="redeem-floor-edge")
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=64_000), headers=_headers(80021)
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["payment_status"] == "unpaid"
+    assert await _committed_balance(maker, user_id) == 100_000 - 64_000
+
+
+async def test_partial_order_invoices_only_the_remainder(
+    client: AsyncClient,
+    maker: async_sessionmaker[AsyncSession],
+    sent_messages: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`POST /payments/create` on a partial order invoices ``total - points_applied``, not ``total``.
+
+    Goods 69 000, points 60 000 → the card is invoiced for exactly 9 000 (900 000 tiyins). The
+    new-order notice shows the card amount and the points debited.
+    Mutation: revert the invoice amount to ``int(order.total * 100)`` → the captured amount becomes
+    6 900 000 → red.
+    """
+    user_id = await _seed_user(maker, telegram_id=80022)
+    product_id = await _seed_product(maker, slug="redeem-invoice")
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+
+    created = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=60_000), headers=_headers(80022)
+    )
+    assert created.status_code == 201, created.text
+    sent_messages.clear()  # drop anything from creation; assert only on the invoice notice
+
+    captured: dict[str, int] = {}
+
+    async def _fake_invoice(payment_data: PaymentCreateData) -> MultiCardPaymentResponse:
+        captured["amount"] = payment_data.amount
+        return MultiCardPaymentResponse(uuid="stub-uuid", pay_url="https://pay.uz/stub")
+
+    monkeypatch.setattr(multicard_client, "create_invoice", _fake_invoice)
+
+    resp = await client.post(
+        PAYMENTS_URL,
+        json={"order_id": created.json()["id"], "return_url": "https://x.uz"},
+        headers=_headers(80022),
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert captured["amount"] == (69_000 - 60_000) * 100  # the card remainder, in tiyins
+    assert len(sent_messages) == 1
+    notice = sent_messages[0]
+    assert "НОВЫЙ ЗАКАЗ" in notice
+    assert "Списано баллов" in notice
+    assert "9 000" in notice  # card remainder shown, not the 69 000 catalogue sum
+
+
+# --------------------------------------------------------------------------- #
+# the card path is unchanged — byte for byte, even for a user WITH points
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.parametrize(
-    "method_field",
-    [{}, {"payment_method": "card"}],
-    ids=["absent (old clients)", "explicit card"],
+    "points_field",
+    [None, 0],
+    ids=["field absent (old clients)", "points_to_apply=0"],
 )
 async def test_card_path_is_unchanged(
     client: AsyncClient,
     maker: async_sessionmaker[AsyncSession],
     sent_messages: list[str],
-    method_field: dict[str, str],
+    points_field: int | None,
 ) -> None:
-    """Default and explicit ``card`` behave exactly as before — even for a user WITH points."""
-    user_id = await _seed_user(maker, telegram_id=80020)
+    """Absent field and explicit ``0`` behave exactly as before — even for a user with points."""
+    user_id = await _seed_user(maker, telegram_id=80030)
     product_id = await _seed_product(maker, slug="card-regress")
     await _seed_points(maker, user_id=user_id, amount=1_000_000)
 
-    payload: dict[str, object] = {"items": [{"product_id": product_id, "quantity": 1}]}
-    payload.update(method_field)
-    resp = await client.post(ORDERS_URL, json=payload, headers=_headers(80020))
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=points_field), headers=_headers(80030)
+    )
 
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -386,159 +517,28 @@ async def test_card_path_is_unchanged(
     assert sent_messages == []
 
 
-async def test_unknown_payment_method_is_rejected(client: AsyncClient) -> None:
-    """Anything but ``card``/``points`` fails schema validation → 422."""
-    resp = await client.post(
-        ORDERS_URL,
-        json={"items": [{"product_id": 1, "quantity": 1}], "payment_method": "cash"},
-        headers=_headers(80021),
-    )
-    assert resp.status_code == 422
-
-
-# --------------------------------------------------------------------------- #
-# Multicard and the points order never meet
-# --------------------------------------------------------------------------- #
-
-
-async def test_points_paid_order_cannot_be_invoiced_via_multicard(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
-) -> None:
-    """`POST /payments/create` on a points-paid order → 400 (already paid), before any gateway IO."""
-    user_id = await _seed_user(maker, telegram_id=80030)
-    product_id = await _seed_product(maker, slug="redeem-noinvoice")
-    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE)
-
-    created = await client.post(
-        ORDERS_URL, json=_points_payload(product_id), headers=_headers(80030)
-    )
-    assert created.status_code == 201, created.text
-    order_id = created.json()["id"]
-
-    resp = await client.post(
-        PAYMENTS_URL,
-        json={"order_id": order_id, "return_url": "https://x.uz"},
-        headers=_headers(80030),
-    )
-
-    assert resp.status_code == 400
-    assert "already paid" in resp.text.lower()
-
-
-# --------------------------------------------------------------------------- #
-# the admin request goes out, marked «оплачено баллами»
-# --------------------------------------------------------------------------- #
-
-
-async def test_notification_is_marked_paid_with_points(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
-) -> None:
-    """The fulfilment group gets the usual paid-order request with the points mark + debit."""
-    user_id = await _seed_user(maker, telegram_id=80040)
-    product_id = await _seed_product(maker, slug="redeem-notify")
-    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE)
-
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80040))
-
-    assert resp.status_code == 201, resp.text
-    assert len(sent_messages) == 1
-    message = sent_messages[0]
-    assert "ОПЛАЧЕНО БАЛЛАМИ" in message
-    assert "Списано баллов" in message
-    assert resp.json()["order_number"] in message
-    assert "Points Buyer" in message  # the fulfilment data is the same one card orders carry
-
-
-async def test_notification_failure_does_not_fail_the_order(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Telegram being down must not lose a paid order — the debit already happened."""
-    user_id = await _seed_user(maker, telegram_id=80041)
-    product_id = await _seed_product(maker, slug="redeem-notify-down")
-    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE)
-
-    async def _boom(text: str, parse_mode: str = "HTML") -> bool:
-        raise RuntimeError("telegram down")
-
-    monkeypatch.setattr(telegram_notifier, "send_message", _boom)
-
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80041))
-
-    assert resp.status_code == 201, resp.text
-    assert len(await _committed_redeem_rows(maker)) == 1
-    assert await _committed_balance(maker, user_id) == 0
-
-
-async def test_notification_runs_after_commit_and_holds_no_lock(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """While the notification is in flight, the redeem is COMMITTED and the profile is UNLOCKED.
-
-    [Gate-2 MINOR] The send is a network call with a 10s httpx timeout. If it ran inside the
-    still-open request transaction, it would hold ``redeem_points``' ``FOR UPDATE`` lock on this
-    customer's ``customer_profile`` row for its whole duration — stalling every other loyalty
-    write for the same user (QR activation, survey, another redeem) behind a Telegram outage.
-    And a commit failing after the send would have announced a phantom order to the group.
-
-    The probe runs INSIDE the notifier: an independent connection tries ``SELECT … FOR UPDATE
-    NOWAIT`` on the very row the handler locked. Postgres raises 55P03 (lock_not_available)
-    immediately if the lock is still held, instead of waiting — so the test states the property
-    without sleeping. Mutation: drop ``await db.commit()`` from the router and this turns red.
-    """
-    user_id = await _seed_user(maker, telegram_id=80042)
-    product_id = await _seed_product(maker, slug="redeem-notify-lock")
-    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE)
-
-    observed: dict[str, object] = {}
-
-    async def _probe_while_sending(text: str, parse_mode: str = "HTML") -> bool:
-        async with maker() as probe, probe.begin():
-            try:
-                await probe.execute(
-                    select(CustomerProfile.id)
-                    .where(CustomerProfile.user_id == user_id)
-                    .with_for_update(nowait=True)
-                )
-                observed["profile_lock_free"] = True
-            except DBAPIError as exc:  # 55P03 — the handler is still holding the row lock
-                observed["profile_lock_free"] = False
-                observed["lock_error"] = str(exc.orig)
-        # Committed-truth read on a fresh connection: the debit must already be durable.
-        observed["committed_redeem_rows"] = len(await _committed_redeem_rows(maker))
-        return True
-
-    monkeypatch.setattr(telegram_notifier, "send_message", _probe_while_sending)
-
-    resp = await client.post(ORDERS_URL, json=_points_payload(product_id), headers=_headers(80042))
-
-    assert resp.status_code == 201, resp.text
-    assert observed["profile_lock_free"] is True, (
-        f"the profile row was still locked during the Telegram call: {observed.get('lock_error')}"
-    )
-    assert observed["committed_redeem_rows"] == 1, "the debit was not committed before the send"
-
-
 # --------------------------------------------------------------------------- #
 # race + double-debit backstop (the two ways a balance could go negative)
 # --------------------------------------------------------------------------- #
 
 
-async def test_race_one_balance_two_orders_exactly_one_wins(
+async def test_race_two_partial_orders_never_go_negative(
     test_db: AsyncSession,
     maker: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two concurrent points orders, balance for one → one succeeds, one 409, balance ends 0.
+    """Two concurrent partial orders whose debits together exceed the balance → one wins, one 409.
 
-    Both transactions are FORCED to overlap: a barrier inside ``_price_lines`` (the first DB
-    work of ``create_order``, before the profile lock) releases them only once both are inside
-    open transactions — ``asyncio.gather`` alone does not reliably overlap on localhost (the
-    same technique as the activation race tests). Mutation check: removing
-    ``.with_for_update()`` from ``redeem_points`` turns this red with a negative balance.
+    Both pass the unlocked form check (each sees balance 60 000, each asks to spend 60 000), then
+    serialize on the ``customer_profile`` FOR UPDATE lock inside ``redeem_points``: the loser
+    re-reads the committed post-debit balance (0) and is refused, balance never negative. A barrier
+    inside ``_price_lines`` forces the real overlap (``asyncio.gather`` alone does not interleave on
+    localhost). Mutation: remove ``.with_for_update()`` from ``redeem_points`` → both debit → red
+    with a negative balance.
     """
-    user_id = await _seed_user(maker, telegram_id=80050)
+    user_id = await _seed_user(maker, telegram_id=80040)
     product_id = await _seed_product(maker, slug="redeem-race")
-    await _seed_points(maker, user_id=user_id, amount=POINTS_FOR_ONE)  # enough for exactly one
+    await _seed_points(maker, user_id=user_id, amount=60_000)  # enough for exactly one debit
 
     real_price_lines = orders_service._price_lines
     barrier = asyncio.Barrier(2)
@@ -554,7 +554,7 @@ async def test_race_one_balance_two_orders_exactly_one_wins(
 
     order_data = OrderCreate(
         items=[OrderItemCreate(product_id=product_id, quantity=1)],
-        payment_method="points",
+        points_to_apply=60_000,
     )
 
     async def _attempt() -> int:
@@ -574,7 +574,45 @@ async def test_race_one_balance_two_orders_exactly_one_wins(
     redeem_rows = await _committed_redeem_rows(maker)
     assert len(redeem_rows) == 1
     assert redeem_rows[0].order_id == winners[0]
+    assert redeem_rows[0].amount == -60_000
     assert await _committed_balance(maker, user_id) == 0  # never negative
+
+
+async def test_insufficient_points_maps_to_structured_409(
+    client: AsyncClient,
+    maker: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 409 contract THROUGH the router: `InsufficientPointsError` → 409 with error/balance/deficit.
+
+    The service-level race test proves the debit never goes negative, but bypasses the HTTP layer —
+    so a typo in the router's 409 status or detail shape would pass unnoticed. A single request
+    cannot reach a shortfall (the unlocked form check and the locked debit see the same balance), and
+    a genuine HTTP race for one user serialises on the auth user-row write. So the shortfall — which
+    in production only arises from concurrency inside ``redeem_points`` — is injected at that exact
+    boundary, and this asserts the router's translation of it.
+    """
+    user_id = await _seed_user(maker, telegram_id=80070)
+    product_id = await _seed_product(maker, slug="redeem-409-map")
+    await _seed_points(maker, user_id=user_id, amount=60_000)
+
+    async def _refuse(db: object, *, user_id: int, order_id: int, amount: int) -> None:
+        raise InsufficientPointsError(balance=5, required=amount)
+
+    monkeypatch.setattr(loyalty_service, "redeem_points", _refuse)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=60_000), headers=_headers(80070)
+    )
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["error"] == "insufficient_points"
+    assert detail["balance"] == 5
+    assert detail["required"] == 60_000
+    assert detail["deficit"] == 60_000 - 5
+    # The injected refusal aborts the request → nothing persisted (rollback on the raise).
+    assert await _committed_order_count(maker) == 0
 
 
 async def test_same_order_cannot_be_debited_twice_unique_backstop(
@@ -582,10 +620,10 @@ async def test_same_order_cannot_be_debited_twice_unique_backstop(
 ) -> None:
     """The partial ``UNIQUE(order_id, reason)`` makes a second redeem row physically impossible.
 
-    ``POST /orders`` creates a fresh order per call, so this cannot be reached over HTTP —
-    it is the schema-level backstop should any future caller replay a debit for the same order.
+    ``POST /orders`` creates a fresh order per call, so this cannot be reached over HTTP — it is the
+    schema-level backstop should any future caller replay a debit for the same order.
     """
-    user_id = await _seed_user(maker, telegram_id=80060)
+    user_id = await _seed_user(maker, telegram_id=80050)
     product_id = await _seed_product(maker, slug="redeem-unique")
     await _seed_points(maker, user_id=user_id, amount=200_000)
 
@@ -594,7 +632,7 @@ async def test_same_order_cannot_be_debited_twice_unique_backstop(
             session,
             OrderCreate(
                 items=[OrderItemCreate(product_id=product_id, quantity=1)],
-                payment_method="points",
+                points_to_apply=60_000,
             ),
             user_id=user_id,
         )
@@ -609,4 +647,78 @@ async def test_same_order_cannot_be_debited_twice_unique_backstop(
 
     # The backstop held: still exactly one debit, balance reflects one order only.
     assert len(await _committed_redeem_rows(maker)) == 1
-    assert await _committed_balance(maker, user_id) == 200_000 - POINTS_FOR_ONE
+    assert await _committed_balance(maker, user_id) == 200_000 - 60_000
+
+
+# --------------------------------------------------------------------------- #
+# notification robustness on the full-points path (no invoice to fall back on)
+# --------------------------------------------------------------------------- #
+
+
+async def test_notification_failure_does_not_fail_the_order(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Telegram being down must not lose a settled points order — the debit already happened."""
+    user_id = await _seed_user(maker, telegram_id=80060)
+    product_id = await _seed_product(maker, slug="redeem-notify-down")
+    await _seed_points(maker, user_id=user_id, amount=69_000)
+
+    async def _boom(text: str, parse_mode: str = "HTML") -> bool:
+        raise RuntimeError("telegram down")
+
+    monkeypatch.setattr(telegram_notifier, "send_message", _boom)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80060)
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert len(await _committed_redeem_rows(maker)) == 1
+    assert await _committed_balance(maker, user_id) == 0
+
+
+async def test_notification_runs_after_commit_and_holds_no_lock(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """While the notification is in flight, the redeem is COMMITTED and the profile is UNLOCKED.
+
+    [Gate-2 MINOR, PR-6.3] The send is a network call with a 10s httpx timeout. If it ran inside the
+    still-open request transaction it would hold ``redeem_points``' ``FOR UPDATE`` lock on this
+    customer's ``customer_profile`` row for its whole duration — stalling every other loyalty write
+    for the same user behind a Telegram outage. The probe runs INSIDE the notifier: an independent
+    connection tries ``SELECT … FOR UPDATE NOWAIT`` on the locked row; Postgres raises 55P03
+    immediately if the lock is still held, so the test states the property without sleeping.
+    Mutation: drop ``await db.commit()`` from the router → red.
+    """
+    user_id = await _seed_user(maker, telegram_id=80061)
+    product_id = await _seed_product(maker, slug="redeem-notify-lock")
+    await _seed_points(maker, user_id=user_id, amount=69_000)
+
+    observed: dict[str, object] = {}
+
+    async def _probe_while_sending(text: str, parse_mode: str = "HTML") -> bool:
+        async with maker() as probe, probe.begin():
+            try:
+                await probe.execute(
+                    select(CustomerProfile.id)
+                    .where(CustomerProfile.user_id == user_id)
+                    .with_for_update(nowait=True)
+                )
+                observed["profile_lock_free"] = True
+            except DBAPIError as exc:  # 55P03 — the handler is still holding the row lock
+                observed["profile_lock_free"] = False
+                observed["lock_error"] = str(exc.orig)
+        observed["committed_redeem_rows"] = len(await _committed_redeem_rows(maker))
+        return True
+
+    monkeypatch.setattr(telegram_notifier, "send_message", _probe_while_sending)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80061)
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert observed["profile_lock_free"] is True, (
+        f"the profile row was still locked during the Telegram call: {observed.get('lock_error')}"
+    )
+    assert observed["committed_redeem_rows"] == 1, "the debit was not committed before the send"

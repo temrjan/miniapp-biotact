@@ -183,27 +183,103 @@ class MultiCardClient:
 multicard_client = MultiCardClient()
 
 
-def build_ofd_items(order_items: list[OrderItem]) -> list[OFDItem]:
-    """Build OFD items from order items."""
-    ofd_items = []
+def _discounted_lines(
+    order_items: list[OrderItem], *, amount_tiyins: int, sum_full: int
+) -> list[tuple[OrderItem, int, int]]:
+    """Spread the points discount across lines, as ``(item, qty, unit_price_tiyins)`` triples.
 
-    for item in order_items:
-        # Price in tiyins (sum * 100)
-        price_tiyins = int(item.product_price * 100)
-        total_tiyins = int(item.total * 100)
+    Every returned line is self-consistent by construction — the receipt reads its total as
+    ``unit_price * qty`` — and the lines together sum to ``amount_tiyins`` to the tiyin. Multicard's
+    OFD makes ``price``/``qty`` mandatory and ``total`` optional, so the fiscal receipt is built from
+    ``price * qty``, not from a ``total`` we send: an inconsistent line would put a wrong figure on
+    the document filed with the tax authority, not merely inside our payload.
 
-        # Get OFD data from product
+    A whole-tiyin unit price cannot express an arbitrary discounted amount on a ``qty > 1`` line
+    (107 000 across 3 units is 35 666.66 each), because the reachable per-line sums are multiples of
+    ``qty``. So when the last line's discounted total is not divisible by its quantity, it is split
+    into ``qty-1`` units at the pro-rata price plus ONE unit carrying the remainder — adding a
+    single-unit line makes the amount always exactly reachable, which a single price-per-product
+    never can.
+    """
+    lines: list[list[int]] = []  # [order_items index, qty, unit_price]
+    for i, item in enumerate(order_items):
+        target = int(item.total * 100) * amount_tiyins // sum_full  # pro-rata line total, floored
+        lines.append([i, item.quantity, target // item.quantity])  # floor to a whole unit price
+    base = sum(qty * unit_price for _, qty, unit_price in lines)
+    residue = amount_tiyins - base  # ≥ 0: both floors only ever undershoot
+
+    idx, qty, unit_price = lines[-1]
+    total_last = unit_price * qty + residue
+    if total_last % qty == 0:
+        lines[-1][2] = total_last // qty  # divisible → keep one line, still exact
+    else:
+        lines[-1][1] = qty - 1  # qty-1 units at the pro-rata price ...
+        lines.append([idx, 1, unit_price + residue])  # ... + 1 unit carrying the remainder
+
+    return [(order_items[i], line_qty, line_price) for i, line_qty, line_price in lines]
+
+
+def build_ofd_items(order_items: list[OrderItem], *, amount_tiyins: int) -> list[OFDItem]:
+    """Build OFD line items whose ``price * qty`` sum EXACTLY to ``amount_tiyins`` (discount model).
+
+    A card order (or a fully points-covered one, which never reaches Multicard) is charged the full
+    catalogue sum, so every line passes through at its catalogue unit price — byte-for-byte the
+    pre-Stage-6 behaviour. A partially points-covered order is charged only the card remainder: the
+    points discount is spread across lines (see :func:`_discounted_lines`), each line kept
+    self-consistent (``total == price * qty``) and the whole summing to the charge.
+
+    The receipt is filed with the tax authority, so a fiscal document disagreeing with the sum
+    actually charged is a defect: the invariant is enforced with a ``raise`` (it survives
+    ``python -O``), never a strippable ``assert``.
+
+    Args:
+        order_items: The order's lines — each carries a catalogue price/total and OFD provenance.
+        amount_tiyins: The amount charged to the card, in tiyins (the caller's ``total -
+            points_applied``). Positive and — today — never above the summed GOODS totals.
+
+    Raises:
+        ValueError: If the charged amount cannot be reconciled to the line totals.
+    """
+    sum_full = sum(int(item.total * 100) for item in order_items)
+
+    if sum_full == amount_tiyins:
+        # Card / full-coverage path: catalogue unit prices verbatim. Each line is already
+        # self-consistent (``int(total*100) == int(unit_price*100) * qty``).
+        lines = [(item, item.quantity, int(item.product_price * 100)) for item in order_items]
+    else:
+        if not 0 < amount_tiyins < sum_full:
+            # ``amount_tiyins`` is the card remainder (total - points) and today never exceeds the
+            # GOODS totals because delivery is free (DELIVERY_FEE = 0). A future PAID delivery would
+            # make it larger and land here — such a fee needs its OWN ofd line, not a rescale of the
+            # goods; fail loud until that line exists rather than silently mis-fiscalise.
+            raise ValueError(
+                f"cannot build OFD items: charged {amount_tiyins} tiyins is outside "
+                f"(0, {sum_full}) — the summed goods totals"
+            )
+        lines = _discounted_lines(order_items, amount_tiyins=amount_tiyins, sum_full=sum_full)
+
+    ofd_items: list[OFDItem] = []
+    for item, qty, unit_price in lines:
         product = item.product if hasattr(item, "product") else None
-
-        ofd_item = OFDItem(
-            mxik=product.mxik if product and product.mxik else "00000000000000000",
-            package_code=product.package_code if product and product.package_code else "0000000",
-            qty=item.quantity,
-            price=price_tiyins,
-            name=item.product_name[:256],
-            total=total_tiyins,
-            vat=product.vat if product and product.vat else None,
+        ofd_items.append(
+            OFDItem(
+                mxik=product.mxik if product and product.mxik else "00000000000000000",
+                package_code=product.package_code
+                if product and product.package_code
+                else "0000000",
+                qty=qty,
+                price=unit_price,
+                name=item.product_name[:256],
+                total=unit_price * qty,
+                vat=product.vat if product and product.vat else None,
+            )
         )
-        ofd_items.append(ofd_item)
 
+    # The receipt reads each line as price*qty; assert the emitted document equals the charge.
+    charged = sum(o.price * o.qty for o in ofd_items)
+    if charged != amount_tiyins:
+        raise ValueError(
+            f"OFD price*qty sum to {charged} tiyins, expected {amount_tiyins} — refusing to emit "
+            f"a fiscal receipt that disagrees with the charge"
+        )
     return ofd_items

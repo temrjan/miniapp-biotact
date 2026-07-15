@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -61,14 +60,20 @@ class OrderCreate(BaseModel):
     Carries NO money. ``subtotal``/``delivery_fee``/``total`` are computed by the server from the
     catalogue — a client-declared total is exactly the hole this schema closes.
 
-    ``payment_method`` selects HOW the order is paid, never how much: ``card`` (default —
-    today's Multicard path, unchanged; older clients that do not send the field land here) or
-    ``points`` (Stage 6 — the whole total is debited from the Biotact Club balance,
-    all-or-nothing, Multicard never involved).
+    ``points_to_apply`` is how many Biotact Club points to spend on this order — the amount, never
+    a price: ``0`` (default — today's Multicard path, unchanged; older clients that do not send the
+    field land here) is card-only; ``= subtotal`` covers the goods in full (settled outright,
+    Multicard never involved); anything between debits that many points now and invoices only the
+    remainder to Multicard (Stage 6 partial redemption). The amount is validated server-side against
+    the redeem rules — see :func:`src.orders.service.max_redeemable`.
     """
 
     items: list[OrderItemCreate] = Field(min_length=1)
-    payment_method: Literal["card", "points"] = "card"
+    # Points to spend on this order (the amount, not a price). 0 = card-only. The bounds — min 500,
+    # multiples of 100, card remainder exactly 0 or ≥ 5000 — are enforced in the service, not here:
+    # they depend on the server-priced subtotal and the caller's live balance, which a schema
+    # cannot see. ``ge=0`` only rejects a negative request outright.
+    points_to_apply: int = Field(0, ge=0)
     delivery_address: str | None = None
     delivery_phone: str | None = None
     delivery_name: str | None = None
@@ -85,8 +90,9 @@ class OrderResponse(OrderBase):
     payment_uuid: str | None = None
     payment_status: str | None = None
     paid_at: datetime | None = None
-    # Points that paid this order (0 ⇔ paid with money) — the mini-app success/history screens
-    # and the admin read it from here; all-or-nothing, so >0 means "paid with points" outright.
+    # Points applied to this order (0 ⇔ pure card payment) — the mini-app success/history screens
+    # and the admin read it from here. Since partial redemption (Stage 6) ``> 0`` no longer means
+    # "paid": it means points were spent; whether the order is settled is ``payment_status``.
     points_applied: int = 0
     currency: str = "UZS"
     created_at: datetime
