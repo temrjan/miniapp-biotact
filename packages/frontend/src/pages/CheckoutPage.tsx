@@ -129,12 +129,10 @@ export function CheckoutPage() {
   // redeemable (see redeem.ts / payments/service.py).
   const balance = loyalty?.balance ?? 0;
   const money = { balance, subtotal: totalAmount, total: totalAmount };
-  // KILL-SWITCH: частичное списание временно выключено на проде. Баллы списываются при СОЗДАНИИ
-  // заказа (PR-6.3-v2), а брошенная/сорванная оплата картой их НЕ возвращает — Multicard на abandon
-  // не шлёт вебхук (проверено на заказе 75), первый же реальный юзер сжёг баллы. Вернуть в true
-  // после выката Модели-1 (резерв → списание при успехе оплаты + авто-отмена брошенных резервов).
-  const REDEEM_ENABLED = false;
-  const canRedeem = REDEEM_ENABLED && (loyalty?.isMember ?? false) && maxRedeemable(money) > 0;
+  // Points redemption is safe since Model-1 (backend): a partial spend RESERVES points and the real
+  // debit lands only when the card settles, so an abandoned payment can no longer burn points. (The
+  // temporary kill-switch that hid this stepper after the burn incident is removed with that fix.)
+  const canRedeem = (loyalty?.isMember ?? false) && maxRedeemable(money) > 0;
   const redeemPoints = canRedeem ? pointsToApply : 0;
   const amountDue = totalAmount - redeemPoints;
 
