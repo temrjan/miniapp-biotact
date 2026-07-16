@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import WebApp from '@twa-dev/sdk';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Phone, MapPin, Truck, Store, Check, ChevronRight, Loader2, Pencil } from 'lucide-react';
@@ -9,26 +8,16 @@ import { useBackButton } from '@hooks/useBackButton';
 import { useMainButton } from '@hooks/useMainButton';
 import { useHaptic, usePlatform } from '@hooks/useTelegram';
 import { useTranslation } from '@/i18n';
-import { api } from '@/api/client';
 import { useUserStore } from '@stores/userStore';
 import { useCartItems, useCartTotalAmount } from '@stores/cartStore';
 import { useLocationStore, getDisplayAddress } from '@stores/locationStore';
-import { buildOrderRequest } from '@/utils/order';
+import { useLoyalty } from '@hooks/useLoyalty';
+import { usePayment } from '@hooks/usePayment';
+import { RedeemStepper } from '@components/features/RedeemStepper';
+import { maxRedeemable } from '@/utils/redeem';
 
 type CheckoutStep = 'phone' | 'delivery' | 'address' | 'confirm';
 type DeliveryType = 'delivery' | 'pickup';
-
-interface OrderResponse {
-  id: number;
-  order_number: string;
-  total: number;
-}
-
-interface PaymentResponse {
-  payment_url: string;
-  payment_uuid: string;
-  order_id: number;
-}
 
 interface WebButtonProps {
   onClick: () => void;
@@ -73,9 +62,10 @@ export function CheckoutPage() {
   const [step, setStep] = useState<CheckoutStep>('phone');
   const [phone, setPhone] = useState('+998');
   const [deliveryType, setDeliveryType] = useState<DeliveryType>('delivery');
-  const [isProcessing, setIsProcessing] = useState(false);
   const [isEditingPhone, setIsEditingPhone] = useState(false);
+  const [pointsToApply, setPointsToApply] = useState(0);
   const phoneSyncedRef = useRef(false);
+  const { data: loyalty } = useLoyalty();
 
   const isWebPlatform = platform === 'web' || platform === 'unknown';
 
@@ -132,26 +122,30 @@ export function CheckoutPage() {
     setStep('delivery');
   }, [phone, profile?.phone, updatePhone, haptic]);
 
-  const handlePayment = useCallback(async () => {
-    setIsProcessing(true);
-    haptic.success();
-    try {
-      const orderRequest = buildOrderRequest(items, {
-        deliveryAddress: deliveryType === 'delivery' && address ? getDisplayAddress(address) : null,
-        phone,
-        name: profile?.first_name || null,
-      });
-      const order = await api.post<OrderResponse>('/orders', orderRequest);
-      const returnUrl = window.location.origin + '/payment/success?order_id=' + order.order_number;
-      const payment = await api.post<PaymentResponse>('/payments/create', { order_id: order.id, return_url: returnUrl });
-      WebApp.openLink(payment.payment_url);
-    } catch (error) {
-      console.error('Payment error:', error);
-      haptic.error();
-      alert(error instanceof Error ? error.message : t('common.error'));
-      setIsProcessing(false);
-    }
-  }, [items, deliveryType, address, phone, profile, haptic, t]);
+  // Biotact Club — points redemption (Stage 6). Membership + balance decide whether the stepper is
+  // offered; the amount is authoritative server-side (422 backstop), redeem.ts mirrors the rules for
+  // the UX. ``subtotal === total`` today because delivery is free — when a paid delivery lands they
+  // become distinct (subtotal from the cart, total = subtotal + fee) and only ``subtotal`` is
+  // redeemable (see redeem.ts / payments/service.py).
+  const balance = loyalty?.balance ?? 0;
+  const money = { balance, subtotal: totalAmount, total: totalAmount };
+  const canRedeem = (loyalty?.isMember ?? false) && maxRedeemable(money) > 0;
+  const redeemPoints = canRedeem ? pointsToApply : 0;
+  const amountDue = totalAmount - redeemPoints;
+
+  const deliveryAddress =
+    deliveryType === 'delivery' && address ? getDisplayAddress(address) : null;
+  const handleInvalidAmount = useCallback((max: number | null) => {
+    if (max !== null) setPointsToApply(max);
+  }, []);
+  const { pay, isProcessing } = usePayment({
+    items,
+    deliveryAddress,
+    name: profile?.first_name || null,
+    phone,
+    redeemPoints,
+    onInvalidAmount: handleInvalidAmount,
+  });
 
   const getMainButtonConfig = useCallback(() => {
     switch (step) {
@@ -175,16 +169,21 @@ export function CheckoutPage() {
           },
           isActive: !!address?.street && !!address?.house,
         };
-      case 'confirm':
+      case 'confirm': {
+        const payText =
+          redeemPoints >= totalAmount
+            ? t('checkout.redeem.payWithPoints')
+            : t('checkout.payment') + ' ' + formatPrice(amountDue);
         return {
-          text: isProcessing ? t('checkout.processing') : t('checkout.payment') + ' ' + formatPrice(totalAmount),
-          onClick: handlePayment,
+          text: isProcessing ? t('checkout.processing') : payText,
+          onClick: pay,
           isActive: !isProcessing,
         };
+      }
       default:
         return { text: '', onClick: () => {}, isActive: false };
     }
-  }, [step, phone, deliveryType, address, totalAmount, isProcessing, haptic, handlePayment, handlePhoneContinue, t, formatPrice]);
+  }, [step, phone, deliveryType, address, totalAmount, amountDue, redeemPoints, isProcessing, haptic, pay, handlePhoneContinue, t, formatPrice]);
 
   const mainButtonConfig = getMainButtonConfig();
 
@@ -403,6 +402,17 @@ export function CheckoutPage() {
               className="space-y-3"
             >
               <h2 className="font-bold text-lg">{t('checkout.orderConfirmation')}</h2>
+
+              {canRedeem && (
+                <RedeemStepper
+                  balance={balance}
+                  subtotal={totalAmount}
+                  total={totalAmount}
+                  value={pointsToApply}
+                  onChange={setPointsToApply}
+                  formatPrice={formatPrice}
+                />
+              )}
 
               <Card className="p-4">
                 <div className="space-y-3">

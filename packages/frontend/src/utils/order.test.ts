@@ -61,4 +61,21 @@ describe('buildOrderRequest', () => {
   it('пустая корзина — пустой список позиций (сервер ответит 422, не заказ на 0)', () => {
     expect(buildOrderRequest([], delivery).items).toEqual([]);
   });
+
+  it('points_to_apply присутствует всегда: без баллов — 0', () => {
+    const request = buildOrderRequest(cart, delivery);
+    expect(request.points_to_apply).toBe(0);
+    expect(Object.keys(request)).toContain('points_to_apply');
+  });
+
+  it('points_to_apply — переданная сумма при частичном списании', () => {
+    const request = buildOrderRequest(cart, delivery, 5000);
+    expect(request.points_to_apply).toBe(5000);
+  });
+
+  it('points_to_apply — не денежное поле цены (сумма баллов, не subtotal/total)', () => {
+    const keys = Object.keys(buildOrderRequest(cart, delivery, 5000));
+    expect(keys).not.toContain('subtotal');
+    expect(keys).not.toContain('total');
+  });
 });
