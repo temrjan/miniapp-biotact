@@ -1,15 +1,22 @@
-"""Tests for spending Biotact Club points on an order (Stage 6, PR-6.3-v2 partial redemption).
+"""Tests for spending Biotact Club points on an order (Stage 6 → Model-1 reserve-then-commit).
 
 ``points_to_apply`` is the amount of points to spend: ``0`` is the card path; ``= subtotal`` covers
-the goods in full (settled outright, ``paid`` + ``confirmed``, Multicard never involved); anything
-between debits that many points NOW and leaves the order ``unpaid``/``pending`` so Multicard can
-collect the card remainder. Points cover goods only, never delivery.
+the goods in full (settled outright, ``paid`` + ``confirmed``, Multicard never involved, debit
+written atomically at creation); anything between RESERVES that many points and leaves the order
+``unpaid``/``pending`` so Multicard can collect the card remainder. Points cover goods only, never
+delivery.
+
+Model-1 (the burn-incident fix): a PARTIAL redemption does NOT debit at creation — an abandoned card
+leg (Multicard sends no webhook on abandon) would otherwise burn points that never bought anything.
+The pending order row (``points_applied > 0``) IS the reservation; the real ``redeem`` debit lands
+only when the card settles (``commit_redeem``, exercised in the payment-lifecycle tests). Available =
+``SUM(ledger) - Σ(other pending reservations)``.
 
 A malformed amount (below the minimum, off the 100-step, over the ceiling, or leaving the card in
 the forbidden 1..4999 band) is a 422 carrying the computed ``max_redeemable`` — the caller could
-have formed it correctly. A 409 is reserved for a genuine live-balance shortfall under concurrency:
-the unlocked form check passes, then ``redeem_points`` re-checks under ``FOR UPDATE`` and refuses so
-the balance never goes negative.
+have formed it correctly. A 409 is reserved for a genuine available-balance shortfall: the unlocked
+form check passes, then ``reserve_points`` re-checks the reserve-aware available under ``FOR UPDATE``
+and refuses, so reservations can never overspend the balance.
 
 Requests run through a ``get_db`` override that mirrors production (commit on success, rollback on
 raise) — the conftest override does neither, which would make "a refusal persisted nothing"
@@ -18,6 +25,7 @@ untestable. Committed truth is read through a second sessionmaker (READ COMMITTE
 
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -36,7 +44,7 @@ from src.loyalty.service import InsufficientPointsError
 from src.main import app
 from src.notifications.service import telegram_notifier
 from src.orders import service as orders_service
-from src.orders.models import Order
+from src.orders.models import Order, OrderStatus
 from src.orders.schemas import OrderCreate, OrderItemCreate
 from src.payments.schemas import MultiCardPaymentResponse, PaymentCreateData
 from src.payments.service import multicard_client
@@ -197,6 +205,43 @@ async def _committed_redeem_rows(
             select(PointLedger).where(PointLedger.reason == LedgerReason.REDEEM.value)
         )
         return list(result.scalars().all())
+
+
+async def _committed_order(sm: async_sessionmaker[AsyncSession], order_id: int) -> Order:
+    async with sm() as session:
+        return (await session.execute(select(Order).where(Order.id == order_id))).scalar_one()
+
+
+async def _seed_partial_order(
+    sm: async_sessionmaker[AsyncSession],
+    *,
+    user_id: int,
+    points_applied: int,
+    age: timedelta,
+    payment_uuid: str | None = None,
+    payment_status: str = "unpaid",
+) -> int:
+    """Commit an unpaid partial-redeem order aged ``age`` — a standing reservation of ``points_applied``.
+
+    ``created_at`` is set explicitly (overriding the server default) so a test can make the order
+    older than :data:`~src.orders.service.REDEEM_RESERVE_TIMEOUT` and have the lazy cleanup pick it up.
+    """
+    async with sm() as session, session.begin():
+        order = Order(
+            order_number=f"ORD-STALE-{user_id}-{int(age.total_seconds())}",
+            user_id=user_id,
+            subtotal=Decimal("69000.00"),
+            delivery_fee=Decimal("0"),
+            total=Decimal("69000.00"),
+            points_applied=points_applied,
+            payment_uuid=payment_uuid,
+            payment_status=payment_status,
+            status=OrderStatus.PENDING,
+            created_at=datetime.now(UTC) - age,
+        )
+        session.add(order)
+        await session.flush()
+        return order.id
 
 
 # --------------------------------------------------------------------------- #
@@ -385,15 +430,56 @@ async def test_full_points_order_cannot_be_invoiced_via_multicard(
     assert "already paid" in resp.text.lower()
 
 
+async def test_full_coverage_refused_when_reservation_holds_the_balance(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Full coverage is reserve-aware too: a standing partial reservation reduces ``available``, so a
+    full-points order that would overspend it is refused (409).
+
+    The Model-1 reserve invariant (``SUM(ledger) >= Σ reservations``) must hold for EVERY redemption
+    shape, not only partials — otherwise a full-coverage debit could leave a pending partial's
+    reservation unbacked, and its later settlement would find the balance short. Balance 69 000 with
+    one fresh (not yet stale) partial reserving 60 000: available is 9 000, so a full-coverage 69 000
+    order is refused. Mutation: check the raw balance instead of ``available`` in ``reserve_points``
+    -> the full order is admitted and debits 69 000, leaving the 60 000 reservation unbacked -> red.
+    """
+    user_id = await _seed_user(maker, telegram_id=80090)
+    product_id = await _seed_product(maker, slug="redeem-full-reserved")
+    await _seed_points(maker, user_id=user_id, amount=69_000)
+    # a FRESH partial reservation (age well under the timeout) — lazy cleanup will not touch it
+    await _seed_partial_order(
+        maker,
+        user_id=user_id,
+        points_applied=60_000,
+        age=timedelta(minutes=1),
+        payment_status="unpaid",
+    )
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80090)
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["balance"] == 9_000  # 69 000 balance - 60 000 reserved
+    assert await _committed_redeem_rows(maker) == []  # nothing debited — the full order was refused
+
+
 # --------------------------------------------------------------------------- #
 # partial redemption: points debited now, order UNPAID, card owes the remainder
 # --------------------------------------------------------------------------- #
 
 
-async def test_partial_redeem_debits_points_and_leaves_order_unpaid(
+async def test_partial_redeem_reserves_points_writes_no_ledger_row(
     client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
 ) -> None:
-    """Points spent now, order ``unpaid``/``pending``, exactly one debit — no notice yet (unpaid)."""
+    """Model-1: a partial redemption RESERVES points — order ``unpaid``, NO ledger row, balance intact.
+
+    This is the burn-incident fix. The points are NOT debited at creation, so an abandoned card leg
+    (Multicard sends no webhook on abandon) leaves nothing behind to burn. The pending order row
+    (``points_applied > 0``) IS the reservation; the real debit lands only when the card settles (see
+    the payment-lifecycle tests). Mutation: pass ``settle_now=True`` for the partial in
+    ``create_order`` -> a -60 000 row appears and the committed balance drops -> this test goes red.
+    """
     user_id = await _seed_user(maker, telegram_id=80020)
     product_id = await _seed_product(maker, slug="redeem-partial")
     await _seed_points(maker, user_id=user_id, amount=100_000)
@@ -409,10 +495,9 @@ async def test_partial_redeem_debits_points_and_leaves_order_unpaid(
     assert body["status"] == "pending"
     assert body["paid_at"] is None
 
-    redeem_rows = await _committed_redeem_rows(maker)
-    assert len(redeem_rows) == 1
-    assert redeem_rows[0].amount == -60_000
-    assert await _committed_balance(maker, user_id) == 100_000 - 60_000
+    # The reservation writes NO ledger row and does NOT touch the balance — nothing to burn.
+    assert await _committed_redeem_rows(maker) == []
+    assert await _committed_balance(maker, user_id) == 100_000
     # An unpaid order is NOT announced as paid at creation — that would lie to the fulfilment group.
     assert sent_messages == []
 
@@ -420,7 +505,11 @@ async def test_partial_redeem_debits_points_and_leaves_order_unpaid(
 async def test_remainder_exactly_the_floor_is_accepted(
     client: AsyncClient, maker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Leaving the card exactly MIN_CARD_REMAINDER (5 000) is allowed — the tight edge of the band."""
+    """Leaving the card exactly MIN_CARD_REMAINDER (5 000) is allowed — the tight edge of the band.
+
+    A partial redemption, so Model-1 reserves rather than debits: the order is ``unpaid`` and the
+    balance is untouched (no ledger row) — the reservation is the pending order itself.
+    """
     user_id = await _seed_user(maker, telegram_id=80021)
     product_id = await _seed_product(maker, slug="redeem-floor-edge")
     await _seed_points(maker, user_id=user_id, amount=100_000)
@@ -431,7 +520,8 @@ async def test_remainder_exactly_the_floor_is_accepted(
 
     assert resp.status_code == 201, resp.text
     assert resp.json()["payment_status"] == "unpaid"
-    assert await _committed_balance(maker, user_id) == 100_000 - 64_000
+    assert await _committed_redeem_rows(maker) == []  # reserved, not debited
+    assert await _committed_balance(maker, user_id) == 100_000  # balance untouched until settlement
 
 
 async def test_partial_order_invoices_only_the_remainder(
@@ -522,35 +612,39 @@ async def test_card_path_is_unchanged(
 # --------------------------------------------------------------------------- #
 
 
-async def test_race_two_partial_orders_never_go_negative(
+async def test_race_two_partial_reservations_never_overspend(
     test_db: AsyncSession,
     maker: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two concurrent partial orders whose debits together exceed the balance → one wins, one 409.
+    """Two concurrent partial reservations that together exceed the balance -> one reserves, one 409.
 
-    Both pass the unlocked form check (each sees balance 60 000, each asks to spend 60 000), then
-    serialize on the ``customer_profile`` FOR UPDATE lock inside ``redeem_points``: the loser
-    re-reads the committed post-debit balance (0) and is refused, balance never negative. A barrier
-    inside ``_price_lines`` forces the real overlap (``asyncio.gather`` alone does not interleave on
-    localhost). Mutation: remove ``.with_for_update()`` from ``redeem_points`` → both debit → red
-    with a negative balance.
+    Model-1: a partial does not debit — it reserves by keeping the order open. Both racers pass the
+    unlocked form check (each sees balance 60 000), then serialize on the ``customer_profile`` FOR
+    UPDATE lock inside ``reserve_points``: the winner's pending order becomes the reservation, the
+    loser re-reads it as ``reserved`` and is refused, so two reservations can never exceed the
+    balance. NEITHER writes a ledger row (nothing has settled) and the balance is untouched. The
+    barrier wraps ``reserve_points`` so BOTH orders are already flushed (each a reservation, still
+    uncommitted) before either acquires the lock — otherwise each reads the other's reservation as
+    invisible and both admit. Mutation: remove ``.with_for_update()`` from ``reserve_points`` -> both
+    read available 60 000 and both reserve -> red (two open orders reserving 120 000 against 60 000).
+    (A barrier in ``_price_lines`` is too early: asyncio then serialises the two commits and the loser
+    sees the winner's reservation even with the lock removed, so it would not catch the mutation.)
     """
     user_id = await _seed_user(maker, telegram_id=80040)
     product_id = await _seed_product(maker, slug="redeem-race")
-    await _seed_points(maker, user_id=user_id, amount=60_000)  # enough for exactly one debit
+    await _seed_points(maker, user_id=user_id, amount=60_000)  # room for exactly one reservation
 
-    real_price_lines = orders_service._price_lines
+    real_reserve = loyalty_service.reserve_points
     barrier = asyncio.Barrier(2)
 
-    async def _barriered(
-        db: AsyncSession, lines: list[OrderItemCreate]
-    ) -> tuple[list[object], Decimal]:
-        result = await real_price_lines(db, lines)
+    async def _barriered_reserve(db: AsyncSession, **kwargs: object) -> None:
+        # Both racers have flushed their order (the reservation) by the time they reach here; release
+        # them together so each computes ``available`` while the other's order is still uncommitted.
         await asyncio.wait_for(barrier.wait(), timeout=10)  # fail loudly instead of hanging CI
-        return result
+        await real_reserve(db, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(orders_service, "_price_lines", _barriered)
+    monkeypatch.setattr(loyalty_service, "reserve_points", _barriered_reserve)
 
     order_data = OrderCreate(
         items=[OrderItemCreate(product_id=product_id, quantity=1)],
@@ -566,16 +660,13 @@ async def test_race_two_partial_orders_never_go_negative(
 
     winners = [r for r in results if isinstance(r, int)]
     refusals = [r for r in results if isinstance(r, InsufficientPointsError)]
-    assert len(winners) == 1, f"exactly one order must win, got {results!r}"
+    assert len(winners) == 1, f"exactly one reservation must win, got {results!r}"
     assert len(refusals) == 1, f"the loser must be refused, got {results!r}"
-    assert refusals[0].balance == 0  # the loser saw the post-debit committed balance
+    assert refusals[0].balance == 0  # the loser saw the winner's reservation eat the balance
 
-    assert await _committed_order_count(maker) == 1
-    redeem_rows = await _committed_redeem_rows(maker)
-    assert len(redeem_rows) == 1
-    assert redeem_rows[0].order_id == winners[0]
-    assert redeem_rows[0].amount == -60_000
-    assert await _committed_balance(maker, user_id) == 0  # never negative
+    assert await _committed_order_count(maker) == 1  # only the winner's order persisted
+    assert await _committed_redeem_rows(maker) == []  # a reservation writes no ledger row
+    assert await _committed_balance(maker, user_id) == 60_000  # untouched — nothing settled yet
 
 
 async def test_insufficient_points_maps_to_structured_409(
@@ -589,17 +680,19 @@ async def test_insufficient_points_maps_to_structured_409(
     so a typo in the router's 409 status or detail shape would pass unnoticed. A single request
     cannot reach a shortfall (the unlocked form check and the locked debit see the same balance), and
     a genuine HTTP race for one user serialises on the auth user-row write. So the shortfall — which
-    in production only arises from concurrency inside ``redeem_points`` — is injected at that exact
+    in production only arises from concurrency inside ``reserve_points`` — is injected at that exact
     boundary, and this asserts the router's translation of it.
     """
     user_id = await _seed_user(maker, telegram_id=80070)
     product_id = await _seed_product(maker, slug="redeem-409-map")
     await _seed_points(maker, user_id=user_id, amount=60_000)
 
-    async def _refuse(db: object, *, user_id: int, order_id: int, amount: int) -> None:
+    async def _refuse(
+        db: object, *, user_id: int, order_id: int, amount: int, settle_now: bool
+    ) -> None:
         raise InsufficientPointsError(balance=5, required=amount)
 
-    monkeypatch.setattr(loyalty_service, "redeem_points", _refuse)
+    monkeypatch.setattr(loyalty_service, "reserve_points", _refuse)
 
     resp = await client.post(
         ORDERS_URL, json=_payload(product_id, points_to_apply=60_000), headers=_headers(80070)
@@ -615,13 +708,14 @@ async def test_insufficient_points_maps_to_structured_409(
     assert await _committed_order_count(maker) == 0
 
 
-async def test_same_order_cannot_be_debited_twice_unique_backstop(
+async def test_same_order_cannot_be_committed_twice_unique_backstop(
     test_db: AsyncSession, maker: async_sessionmaker[AsyncSession]
 ) -> None:
-    """The partial ``UNIQUE(order_id, reason)`` makes a second redeem row physically impossible.
+    """The partial ``UNIQUE(order_id, reason)`` makes a second redeem row for one order impossible.
 
-    ``POST /orders`` creates a fresh order per call, so this cannot be reached over HTTP — it is the
-    schema-level backstop should any future caller replay a debit for the same order.
+    Model-1 settles a partial's debit via ``commit_redeem`` in the success callback. The lifecycle is
+    idempotent (``UNIQUE(payment_uuid, status)``) so a real callback commits once; this proves the
+    schema-level backstop should any caller ever replay the debit for the same order.
     """
     user_id = await _seed_user(maker, telegram_id=80050)
     product_id = await _seed_product(maker, slug="redeem-unique")
@@ -638,14 +732,23 @@ async def test_same_order_cannot_be_debited_twice_unique_backstop(
         )
         order_id = order.id
 
+    # A partial only RESERVES at creation — no ledger row yet.
+    assert await _committed_redeem_rows(maker) == []
+
+    async with maker() as session, session.begin():
+        wrote = await loyalty_service.commit_redeem(
+            session, user_id=user_id, order_id=order_id, amount=60_000
+        )
+    assert wrote is True
+
     async with maker() as session:
         with pytest.raises(IntegrityError):
             async with session.begin():
-                await loyalty_service.redeem_points(
+                await loyalty_service.commit_redeem(
                     session, user_id=user_id, order_id=order_id, amount=1_000
                 )
 
-    # The backstop held: still exactly one debit, balance reflects one order only.
+    # The backstop held: still exactly one debit, balance reflects one settlement only.
     assert len(await _committed_redeem_rows(maker)) == 1
     assert await _committed_balance(maker, user_id) == 200_000 - 60_000
 
@@ -683,7 +786,7 @@ async def test_notification_runs_after_commit_and_holds_no_lock(
     """While the notification is in flight, the redeem is COMMITTED and the profile is UNLOCKED.
 
     [Gate-2 MINOR, PR-6.3] The send is a network call with a 10s httpx timeout. If it ran inside the
-    still-open request transaction it would hold ``redeem_points``' ``FOR UPDATE`` lock on this
+    still-open request transaction it would hold ``reserve_points``' ``FOR UPDATE`` lock on this
     customer's ``customer_profile`` row for its whole duration — stalling every other loyalty write
     for the same user behind a Telegram outage. The probe runs INSIDE the notifier: an independent
     connection tries ``SELECT … FOR UPDATE NOWAIT`` on the locked row; Postgres raises 55P03
@@ -722,3 +825,103 @@ async def test_notification_runs_after_commit_and_holds_no_lock(
         f"the profile row was still locked during the Telegram call: {observed.get('lock_error')}"
     )
     assert observed["committed_redeem_rows"] == 1, "the debit was not committed before the send"
+
+
+# --------------------------------------------------------------------------- #
+# Model-1 lazy cleanup: an abandoned partial reservation is reclaimed on the next attempt
+# --------------------------------------------------------------------------- #
+
+
+async def test_stale_partial_reservation_is_expired_and_frees_reserve(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale partial reservation is reclaimed on the next attempt: invoice deleted, order cancelled,
+    the reserve it held freed so the new redemption fits (Model-1 lazy cleanup, Gate-1 #3 + M2).
+
+    The user has 100 000 points and one stale partial reserving 60 000 (older than the timeout), armed
+    with a Multicard invoice. Without cleanup only 40 000 is available and a fresh 60 000 redemption
+    would 409. Cleanup deletes the invoice (mocked success), cancels the stale order, and the freed
+    reserve admits the new order. Mutation: skip the atomic cancel in ``_expire_partial`` -> the stale
+    reserve stands -> the new redemption 409s -> red.
+    """
+    user_id = await _seed_user(maker, telegram_id=80080)
+    product_id = await _seed_product(maker, slug="redeem-cleanup")
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    stale_id = await _seed_partial_order(
+        maker,
+        user_id=user_id,
+        points_applied=60_000,
+        age=timedelta(hours=1),
+        payment_uuid="stale-uuid",
+        payment_status="pending",
+    )
+
+    deleted: list[str] = []
+
+    async def _fake_delete(uuid: str) -> bool:
+        deleted.append(uuid)
+        return True
+
+    monkeypatch.setattr(multicard_client, "delete_invoice", _fake_delete)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=60_000), headers=_headers(80080)
+    )
+
+    assert resp.status_code == 201, resp.text  # the freed reserve admitted the new redemption
+    assert deleted == [
+        "stale-uuid"
+    ]  # the stale invoice was annulled first (M3 order of operations)
+
+    stale = await _committed_order(maker, stale_id)
+    assert stale.payment_status == "failed"
+    assert stale.status == OrderStatus.CANCELLED
+
+    body = resp.json()
+    assert body["payment_status"] == "unpaid"  # the new order reserves (partial), not settled
+    assert body["points_applied"] == 60_000
+    assert await _committed_redeem_rows(maker) == []  # reservation writes no ledger row
+    assert await _committed_balance(maker, user_id) == 100_000  # balance untouched
+
+
+async def test_stale_partial_with_unremovable_invoice_is_not_cancelled(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If a stale invoice cannot be deleted (Multicard reports it already paid), the order is NOT
+    cancelled and its reserve stands — the third burn path stays closed (Model-1, Gate-1 #2 + M3).
+
+    ``delete_invoice`` returns False (already paid / transport error). Cancelling then would abandon
+    an order Multicard may still settle, so the stale order is left ``pending``, its 60 000 reserve
+    still held, and the fresh 60 000 redemption is refused (409) because only 40 000 is available.
+    Mutation: cancel regardless of the delete result in ``_expire_partial`` -> the stale order flips to
+    cancelled and the new redemption is admitted (201) -> red.
+    """
+    user_id = await _seed_user(maker, telegram_id=80081)
+    product_id = await _seed_product(maker, slug="redeem-cleanup-paid")
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    stale_id = await _seed_partial_order(
+        maker,
+        user_id=user_id,
+        points_applied=60_000,
+        age=timedelta(hours=1),
+        payment_uuid="paid-uuid",
+        payment_status="pending",
+    )
+
+    async def _refuse_delete(uuid: str) -> bool:
+        return (
+            False  # Multicard: "Транзакция по инвойсу завершена" -> the invoice may still be paid
+        )
+
+    monkeypatch.setattr(multicard_client, "delete_invoice", _refuse_delete)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=60_000), headers=_headers(80081)
+    )
+
+    assert resp.status_code == 409, resp.text  # reserve still held -> not enough available
+    assert resp.json()["detail"]["balance"] == 40_000  # 100 000 balance - 60 000 still reserved
+
+    stale = await _committed_order(maker, stale_id)
+    assert stale.payment_status == "pending"  # NOT cancelled — the invoice may still be charged
+    assert stale.status == OrderStatus.PENDING

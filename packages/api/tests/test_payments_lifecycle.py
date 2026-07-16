@@ -20,10 +20,13 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
 from src.database import get_db
+from src.loyalty import service as loyalty_service
+from src.loyalty.models import CustomerProfile, LedgerReason, PointLedger
 from src.main import app
 from src.orders.models import Order, OrderStatus
 from src.payments.models import PaymentEvent
@@ -136,13 +139,25 @@ async def _seed_order(
     payment_uuid: str | None = None,
     payment_status: str = "unpaid",
     order_status: OrderStatus = OrderStatus.PENDING,
+    points_balance: int = 0,
 ) -> int:
     """Seed an order. ``payment_uuid`` "arms" a Multicard attempt on it (as /payments/create does);
-    an event applies only if its uuid matches this active attempt."""
+    an event applies only if its uuid matches this active attempt. ``points_balance`` (> 0) also
+    gives the order's user a club profile and that many points — needed to prove the Model-1 debit
+    that ``commit_redeem`` writes when a PARTIAL order's card leg settles."""
     async with sm() as session, session.begin():
         user = User(telegram_id=hash(order_number) % 1_000_000_000, first_name="Buyer")
         session.add(user)
         await session.flush()
+        if points_balance > 0:
+            await session.execute(
+                pg_insert(CustomerProfile)
+                .values(user_id=user.id)
+                .on_conflict_do_nothing(index_elements=["user_id"])
+            )
+            session.add(
+                PointLedger(user_id=user.id, amount=points_balance, reason=LedgerReason.CASHBACK)
+            )
         order = Order(
             order_number=order_number,
             user_id=user.id,
@@ -162,6 +177,19 @@ async def _seed_order(
 async def _committed_order(sm: async_sessionmaker[AsyncSession], order_id: int) -> Order:
     async with sm() as session:
         return (await session.execute(select(Order).where(Order.id == order_id))).scalar_one()
+
+
+async def _committed_redeem_rows(sm: async_sessionmaker[AsyncSession]) -> list[PointLedger]:
+    async with sm() as session:
+        result = await session.execute(
+            select(PointLedger).where(PointLedger.reason == LedgerReason.REDEEM.value)
+        )
+        return list(result.scalars().all())
+
+
+async def _committed_balance(sm: async_sessionmaker[AsyncSession], user_id: int) -> int:
+    async with sm() as session:
+        return await loyalty_service.get_balance(session, user_id)
 
 
 async def _event_count(sm: async_sessionmaker[AsyncSession], uuid: str, status: str) -> int:
@@ -265,16 +293,18 @@ async def test_amount_mismatch_is_rejected_and_not_paid(
     assert sent_messages == []
 
 
-async def test_partial_order_paid_via_callback_notifies_paid_not_ballami(
+async def test_partial_order_paid_via_callback_commits_redeem_and_notifies_paid(
     client: AsyncClient, maker, sent_messages: list[str]
 ) -> None:
-    """A PARTIAL order settled by the card callback is «ОПЛАЧЕНО» + a debit line — NOT «БАЛЛАМИ».
+    """A PARTIAL order settled by the card callback COMMITS the reserved debit and is «ОПЛАЧЕНО».
 
-    Points covered 45 000 of a 50 000 order; the card collects the 5 000 remainder (amount reconciled
-    against ``total - points_applied``). The admin message must record the points spent (proving
-    ``_notify_paid`` forwards ``points_applied``) yet keep the «ОПЛАЧЕНО» header — the card, not
-    points, closed this order (the [ratified] header-by-coverage rule).
-    Mutation: drop ``points_applied=order.points_applied`` from ``_notify_paid`` → the «Списано
+    Model-1 commit-on-paid: the partial only RESERVED its 45 000 points at creation (no ledger row).
+    The card collects the 5 000 remainder (amount reconciled against ``total - points_applied``), and
+    only now — inside the state-guarded success branch — does ``commit_redeem`` write the real
+    -45 000 debit. The admin message keeps the «ОПЛАЧЕНО» header (the card, not points, closed it —
+    the ratified header-by-coverage rule) yet records the points spent.
+    Mutations: (a) drop the ``commit_redeem`` call in ``process_payment_event`` → no redeem row, the
+    balance stays 45 000 → red; (b) drop ``points_applied`` from ``_notify_paid`` → the «Списано
     баллов» line disappears → red.
     """
     order_id = await _seed_order(
@@ -284,6 +314,7 @@ async def test_partial_order_paid_via_callback_notifies_paid_not_ballami(
         points_applied=45_000,
         payment_uuid="u-partial",
         payment_status="pending",
+        points_balance=45_000,  # reserved at creation; the debit lands now, on settlement
     )
     remainder_tiyins = (50_000 - 45_000) * 100  # what the card actually collects
 
@@ -295,6 +326,14 @@ async def test_partial_order_paid_via_callback_notifies_paid_not_ballami(
     assert resp.status_code == 200, resp.text
     order = await _committed_order(maker, order_id)
     assert order.payment_status == "paid"
+
+    # commit-on-paid: exactly one redeem debit is written now, and the balance drops by it.
+    redeem_rows = await _committed_redeem_rows(maker)
+    assert len(redeem_rows) == 1
+    assert redeem_rows[0].order_id == order_id
+    assert redeem_rows[0].amount == -45_000
+    assert await _committed_balance(maker, order.user_id) == 0
+
     assert len(sent_messages) == 1
     message = sent_messages[0]
     assert "ОПЛАЧЕНО" in message
@@ -569,6 +608,48 @@ async def test_cancelled_order_not_resurrected_by_late_success(client: AsyncClie
     order = await _committed_order(maker, order_id)
     assert order.payment_status == "failed"  # not resurrected
     assert order.status == OrderStatus.CANCELLED
+
+
+async def test_late_success_on_cancelled_partial_writes_no_redeem(
+    client: AsyncClient, maker, sent_messages: list[str]
+) -> None:
+    """A late success on an already-cancelled PARTIAL order commits NO redeem debit (Model-1 M1).
+
+    This is the late-success-after-cleanup scenario the Gate-1 review asked to pin: the lazy cleanup
+    cancelled the order and deleted its invoice, then a stray success callback arrives on the old
+    attempt. ``commit_redeem`` sits INSIDE the state-guarded success branch (success applies only out
+    of unpaid/pending), so the guard stops it before any debit — the balance is untouched and the
+    order stays cancelled. Mutation: move the ``commit_redeem`` call OUTSIDE the state guard in
+    ``process_payment_event`` (e.g. right after the amount check) → a -45 000 row is written against
+    the cancelled order and the balance drops → red.
+    """
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-LATE-CANC",
+        total=Decimal("50000.00"),
+        points_applied=45_000,
+        payment_uuid="u-late-canc",
+        payment_status="failed",
+        order_status=OrderStatus.CANCELLED,
+        points_balance=45_000,
+    )
+    remainder_tiyins = (50_000 - 45_000) * 100
+
+    resp = await client.post(
+        CALLBACK_URL,
+        json=_callback_body(
+            uuid="u-late-canc", invoice_id="ORD-LATE-CANC", amount=remainder_tiyins
+        ),
+    )
+
+    assert resp.status_code == 200  # recorded, acknowledged
+    order = await _committed_order(maker, order_id)
+    assert order.payment_status == "failed"  # not resurrected
+    assert order.status == OrderStatus.CANCELLED
+    # The state guard stopped the success BEFORE commit_redeem — no debit, balance untouched.
+    assert await _committed_redeem_rows(maker) == []
+    assert await _committed_balance(maker, order.user_id) == 45_000
+    assert sent_messages == []
 
 
 # --------------------------------------------------------------------------- #

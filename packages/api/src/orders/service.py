@@ -1,7 +1,8 @@
 """Order service layer."""
 
+import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select, update
@@ -11,7 +12,10 @@ from sqlalchemy.orm import selectinload
 from src.loyalty import service as loyalty_service
 from src.orders.models import Order, OrderItem, OrderStatus
 from src.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
+from src.payments.service import multicard_client
 from src.products.models import Product
+
+logger = logging.getLogger(__name__)
 
 # Delivery is free today and the server is the single source of that truth — the client used to
 # declare it. There is no delivery-pricing rule anywhere in the project to read it from.
@@ -112,7 +116,7 @@ def _validate_redeem_amount(
     """Reject a ``points_to_apply`` that breaks any redeem rule (min / step / ceiling / dead-zone).
 
     A form-level UX filter reading the balance WITHOUT a lock. The authoritative balance check
-    stays inside :func:`~src.loyalty.service.redeem_points` under ``FOR UPDATE``; if a concurrent
+    stays inside :func:`~src.loyalty.service.reserve_points` under ``FOR UPDATE``; if a concurrent
     order drains the balance after this passes, that check refuses with a 409 and the balance never
     goes negative. The dead-zone (card remainder in ``1..MIN_CARD_REMAINDER-1``) is checked
     explicitly — it is not implied by ``points <= max_redeemable`` for an arbitrary amount.
@@ -256,7 +260,7 @@ async def create_order(
 
     points = order_data.points_to_apply
     if points > 0:
-        # Form-level UX guard on an UNLOCKED balance read; redeem_points re-checks the same balance
+        # Form-level UX guard on an UNLOCKED balance read; reserve_points re-checks the same balance
         # under FOR UPDATE, so a concurrent drain becomes a truthful 409, never a negative balance.
         balance = await loyalty_service.get_balance(db, user_id)
         _validate_redeem_amount(points, balance=balance, subtotal=subtotal, total=total)
@@ -272,25 +276,109 @@ async def create_order(
         delivery_name=order_data.delivery_name,
         customer_note=order_data.customer_note,
     )
+    is_full = points > 0 and total - points == 0
     if points > 0:
         order.points_applied = points
-        if total - points == 0:  # full coverage — settled outright, no Multicard leg to wait for
+        if is_full:  # full coverage — settled outright, no Multicard leg to wait for
             order.payment_status = "paid"
             order.status = OrderStatus.CONFIRMED
             order.paid_at = datetime.utcnow()
-        # A partial redemption keeps the default unpaid/pending — the card collects the remainder.
+        # A partial redemption keeps the default unpaid/pending — the pending order row itself is
+        # the reservation; the card collects the remainder and the debit lands only on settlement.
     order.items.extend(items)
 
     db.add(order)
     await db.flush()
     if points > 0:
-        # After the flush so the ledger row can carry this order's id; the balance check and the
-        # debit serialize on the customer_profile row lock inside redeem_points, so the flushed-
-        # but-uncommitted order above cannot outlive a refusal (409 → rollback). The debit is the
-        # full ``points`` amount whether or not the card later collects a remainder.
-        await loyalty_service.redeem_points(db, user_id=user_id, order_id=order.id, amount=points)
+        # After the flush so the reservation sum can exclude this order by id. Admission is
+        # reserve-aware under the customer_profile lock (Model-1): a PARTIAL reserves (no ledger row
+        # now — an abandoned card leg cannot burn points), a full-coverage order settles the debit
+        # atomically. A shortfall against the available balance rolls the whole request back (409);
+        # the flushed-but-uncommitted order never outlives a refusal.
+        await loyalty_service.reserve_points(
+            db, user_id=user_id, order_id=order.id, amount=points, settle_now=is_full
+        )
     await db.refresh(order)
     return order
+
+
+# Model-1 reserve timeout: how long a partial redemption may pin its reserved points before the next
+# attempt reclaims it. A single card payment completes in minutes; 30 minutes is a generous ceiling
+# that never cuts off a customer still paying (Captain-ratified default, 2026-07-16). The value is
+# not money-critical — with no ledger row there is nothing to burn at any timeout: too short only
+# risks cancelling an order a customer is mid-paying (UX, not money), too long holds the reserve.
+REDEEM_RESERVE_TIMEOUT = timedelta(minutes=30)
+
+
+async def expire_stale_partials(db: AsyncSession, *, user_id: int) -> int:
+    """Reclaim this user's abandoned partial-redemption reservations (Model-1 lazy cleanup).
+
+    A partial redemption reserves points by keeping an unpaid order alive with no ledger row. If the
+    customer abandons the card leg the reservation would pin those points forever — Multicard sends
+    NO webhook on an abandoned invoice, so nothing else ever frees it. So on the user's NEXT redeem
+    attempt we expire their OWN reservations older than :data:`REDEEM_RESERVE_TIMEOUT`: delete the
+    Multicard invoice first, then cancel the order (see :func:`_expire_partial`). Runs BEFORE the
+    reserve lock; the caller commits it as its own unit so the external DELETE is never orphaned by a
+    rollback of the new order. Returns how many orders were expired.
+
+    Only THIS user's reservations are touched — a reserve is per-user (it reduces only its owner's
+    available balance), so a customer who never returns harms no one else; a periodic sweep for those
+    stragglers is deliberately out of scope (no scheduler exists) and tracked separately.
+    """
+    cutoff = datetime.now(UTC) - REDEEM_RESERVE_TIMEOUT
+    stale = (
+        (
+            await db.execute(
+                select(Order).where(
+                    Order.user_id == user_id,
+                    Order.payment_status.in_(("unpaid", "pending")),
+                    Order.points_applied > 0,
+                    Order.created_at < cutoff,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    expired = 0
+    for order in stale:
+        if await _expire_partial(db, order):
+            expired += 1
+    return expired
+
+
+async def _expire_partial(db: AsyncSession, order: Order) -> bool:
+    """Expire ONE stale partial: delete its Multicard invoice, then cancel — in that order, safely.
+
+    Order of operations is load-bearing (M3, the third burn path): the invoice is deleted FIRST and
+    the order is cancelled ONLY on a confirmed deletion. ``delete_invoice`` refuses an already-paid
+    invoice (and returns False on any transport error); cancelling then would abandon an order
+    Multicard still considers payable — a late authorisation would charge the card for a cancelled
+    order. So on anything but a confirmed delete we leave the order untouched (its points never
+    burned — there is no ledger row) and let the normal success callback settle it if the money did
+    arrive. The cancel is an atomic conditional UPDATE (mirrors :func:`try_arm_payment_attempt` and
+    the ``activate_code`` claim): a no-op if a real success settled the order meanwhile. An order that
+    never reached ``/payments/create`` has no ``payment_uuid`` and no invoice to delete, so it is
+    cancelled directly. Returns whether the order was cancelled.
+    """
+    if order.payment_uuid is not None:
+        deleted = await multicard_client.delete_invoice(order.payment_uuid)
+        if not deleted:
+            logger.warning(
+                "stale partial %s: invoice %s not deleted (paid/refused/transport) — leaving as-is",
+                order.order_number,
+                order.payment_uuid,
+            )
+            return False
+    cancelled = (
+        await db.execute(
+            update(Order)
+            .where(Order.id == order.id, Order.payment_status.in_(("unpaid", "pending")))
+            .values(payment_status="failed", status=OrderStatus.CANCELLED)
+            .returning(Order.id)
+        )
+    ).scalar_one_or_none()
+    return cancelled is not None
 
 
 async def update_order_status(
