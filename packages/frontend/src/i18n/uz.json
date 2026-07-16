@@ -97,7 +97,18 @@
     "addAddress": "Manzil qo'shish",
     "useCurrentLocation": "Joriy joylashuvdan foydalanish",
     "confirmAddress": "Manzilni tasdiqlash",
-    "addressSaved": "Manzil saqlandi"
+    "addressSaved": "Manzil saqlandi",
+    "redeem": {
+      "title": "Ballar bilan to'lash",
+      "balance": "Balans",
+      "apply": "Yechib olish",
+      "applied": "Yechilgan ballar",
+      "cardDue": "Karta bilan to'lov",
+      "max": "Maksimum",
+      "payWithPoints": "Ballar bilan to'lash",
+      "invalidAmount": "Ballar miqdori to'g'rilandi — qaytadan urinib ko'ring",
+      "insufficient": "Ballar yetarli emas"
+    }
   },
   "profile": {
     "title": "Profil",

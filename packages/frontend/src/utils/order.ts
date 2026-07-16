@@ -6,11 +6,16 @@ export interface OrderLine {
 }
 
 /**
- * What we ask the server to create. It carries NO money: the server prices every line from the
+ * What we ask the server to create. It carries NO price: the server prices every line from the
  * catalogue and computes the totals itself. A client-declared price was the hole closed in #79.
+ *
+ * ``points_to_apply`` is the AMOUNT of Biotact Club points to spend (not a price): 0 = card-only,
+ * = subtotal covers the goods in full, between = partial (Stage 6). Validated server-side against
+ * the redeem rules; always present (default 0) so the field is unambiguous.
  */
 export interface CreateOrderRequest {
   items: OrderLine[];
+  points_to_apply: number;
   delivery_address: string | null;
   delivery_phone: string | null;
   delivery_name: string | null;
@@ -32,7 +37,8 @@ export interface DeliveryDetails {
  */
 export function buildOrderRequest(
   items: CartItem[],
-  { deliveryAddress, phone, name }: DeliveryDetails
+  { deliveryAddress, phone, name }: DeliveryDetails,
+  pointsToApply = 0
 ): CreateOrderRequest {
   return {
     // Identity and quantity only — the catalogue is the sole source of price.
@@ -40,6 +46,7 @@ export function buildOrderRequest(
       product_id: parseInt(item.productId, 10),
       quantity: item.quantity,
     })),
+    points_to_apply: pointsToApply,
     delivery_address: deliveryAddress,
     delivery_phone: phone,
     delivery_name: name,
