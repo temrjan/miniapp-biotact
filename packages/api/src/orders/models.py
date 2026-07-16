@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database import Base
@@ -29,6 +29,12 @@ class Order(Base):
     """Order model."""
 
     __tablename__ = "orders"
+    __table_args__ = (
+        # Model-1: the reserve subquery filters (user_id, payment_status IN ('unpaid','pending')) on
+        # every partial redemption. A composite index keeps it index-only as order volume grows; the
+        # standalone ``user_id`` index (below) stays for the order-list queries. Non-unique.
+        Index("ix_orders_user_id_payment_status", "user_id", "payment_status"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_number: Mapped[str] = mapped_column(String(50), unique=True, index=True)

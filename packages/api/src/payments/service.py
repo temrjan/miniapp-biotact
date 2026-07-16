@@ -178,6 +178,33 @@ class MultiCardClient:
                 logger.error(f"Failed to get invoice status: {e}")
                 return None
 
+    async def delete_invoice(self, uuid: str) -> bool:
+        """Annul an UNPAID Multicard invoice (``DELETE /payment/invoice/{uuid}``).
+
+        Returns True ONLY on a confirmed deletion. Multicard answers 200 with
+        ``{"success": false, "error": {"code": "ERROR_FIELDS", "details": "Транзакция … завершена"}}``
+        when the invoice is already PAID — so the response BODY, not the HTTP status, is what decides.
+        Any refusal (already paid / validation) or transport error returns False: the caller must
+        then NOT cancel the order, because a still-live invoice could yet be charged. Never raises —
+        a lazy cleanup sweep must not break the request that triggered it (mirrors
+        :meth:`get_invoice_status`).
+        """
+        token = await self._get_token()
+        url = f"{self.base_url}/payment/invoice/{uuid}"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.delete(url, headers=self._get_headers(token))
+                result = response.json()
+                if result.get("success"):
+                    logger.info("Invoice deleted: uuid=%s", uuid)
+                    return True
+                logger.warning("delete_invoice %s refused: %s", uuid, result.get("error"))
+                return False
+            except Exception as e:
+                logger.error("Failed to delete invoice %s: %s", uuid, e)
+                return False
+
 
 # Singleton instance
 multicard_client = MultiCardClient()

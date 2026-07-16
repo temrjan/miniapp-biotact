@@ -45,6 +45,19 @@ async def create_order(
     amount is a 422 carrying ``max_redeemable``; a live-balance shortfall under concurrency is a 409
     whose detail carries the exact deficit (nothing debited, no order created).
     """
+    # Model-1 lazy cleanup: reclaim THIS user's abandoned partial-redemption reservations before we
+    # price a new redemption against their balance, committed as its OWN unit — the external invoice
+    # DELETE must never be undone by a later rollback of the create below. A pure card order holds no
+    # reservation, so it skips this. Best-effort: a cleanup failure must not block a new order (the
+    # stale reserve is simply retried on the next attempt).
+    if order_data.points_to_apply > 0:
+        try:
+            await service.expire_stale_partials(db, user_id=user.id)
+            await db.commit()
+        except Exception as exc:  # cleanup is best-effort, never blocks a new order
+            logger.error("stale-partial cleanup failed for user %s: %s", user.id, exc)
+            await db.rollback()
+
     try:
         order = await service.create_order(db, order_data, user_id=user.id)
     except InsufficientPointsError as exc:
@@ -81,7 +94,7 @@ async def create_order(
         # ``unpaid`` too and is notified later from the payments router). Commit BEFORE the network
         # call, for two reasons specific to that points settlement:
         #
-        #   * ``redeem_points`` holds a ``FOR UPDATE`` lock on this customer's profile row —
+        #   * ``reserve_points`` holds a ``FOR UPDATE`` lock on this customer's profile row —
         #     the same row every accrual locks. ``get_db`` would otherwise commit only after
         #     this handler returns, so a slow/unreachable Telegram (httpx timeout: 10s) would
         #     keep that lock — and every other loyalty write for THIS user (QR activation,

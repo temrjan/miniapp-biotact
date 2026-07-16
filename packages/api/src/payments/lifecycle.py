@@ -34,6 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.loyalty import service as loyalty_service
 from src.orders.models import Order, OrderStatus
 from src.payments.models import PaymentEvent
 
@@ -191,6 +192,14 @@ async def process_payment_event(
         order.status = OrderStatus.CONFIRMED
         order.paid_at = datetime.utcnow()
         applied_success = True
+        if order.points_applied > 0:
+            # Model-1 commit: the partial order only RESERVED its points at creation (no ledger
+            # row). Write the real debit now that the card has actually settled the remainder. This
+            # sits INSIDE the state-guarded success branch, so a late success on an already
+            # cancelled/paid order never reaches here — it cannot double-debit or resurrect a burn.
+            await loyalty_service.commit_redeem(
+                db, user_id=order.user_id, order_id=order.id, amount=order.points_applied
+            )
     elif status == STATUS_ERROR:
         order.payment_status = "failed"
         order.status = OrderStatus.CANCELLED

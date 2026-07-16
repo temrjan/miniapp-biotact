@@ -1,5 +1,6 @@
 """Loyalty domain services (Stage 2): point balance, reconciliation, QR activation."""
 
+import logging
 from dataclasses import dataclass
 
 from sqlalchemy import func, select, update
@@ -24,6 +25,9 @@ from src.loyalty.models import (
 )
 from src.loyalty.pricing import compute_cashback, get_unit_price
 from src.loyalty.schemas import ActivationStatus, RegistrationSource, SurveyRequest
+from src.orders.models import Order
+
+logger = logging.getLogger(__name__)
 
 # Cashback rate by tier (basis points): newbie 5%, friend 8%.
 NEWBIE_RATE_BPS = 500
@@ -59,40 +63,71 @@ def earn_row_reconciles(entry: PointLedger) -> bool:
 
 
 class InsufficientPointsError(Exception):
-    """All-or-nothing redeem refused: balance < required — nothing was written.
+    """A redemption is refused because the available balance cannot cover it — nothing was written.
 
-    All-or-nothing is the ratified model (Captain 2026-07-13): there is no partial debit and
-    no card top-up, so the only outcomes are "the whole order is paid with points" or "no
-    points move at all". Carries the numbers the mini-app needs to say «не хватает N».
+    Since partial redemption (Stage 6) points do NOT have to cover the whole order: a partial spend
+    reserves points and the card collects the remainder. What is refused here is a spend that exceeds
+    what is *available* — the balance minus what this user's other still-unpaid partial orders have
+    already reserved (Model-1). ``balance`` carries that available figure; the mini-app uses it to
+    say «не хватает N».
     """
 
     def __init__(self, *, balance: int, required: int) -> None:
         self.balance = balance
         self.required = required
         self.deficit = required - balance
-        super().__init__(f"insufficient points: balance={balance}, required={required}")
+        super().__init__(f"insufficient points: available={balance}, required={required}")
 
 
-async def redeem_points(db: AsyncSession, *, user_id: int, order_id: int, amount: int) -> None:
-    """Debit ``amount`` points against ``order_id`` — all-or-nothing, race-safe (Stage 6).
+async def _reserved_points(db: AsyncSession, *, user_id: int, exclude_order_id: int) -> int:
+    """Points this user has RESERVED but not yet spent — the sum pinned by still-open partial orders.
 
-    Runs inside the caller's ambient transaction and only flushes; the caller owns
-    commit/rollback, so a refusal (or any later failure in the same request) leaves NO trace.
+    A partial redemption (Model-1) does not write a ledger row at creation; the unpaid order row
+    itself, carrying ``points_applied > 0``, IS the reservation. So the truly spendable balance is
+    ``SUM(ledger) - Sum(points_applied of unpaid/pending redeeming orders)``. ``exclude_order_id`` drops
+    the order currently being admitted so its own reservation is not counted against itself.
+    """
+    result = await db.execute(
+        select(func.coalesce(func.sum(Order.points_applied), 0)).where(
+            Order.user_id == user_id,
+            Order.payment_status.in_(("unpaid", "pending")),
+            Order.points_applied > 0,
+            Order.id != exclude_order_id,
+        )
+    )
+    return int(result.scalar_one())
 
-    Race safety, mirroring the accrual side exactly:
 
-    * Per-user serializer: ``SELECT customer_profile … FOR UPDATE`` — the same row every
-      accrual locks (:func:`activate_code`), so a redeem cannot interleave with an accrual or
-      another redeem for the same user. Two concurrent orders racing one balance serialize
-      here; the loser re-reads the committed ledger and is refused. Directly mutation-tested:
-      removing ``.with_for_update()`` turns the race test red.
-    * The check and the debit happen under that one lock — the balance cannot go negative.
-    * Partial ``UNIQUE(order_id, reason)`` backstops the same order being debited twice.
+async def reserve_points(
+    db: AsyncSession, *, user_id: int, order_id: int, amount: int, settle_now: bool
+) -> None:
+    """Admit a redemption of ``amount`` against ``order_id`` under the per-user lock — reserve-aware.
 
-    A user without a ``customer_profile`` row has never earned a point (every earn path
-    lazy-creates the profile before its first ledger row), so there is nothing to lock and
-    the redeem is refused on balance 0 — deliberately NOT computed from a ledger that cannot
-    have rows, so an out-of-band orphan row never becomes spendable un-serialized money.
+    Runs inside the caller's ambient transaction and only flushes; the caller owns commit/rollback,
+    so a refusal (or any later failure in the same request) leaves NO trace.
+
+    Reserve model (Model-1, the fix for the burn incident): a PARTIAL order must not debit points at
+    creation — if the customer abandons the card leg (Multicard sends no webhook on abandon) an
+    eager debit would burn points that never bought anything. Instead the partial order RESERVES its
+    points: no ledger row now, the pending order row is the reservation, and the real debit is
+    written by :func:`commit_redeem` only once the card settles. ``settle_now`` is True only for a
+    FULL-coverage order (points == total): it has no card leg, so the debit is written NOW, atomically
+    — an all-points order can never be abandoned mid-payment.
+
+    Admission is reserve-aware for BOTH shapes:
+
+    * Per-user serializer: ``SELECT customer_profile … FOR UPDATE`` — the same row every accrual and
+      redeem locks (:func:`activate_code`), so two orders racing one balance serialize here and the
+      loser is refused, never overspends. Directly mutation-tested via the reserve race test.
+    * ``available = SUM(ledger) - Sum(other unpaid/pending reservations)`` is computed under that lock
+      and must cover ``amount``; the current order is excluded from the reservation sum (it is already
+      flushed as pending) so it is not counted against itself.
+    * Partial ``UNIQUE(order_id, reason)`` backstops the same order being debited twice when settled.
+
+    A user without a ``customer_profile`` row has never earned a point (every earn path lazy-creates
+    the profile before its first ledger row), so there is nothing to lock and available is 0 —
+    deliberately NOT computed from a ledger that cannot have rows, so an out-of-band orphan row never
+    becomes spendable un-serialized money.
     """
     if amount <= 0:
         # A zero redeem would mark an order "paid" for free; a negative one would CREDIT
@@ -104,8 +139,53 @@ async def redeem_points(db: AsyncSession, *, user_id: int, order_id: int, amount
         )
     ).one_or_none()
     balance = await get_balance(db, user_id) if profile_locked is not None else 0
+    available = balance - await _reserved_points(db, user_id=user_id, exclude_order_id=order_id)
+    if available < amount:
+        raise InsufficientPointsError(balance=available, required=amount)
+    if settle_now:
+        # Full coverage — no card leg to wait for, so debit atomically at creation.
+        db.add(
+            PointLedger(
+                user_id=user_id,
+                amount=-amount,
+                reason=LedgerReason.REDEEM,
+                order_id=order_id,
+            )
+        )
+        await db.flush()
+
+
+async def commit_redeem(db: AsyncSession, *, user_id: int, order_id: int, amount: int) -> bool:
+    """Write the real redeem debit for a PARTIAL order once its card leg has settled (Model-1).
+
+    Called from :func:`~src.payments.lifecycle.process_payment_event` INSIDE the state-guarded
+    success branch, so a late success on an already-cancelled/settled order never reaches here and
+    cannot double-debit. Runs under the per-user ``customer_profile`` ``FOR UPDATE`` lock so it
+    serialises against concurrent reserve admissions — a reserve check sees either the pre- or the
+    post-commit state, never a torn one.
+
+    Unlike :func:`reserve_points` this NEVER raises on a shortfall. The callback has already accepted
+    real card money; refusing here would roll the settlement back and leave Multicard retrying a paid
+    order forever. The reservation guaranteed sufficiency, so a shortfall is structurally impossible;
+    if one is ever observed it is logged CRITICAL and the debit is SKIPPED rather than driving the
+    balance negative. Returns whether the debit row was written.
+    """
+    (
+        await db.execute(
+            select(CustomerProfile.id).where(CustomerProfile.user_id == user_id).with_for_update()
+        )
+    ).one_or_none()
+    balance = await get_balance(db, user_id)
     if balance < amount:
-        raise InsufficientPointsError(balance=balance, required=amount)
+        logger.critical(
+            "commit_redeem shortfall: order=%s user=%s balance=%s < amount=%s — debit SKIPPED, "
+            "order left settled (reservation invariant violated)",
+            order_id,
+            user_id,
+            balance,
+            amount,
+        )
+        return False
     db.add(
         PointLedger(
             user_id=user_id,
@@ -115,6 +195,7 @@ async def redeem_points(db: AsyncSession, *, user_id: int, order_id: int, amount
         )
     )
     await db.flush()
+    return True
 
 
 @dataclass(frozen=True)
