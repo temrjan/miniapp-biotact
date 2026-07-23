@@ -1,17 +1,17 @@
-"""Отметка завершения заказа пишется во времени UTC, не наивном (PR-6.5-B).
+"""``completed_at`` is stamped in UTC, not naively (PR-6.5-B).
 
-`completed_at` — колонка `timestamptz` (`orders/models.py:96`), но писалась наивным временем.
-PostgreSQL на проде живёт при `TimeZone=Europe/Berlin` и принимает голое значение за берлинское:
-отметка уезжала на -2ч летом и на -1ч зимой (сдвиг непостоянный из-за перехода на зимнее время,
-поэтому историю нельзя выправить одним `UPDATE`).
+``completed_at`` is a ``timestamptz`` column (``orders/models.py:96``) that used to be written with
+a naive value. The driver treats a naive ``datetime`` as local time of the application PROCESS, so
+the stamp drifts by the server's offset — on prod that is -2h in summer and -1h in winter (the shift
+is not constant across DST, which is why history cannot be fixed with a single ``UPDATE``). The
+PostgreSQL session timezone does not affect this — measured.
 
-Путей записи два, и ломались они по-разному:
-* `orders/service.py` — наивный `datetime.utcnow()`;
-* `orders/admin_router.py` — голый `datetime.now()`, то есть ЛОКАЛЬНОЕ время машины приложения,
-  что вдобавок зависит от настроек сервера, не только от PG.
+There were two write paths, broken differently:
+* ``orders/service.py`` — naive ``datetime.utcnow()``;
+* ``orders/admin_router.py`` — bare ``datetime.now()``, i.e. the machine's LOCAL time.
 
-Тесты ловят НАИВНОСТЬ, но не величину: сломанные варианты тоже возвращают «примерно сейчас», и
-проверка на близость к текущему моменту дефект бы пропустила.
+The defect only reproduces under the application server's timezone, which ``prod_timezone`` sets:
+under ``TZ=UTC`` — exactly how CI runs — both writes land identically.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -32,7 +32,7 @@ ADMIN_ORDERS_URL = "/api/v1/admin/orders"
 
 @pytest_asyncio.fixture
 async def maker(test_db: AsyncSession) -> object:
-    """Sessionmaker на той же тест-БД — для посева и чтения закоммиченного состояния."""
+    """Sessionmaker on the same test DB — for seeding and reading committed state."""
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     sm = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     yield sm
@@ -42,7 +42,7 @@ async def maker(test_db: AsyncSession) -> object:
 async def _seed_order(
     sm: async_sessionmaker[AsyncSession], *, number: str, telegram_id: int
 ) -> int:
-    """Заказ требует владельца: `orders.user_id` — внешний ключ на `users`."""
+    """An order needs an owner: ``orders.user_id`` is a foreign key into ``users``."""
     async with sm() as session, session.begin():
         user = User(telegram_id=telegram_id, first_name="Seed")
         session.add(user)
@@ -69,9 +69,9 @@ async def _read_order(sm: async_sessionmaker[AsyncSession], order_id: int) -> Or
 
 
 async def test_service_marks_delivered_with_timezone_aware_completed_at(
-    test_db: AsyncSession, maker: async_sessionmaker[AsyncSession]
+    test_db: AsyncSession, maker: async_sessionmaker[AsyncSession], prod_timezone: None
 ) -> None:
-    """Сервисный путь: перевод в «доставлен» ставит `completed_at` во времени UTC."""
+    """Service path: marking an order delivered stamps ``completed_at`` without drift."""
     order_id = await _seed_order(maker, number="ORD-DONE-SVC", telegram_id=80400)
     before = datetime.now(UTC)
 
@@ -82,14 +82,18 @@ async def test_service_marks_delivered_with_timezone_aware_completed_at(
     order = await _read_order(maker, order_id)
     assert order.status == OrderStatus.DELIVERED
     assert order.completed_at is not None
-    assert order.completed_at.tzinfo is not None, "наивное время: PG примет его за берлинское"
-    assert timedelta(0) <= order.completed_at - before < timedelta(minutes=5)
+    assert timedelta(0) <= order.completed_at - before < timedelta(minutes=5), (
+        f"отметка уехала: completed_at={order.completed_at}, момент операции={before}"
+    )
 
 
 async def test_admin_route_marks_delivered_with_timezone_aware_completed_at(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession], admin_headers: dict[str, str]
+    client: AsyncClient,
+    maker: async_sessionmaker[AsyncSession],
+    admin_headers: dict[str, str],
+    prod_timezone: None,
 ) -> None:
-    """Админский путь: он писал ЛОКАЛЬНОЕ время машины — худший из двух вариантов."""
+    """Admin path: this one wrote the machine's LOCAL time — the worse of the two bugs."""
     order_id = await _seed_order(maker, number="ORD-DONE-ADMIN", telegram_id=80401)
     before = datetime.now(UTC)
 
@@ -102,5 +106,6 @@ async def test_admin_route_marks_delivered_with_timezone_aware_completed_at(
     assert resp.status_code == 200, resp.text
     order = await _read_order(maker, order_id)
     assert order.completed_at is not None
-    assert order.completed_at.tzinfo is not None, "наивное время: PG примет его за берлинское"
-    assert timedelta(0) <= order.completed_at - before < timedelta(minutes=5)
+    assert timedelta(0) <= order.completed_at - before < timedelta(minutes=5), (
+        f"отметка уехала: completed_at={order.completed_at}, момент операции={before}"
+    )

@@ -33,7 +33,9 @@ CATALOGUE_PRICE = Decimal("69000.00")
 
 def _headers(telegram_id: int, first_name: str = "Buyer") -> dict[str, str]:
     """Valid Telegram initData headers for ``telegram_id`` (the mini-app's only auth)."""
-    return {"X-Init-Data": _make_init_data(BOT_TOKEN, {"id": telegram_id, "first_name": first_name})}
+    return {
+        "X-Init-Data": _make_init_data(BOT_TOKEN, {"id": telegram_id, "first_name": first_name})
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -175,9 +177,7 @@ async def test_old_client_payload_still_works(client: AsyncClient, maker) -> Non
     assert Decimal(resp.json()["total"]) == CATALOGUE_PRICE * 2
 
 
-async def test_multi_line_totals_are_computed_by_the_server(
-    client: AsyncClient, maker
-) -> None:
+async def test_multi_line_totals_are_computed_by_the_server(client: AsyncClient, maker) -> None:
     """Two products with different quantities: subtotal is the sum of the catalogue lines."""
     cheap = await _seed_product(maker, slug="cheap", price=Decimal("15000.00"))
     dear = await _seed_product(maker, slug="dear", price=Decimal("120000.00"))

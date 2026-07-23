@@ -1210,19 +1210,20 @@ async def test_lazy_cleanup_still_spares_a_fresh_reservation(
 # --------------------------------------------------------------------------- #
 # PR-6.5-B: отметки времени пишутся с часовым поясом
 #
-# `datetime.utcnow()` отдаёт НАИВНОЕ время, а колонка — `timestamptz`. PG на проде живёт с
-# TimeZone=Europe/Berlin и принимает голое значение за берлинское: `paid_at` уезжал на −2ч летом и
-# на −1ч зимой (сдвиг непостоянный из-за DST — поэтому историю и нельзя чинить одним UPDATE).
+# `datetime.utcnow()` отдаёт наивное время, а колонка — `timestamptz`. Драйвер трактует наивное
+# значение как локальное время ПРОЦЕССА приложения, поэтому отметка уезжает ровно на смещение
+# пояса сервера: на проде (Europe/Berlin) это -2ч летом и -1ч зимой.
 #
-# Тест ловит НАИВНОСТЬ, а не «примерно сейчас»: сломанный utcnow() тоже даёт «примерно сейчас», и
-# проверка величины прошла бы мимо дефекта.
+# Пояс самого PostgreSQL на результат НЕ влияет — замерено (PR-6.5-B). Значит воспроизвести дефект
+# можно только задав пояс процессу: это делает фикстура `prod_timezone`. Под `TZ=UTC`, как гоняет
+# CI, наивная и осознанная записи совпадают, и тест был бы зелёным на сломанном коде.
 # --------------------------------------------------------------------------- #
 
 
 async def test_full_coverage_writes_timezone_aware_paid_at(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], prod_timezone: None
 ) -> None:
-    """Полное покрытие баллами закрывает заказ на сервере — и отметка оплаты обязана нести пояс."""
+    """Полное покрытие баллами закрывает заказ на сервере — отметка оплаты не должна уехать назад."""
     user_id = await _seed_user(maker, telegram_id=80300)
     product_id = await _seed_product(maker, slug="redeem-paidat-tz")
     await _seed_points(maker, user_id=user_id, amount=69_000)
@@ -1235,6 +1236,7 @@ async def test_full_coverage_writes_timezone_aware_paid_at(
     assert resp.status_code == 201, resp.text
     order = await _committed_order(maker, resp.json()["id"])
     assert order.paid_at is not None
-    assert order.paid_at.tzinfo is not None, "наивное время: PG примет его за берлинское и сдвинет"
-    # Момент операции, а не «плюс-минус два часа»: наивная запись улетела бы за эту границу.
-    assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5)
+    # Наивная запись под берлинским поясом уедет на час-два НАЗАД и провалит нижнюю границу.
+    assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5), (
+        f"отметка уехала: paid_at={order.paid_at}, момент операции={before}"
+    )

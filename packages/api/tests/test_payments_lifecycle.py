@@ -13,8 +13,8 @@ untestable. Committed truth is read through a second sessionmaker (READ COMMITTE
 
 import asyncio
 import hashlib
-from datetime import UTC, datetime, timedelta
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -700,12 +700,13 @@ async def test_arm_payment_succeeds_when_not_paid(maker) -> None:
 
 
 async def test_success_callback_writes_timezone_aware_paid_at(
-    client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], prod_timezone: None
 ) -> None:
-    """Успешный колбэк карты ставит `paid_at` — с поясом, иначе PG сдвинет его на своей TimeZone.
+    """A successful card callback stamps ``paid_at`` — it must not drift backwards.
 
-    Ловим именно наивность: `datetime.utcnow()` тоже вернул бы «примерно сейчас», и проверка
-    величины дефект бы пропустила.
+    The defect only reproduces under the application server's timezone, which ``prod_timezone``
+    sets: under ``TZ=UTC`` a naive write is indistinguishable from an aware one, so this test would
+    pass against broken code.
     """
     order_id = await _seed_order(maker, order_number="ORD-TZ", payment_uuid="u-tz")
     before = datetime.now(UTC)
@@ -715,5 +716,6 @@ async def test_success_callback_writes_timezone_aware_paid_at(
     assert resp.status_code == 200, resp.text
     order = await _committed_order(maker, order_id)
     assert order.paid_at is not None
-    assert order.paid_at.tzinfo is not None, "наивное время: PG примет его за берлинское и сдвинет"
-    assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5)
+    assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5), (
+        f"отметка уехала: paid_at={order.paid_at}, момент операции={before}"
+    )

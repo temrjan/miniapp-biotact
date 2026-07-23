@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 import time
 from collections.abc import AsyncGenerator
 from urllib.parse import urlencode
@@ -82,6 +83,31 @@ async def client(test_db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def prod_timezone():
+    """Reproduce the APPLICATION SERVER's timezone on prod (Europe/Berlin).
+
+    Without this the naive-datetime defect is not reproducible at all. Mechanism, measured
+    empirically (PR-6.5-B): writing a NAIVE ``datetime`` into a ``timestamptz`` column makes the
+    driver treat it as local time of the PROCESS, not as UTC. Observed drift: TZ=UTC -> 0h,
+    TZ=Europe/Berlin -> +2h, TZ=Asia/Tashkent -> +5h. The PostgreSQL session timezone does NOT
+    affect it — which is why the original diagnosis ("PG reads it as Berlin time") was wrong.
+
+    Consequence: under ``TZ=UTC`` — exactly how the CI runner runs — a naive write and an aware one
+    land identically, so a test for this bug stays green against broken code. The fixture sets the
+    zone for the duration of one test and restores whatever was there before.
+    """
+    original = os.environ.get("TZ")
+    os.environ["TZ"] = "Europe/Berlin"
+    time.tzset()
+    yield
+    if original is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = original
+    time.tzset()
 
 
 @pytest.fixture
