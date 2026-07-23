@@ -27,7 +27,7 @@ The success callback (MD5) and the status webhook (SHA1) both funnel through
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -190,7 +190,7 @@ async def process_payment_event(
         order.payment_uuid = payment_uuid
         order.payment_status = "paid"
         order.status = OrderStatus.CONFIRMED
-        order.paid_at = datetime.utcnow()
+        order.paid_at = datetime.now(UTC)
         applied_success = True
         if order.points_applied > 0:
             # Model-1 commit: the partial order only RESERVED its points at creation (no ledger

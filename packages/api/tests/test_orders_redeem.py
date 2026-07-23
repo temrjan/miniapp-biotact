@@ -1205,3 +1205,38 @@ async def test_lazy_cleanup_still_spares_a_fresh_reservation(
     order = await _committed_order(maker, fresh_id)
     assert order.payment_status == "pending"  # the lazy path left the fresh reservation alone
     assert order.status != OrderStatus.CANCELLED
+
+
+# --------------------------------------------------------------------------- #
+# PR-6.5-B: отметки времени пишутся с часовым поясом
+#
+# `datetime.utcnow()` отдаёт наивное время, а колонка — `timestamptz`. Драйвер трактует наивное
+# значение как локальное время ПРОЦЕССА приложения, поэтому отметка уезжает ровно на смещение
+# пояса сервера: на проде (Europe/Berlin) это -2ч летом и -1ч зимой.
+#
+# Пояс самого PostgreSQL на результат НЕ влияет — замерено (PR-6.5-B). Значит воспроизвести дефект
+# можно только задав пояс процессу: это делает фикстура `prod_timezone`. Под `TZ=UTC`, как гоняет
+# CI, наивная и осознанная записи совпадают, и тест был бы зелёным на сломанном коде.
+# --------------------------------------------------------------------------- #
+
+
+async def test_full_coverage_writes_timezone_aware_paid_at(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], prod_timezone: None
+) -> None:
+    """Полное покрытие баллами закрывает заказ на сервере — отметка оплаты не должна уехать назад."""
+    user_id = await _seed_user(maker, telegram_id=80300)
+    product_id = await _seed_product(maker, slug="redeem-paidat-tz")
+    await _seed_points(maker, user_id=user_id, amount=69_000)
+    before = datetime.now(UTC)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80300)
+    )
+
+    assert resp.status_code == 201, resp.text
+    order = await _committed_order(maker, resp.json()["id"])
+    assert order.paid_at is not None
+    # Наивная запись под берлинским поясом уедет на час-два НАЗАД и провалит нижнюю границу.
+    assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5), (
+        f"отметка уехала: paid_at={order.paid_at}, момент операции={before}"
+    )

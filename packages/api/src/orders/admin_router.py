@@ -1,6 +1,6 @@
 """Admin Orders API router."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -135,7 +135,7 @@ async def update_order_status_admin(
 
         # Set completed_at if delivered
         if new_status == OrderStatus.DELIVERED:
-            order.completed_at = datetime.now()
+            order.completed_at = datetime.now(UTC)
 
         await db.commit()
         await db.refresh(order)

@@ -14,6 +14,7 @@ untestable. Committed truth is read through a second sessionmaker (READ COMMITTE
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -696,3 +697,25 @@ async def test_arm_payment_succeeds_when_not_paid(maker) -> None:
     order = await _committed_order(maker, order_id)
     assert order.payment_status == "pending"
     assert order.payment_uuid == "uuid-fresh"
+
+
+async def test_success_callback_writes_timezone_aware_paid_at(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], prod_timezone: None
+) -> None:
+    """A successful card callback stamps ``paid_at`` — it must not drift backwards.
+
+    The defect only reproduces under the application server's timezone, which ``prod_timezone``
+    sets: under ``TZ=UTC`` a naive write is indistinguishable from an aware one, so this test would
+    pass against broken code.
+    """
+    order_id = await _seed_order(maker, order_number="ORD-TZ", payment_uuid="u-tz")
+    before = datetime.now(UTC)
+
+    resp = await client.post(CALLBACK_URL, json=_callback_body(uuid="u-tz", invoice_id="ORD-TZ"))
+
+    assert resp.status_code == 200, resp.text
+    order = await _committed_order(maker, order_id)
+    assert order.paid_at is not None
+    assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5), (
+        f"отметка уехала: paid_at={order.paid_at}, момент операции={before}"
+    )
