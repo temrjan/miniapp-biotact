@@ -18,6 +18,7 @@ from src.orders.schemas import (
     OrderListResponse,
     OrderResponse,
     OrderStatusUpdate,
+    ReleaseReservationsResponse,
 )
 from src.users.models import User
 
@@ -131,6 +132,48 @@ async def create_order(
             logger.error("Failed to send Telegram notification: %s", exc)
 
     return order
+
+
+@router.post("/reservations/release", response_model=ReleaseReservationsResponse)
+async def release_reservations(
+    db: DbSession,
+    user: CurrentUser,
+) -> ReleaseReservationsResponse:
+    """Release the points the caller's own unfinished orders are holding — no waiting.
+
+    Points spent partially are RESERVED, not debited (Model-1): the unpaid order IS the reservation.
+    Until now the only way to get them back was the lazy cleanup, which waits
+    :data:`~src.orders.service.REDEEM_RESERVE_TIMEOUT` because it cannot know whether the customer is
+    still paying. Here the customer has said so themselves, so the age bar is dropped — safety still
+    comes from deleting the Multicard invoice BEFORE cancelling, never from waiting.
+
+    Committed immediately, before the response is shaped: the invoice DELETE already happened
+    externally, and letting a later failure roll the cancellation back would leave a dead invoice
+    beside a live reservation.
+
+    A 409 is reserved for "nothing could be freed although something is held" — every other shape,
+    including releasing nothing because nothing was held (a second click), is a 200.
+    """
+    outcome = await service.expire_stale_partials(db, user_id=user.id, max_age=None)
+    await db.commit()
+
+    if outcome.released_orders == 0 and outcome.blocked_orders > 0:
+        # Deletion was refused for every reservation. The cause cannot be told apart here —
+        # ``delete_invoice`` returns False both for an already-paid invoice and for a transport
+        # failure — so the client must not be told a cause as if it were a fact.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "reservations_not_released",
+                "blocked_orders": outcome.blocked_orders,
+            },
+        )
+
+    return ReleaseReservationsResponse(
+        released_orders=outcome.released_orders,
+        released_points=outcome.released_points,
+        blocked_orders=outcome.blocked_orders,
+    )
 
 
 @router.get("", response_model=OrderListResponse)

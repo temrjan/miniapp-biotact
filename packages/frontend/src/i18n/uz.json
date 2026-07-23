@@ -110,7 +110,10 @@
       "insufficient": "Ballar yetarli emas",
       "available": "Mavjud",
       "reserved": "{points} tugallanmagan buyurtma bilan band.",
-      "reservedUntil": "{time} dan keyin qayta urinib ko'ring."
+      "reservedUntil": "{time} dan keyin qayta urinib ko'ring.",
+      "release": "Ballarni qaytarish",
+      "releasing": "Qaytarilmoqda…",
+      "releaseFailed": "Hozir qaytarib bo'lmadi — to'lov hali o'tayotgan bo'lishi mumkin. Keyinroq urinib ko'ring."
     }
   },
   "profile": {
