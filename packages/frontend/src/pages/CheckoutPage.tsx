@@ -14,6 +14,7 @@ import { useLocationStore, getDisplayAddress } from '@stores/locationStore';
 import { useLoyalty } from '@hooks/useLoyalty';
 import { usePayment } from '@hooks/usePayment';
 import { RedeemStepper } from '@components/features/RedeemStepper';
+import { RedeemReserveNotice } from '@components/features/RedeemReserveNotice';
 import { maxRedeemable } from '@/utils/redeem';
 
 type CheckoutStep = 'phone' | 'delivery' | 'address' | 'confirm';
@@ -137,7 +138,8 @@ export function CheckoutPage() {
   // Points redemption is safe since Model-1 (backend): a partial spend RESERVES points and the real
   // debit lands only when the card settles, so an abandoned payment can no longer burn points. (The
   // temporary kill-switch that hid this stepper after the burn incident is removed with that fix.)
-  const canRedeem = (loyalty?.isMember ?? false) && maxRedeemable(money) > 0;
+  const isMember = loyalty?.isMember ?? false;
+  const canRedeem = isMember && maxRedeemable(money) > 0;
   const redeemPoints = canRedeem ? pointsToApply : 0;
   const amountDue = totalAmount - redeemPoints;
 
@@ -158,10 +160,15 @@ export function CheckoutPage() {
   const getMainButtonConfig = useCallback(() => {
     switch (step) {
       case 'phone':
-        return { text: t('common.next'), onClick: handlePhoneContinue, isActive: phone.length >= 13 };
+        return {
+          text: t('common.next'),
+          onClick: handlePhoneContinue,
+          isActive: phone.length >= 13,
+        };
       case 'delivery':
         return {
-          text: deliveryType === 'delivery' ? t('checkout.selectAddress') : t('checkout.placeOrder'),
+          text:
+            deliveryType === 'delivery' ? t('checkout.selectAddress') : t('checkout.placeOrder'),
           onClick: () => {
             haptic.medium();
             setStep(deliveryType === 'delivery' ? 'address' : 'confirm');
@@ -191,7 +198,21 @@ export function CheckoutPage() {
       default:
         return { text: '', onClick: () => {}, isActive: false };
     }
-  }, [step, phone, deliveryType, address, totalAmount, amountDue, redeemPoints, isProcessing, haptic, pay, handlePhoneContinue, t, formatPrice]);
+  }, [
+    step,
+    phone,
+    deliveryType,
+    address,
+    totalAmount,
+    amountDue,
+    redeemPoints,
+    isProcessing,
+    haptic,
+    pay,
+    handlePhoneContinue,
+    t,
+    formatPrice,
+  ]);
 
   const mainButtonConfig = getMainButtonConfig();
 
@@ -232,8 +253,8 @@ export function CheckoutPage() {
                 step === s
                   ? 'bg-[var(--primary)]'
                   : i < stepIndex
-                  ? 'bg-[var(--primary)] opacity-50'
-                  : 'bg-[var(--text-muted)] opacity-30'
+                    ? 'bg-[var(--primary)] opacity-50'
+                    : 'bg-[var(--text-muted)] opacity-30'
               }`}
             />
           ))}
@@ -254,7 +275,9 @@ export function CheckoutPage() {
                   </div>
                   <div>
                     <h2 className="font-bold">{t('checkout.phone')}</h2>
-                    <p className="text-sm text-[var(--text-muted)]">{t('checkout.phoneRequired')}</p>
+                    <p className="text-sm text-[var(--text-muted)]">
+                      {t('checkout.phoneRequired')}
+                    </p>
                   </div>
                 </div>
                 <PhoneInput value={phone} onChange={setPhone} autoFocus />
@@ -316,7 +339,9 @@ export function CheckoutPage() {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold">{t('checkout.delivery')}</h3>
-                    <p className="text-sm text-[var(--text-muted)]">{t('checkout.deliveryCourier')}</p>
+                    <p className="text-sm text-[var(--text-muted)]">
+                      {t('checkout.deliveryCourier')}
+                    </p>
                   </div>
                   {deliveryType === 'delivery' && (
                     <Check size={24} className="text-[var(--primary)]" />
@@ -425,28 +450,24 @@ export function CheckoutPage() {
 
               {/* Рендерится ОТДЕЛЬНО от степпера и намеренно: главный случай — когда резерв съел
                   всё доступное, степпера нет вовсе, и без этой строки человек видит свои баллы в
-                  Профиле и не понимает, почему их «нет». Молчать здесь — и есть исходный баг. */}
-              {reservedPoints > 0 && (
-                <Card className="p-4" data-testid="redeem-reserve-notice">
-                  <p className="text-sm text-[var(--text-muted)]">
-                    {t('checkout.redeem.reserved', { points: formatPrice(reservedPoints) })}
-                    {reservedUntil &&
-                      ' ' +
-                        t('checkout.redeem.reservedUntil', {
-                          time: reservedUntil.toLocaleTimeString(undefined, {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          }),
-                        })}
-                  </p>
-                </Card>
+                  Профиле и не понимает, почему их «нет». Молчать здесь — и есть исходный баг.
+                  Гейт по членству — потому что плашка утверждает КОНКРЕТНУЮ причину («незавершённый
+                  заказ»), а вне клуба списаний не бывает и утверждать это было бы неправдой. */}
+              {isMember && (
+                <RedeemReserveNotice
+                  reservedPoints={reservedPoints}
+                  reservedUntil={reservedUntil}
+                  formatPrice={formatPrice}
+                />
               )}
 
               <Card className="p-4">
                 <div className="space-y-3">
                   <div className="flex justify-between">
                     <span className="text-[var(--text-muted)]">{t('checkout.itemsCount')}</span>
-                    <span>{items.length} {t('checkout.pcs')}</span>
+                    <span>
+                      {items.length} {t('checkout.pcs')}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--text-muted)]">{t('checkout.phone')}</span>
@@ -454,7 +475,9 @@ export function CheckoutPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--text-muted)]">{t('checkout.method')}</span>
-                    <span>{deliveryType === 'delivery' ? t('checkout.delivery') : t('checkout.pickup')}</span>
+                    <span>
+                      {deliveryType === 'delivery' ? t('checkout.delivery') : t('checkout.pickup')}
+                    </span>
                   </div>
                   {deliveryType === 'delivery' && address && (
                     <div className="flex justify-between">
@@ -481,7 +504,9 @@ export function CheckoutPage() {
                 <Card className="p-4">
                   <div className="flex items-center justify-center gap-3">
                     <Loader2 size={24} className="animate-spin text-[var(--primary)]" />
-                    <span className="text-[var(--text-muted)]">{t('checkout.creatingPayment')}</span>
+                    <span className="text-[var(--text-muted)]">
+                      {t('checkout.creatingPayment')}
+                    </span>
                   </div>
                 </Card>
               )}
