@@ -25,6 +25,10 @@ export interface Order {
   payment_uuid: string | null;
   payment_status: PaymentStatus | null;
   paid_at: string | null;
+  // Сколько покрыто баллами клуба (0 — обычная оплата картой). API отдаёт это поле давно,
+  // а панель его не показывала: заказ, за который не поступило ни сума, выглядел как оплаченный
+  // картой. `payment_status` говорит «закрыт ли заказ», это поле — «пришли ли деньги».
+  points_applied: number;
   subtotal: string;
   delivery_fee: string;
   total: string;

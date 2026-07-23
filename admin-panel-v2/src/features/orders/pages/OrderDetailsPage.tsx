@@ -3,6 +3,7 @@ import { ArrowLeft, Package, User, MapPin, Phone, CreditCard, Clock } from 'luci
 
 import { Button } from '@/shared/components/ui/button';
 import { Badge } from '@/shared/components/ui/badge';
+import { getPaymentKind, getCardAmount } from '../lib/paymentKind';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import {
   Table,
@@ -246,6 +247,25 @@ export const OrderDetailsPage = () => {
                   {order.payment_status ? PAYMENT_STATUS_LABELS[order.payment_status] : 'Не оплачен'}
                 </Badge>
               </div>
+              {/* Разбивка «баллы / карта» — единственное место, где видно, поступали ли деньги.
+                  Статус выше говорит лишь о том, что заказ закрыт. */}
+              {getPaymentKind(order) !== 'card' && (
+                <>
+                  <div className="flex items-center justify-between" data-testid="paid-by-points">
+                    <span className="text-muted-foreground">Оплачено баллами</span>
+                    <span className="text-sm font-medium">
+                      {formatCurrency(String(order.points_applied), order.currency)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between" data-testid="paid-by-card">
+                    <span className="text-muted-foreground">Собрано картой</span>
+                    <span className="text-sm font-medium">
+                      {formatCurrency(String(getCardAmount(order)), order.currency)}
+                      {getPaymentKind(order) === 'full-points' && ' · денег не поступало'}
+                    </span>
+                  </div>
+                </>
+              )}
               {order.paid_at && (
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Оплачен</span>
