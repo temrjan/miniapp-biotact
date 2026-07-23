@@ -137,20 +137,29 @@ async def _reserved_points(
     return int(result.scalar_one())
 
 
-async def _earliest_reserve_at(
+async def _live_reserve(
     db: AsyncSession, *, user_id: int, created_after: datetime
-) -> datetime | None:
-    """When this user's oldest LIVE reservation was created — ``None`` if none is live.
+) -> tuple[int, datetime | None]:
+    """This user's LIVE reservations in ONE read: points pinned, and when the oldest was created.
 
-    Feeds the profile's "try again after HH:MM" hint. The oldest one is the answer because it is the
-    first to be reclaimed, so it is the earliest moment the customer can spend again.
+    Both numbers come from a single statement on purpose. Two separate reads could straddle a
+    concurrent settlement and report a sum and an expiry that never existed together — harmless to
+    money (this path writes nothing) but enough to show a customer a time that contradicts the
+    amount beside it. ``None`` for the timestamp means nothing is pinned.
+
+    The oldest reservation is the one to report: it is reclaimed first, so it is the earliest moment
+    the customer can spend again.
     """
     result = await db.execute(
-        select(func.min(Order.created_at)).where(
+        select(
+            func.coalesce(func.sum(Order.points_applied), 0),
+            func.min(Order.created_at),
+        ).where(
             *_reserve_filters(user_id=user_id, exclude_order_id=None, created_after=created_after)
         )
     )
-    return result.scalar_one()
+    reserved, earliest = result.one()
+    return int(reserved), earliest
 
 
 async def reserve_points(
@@ -341,8 +350,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     remaining = 0 if tier == LoyaltyStatus.BIOTACT_FRIEND else max(0, FRIEND_THRESHOLD - lifetime)
 
     live_since = datetime.now(UTC) - REDEEM_RESERVE_TIMEOUT
-    reserved = await _reserved_points(session, user_id=user.id, created_after=live_since)
-    earliest = await _earliest_reserve_at(session, user_id=user.id, created_after=live_since)
+    reserved, earliest = await _live_reserve(session, user_id=user.id, created_after=live_since)
     # Clamped, never a bare subtraction: a negative would be a data anomaly, and this response is
     # the whole profile card — letting one leak into a constrained field would 500 the card itself
     # instead of degrading one number (the failure mode LoyaltySummaryResponse already warns about).
