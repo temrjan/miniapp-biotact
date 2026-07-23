@@ -124,6 +124,8 @@ async def get_loyalty_me(
     return LoyaltySummaryResponse(
         tier=summary.tier,
         balance=summary.balance,
+        available=summary.available,
+        reserved_until=summary.reserved_until,
         lifetime_activations=summary.lifetime_activations,
         activations_to_friend=summary.activations_to_friend,
         is_member=summary.is_member,
