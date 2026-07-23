@@ -1,0 +1,14 @@
+analytics
+auth
+banners
+broadcasts
+categories
+common
+crm
+loyalty
+notifications
+orders
+payments
+products
+uploads
+users

@@ -1205,3 +1205,36 @@ async def test_lazy_cleanup_still_spares_a_fresh_reservation(
     order = await _committed_order(maker, fresh_id)
     assert order.payment_status == "pending"  # the lazy path left the fresh reservation alone
     assert order.status != OrderStatus.CANCELLED
+
+
+# --------------------------------------------------------------------------- #
+# PR-6.5-B: отметки времени пишутся с часовым поясом
+#
+# `datetime.utcnow()` отдаёт НАИВНОЕ время, а колонка — `timestamptz`. PG на проде живёт с
+# TimeZone=Europe/Berlin и принимает голое значение за берлинское: `paid_at` уезжал на −2ч летом и
+# на −1ч зимой (сдвиг непостоянный из-за DST — поэтому историю и нельзя чинить одним UPDATE).
+#
+# Тест ловит НАИВНОСТЬ, а не «примерно сейчас»: сломанный utcnow() тоже даёт «примерно сейчас», и
+# проверка величины прошла бы мимо дефекта.
+# --------------------------------------------------------------------------- #
+
+
+async def test_full_coverage_writes_timezone_aware_paid_at(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Полное покрытие баллами закрывает заказ на сервере — и отметка оплаты обязана нести пояс."""
+    user_id = await _seed_user(maker, telegram_id=80300)
+    product_id = await _seed_product(maker, slug="redeem-paidat-tz")
+    await _seed_points(maker, user_id=user_id, amount=69_000)
+    before = datetime.now(UTC)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80300)
+    )
+
+    assert resp.status_code == 201, resp.text
+    order = await _committed_order(maker, resp.json()["id"])
+    assert order.paid_at is not None
+    assert order.paid_at.tzinfo is not None, "наивное время: PG примет его за берлинское и сдвинет"
+    # Момент операции, а не «плюс-минус два часа»: наивная запись улетела бы за эту границу.
+    assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5)

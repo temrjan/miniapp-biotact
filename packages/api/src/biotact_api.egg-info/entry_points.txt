@@ -1,0 +1,2 @@
+[console_scripts]
+api = biotact_api.main:main

@@ -283,7 +283,7 @@ async def create_order(
         if is_full:  # full coverage — settled outright, no Multicard leg to wait for
             order.payment_status = "paid"
             order.status = OrderStatus.CONFIRMED
-            order.paid_at = datetime.utcnow()
+            order.paid_at = datetime.now(UTC)
         # A partial redemption keeps the default unpaid/pending — the pending order row itself is
         # the reservation; the card collects the remainder and the debit lands only on settlement.
     order.items.extend(items)
@@ -431,7 +431,7 @@ async def update_order_status(
     order.status = OrderStatus(status)
 
     if status == "delivered":
-        order.completed_at = datetime.utcnow()
+        order.completed_at = datetime.now(UTC)
 
     await db.flush()
     await db.refresh(order)
@@ -453,7 +453,7 @@ async def update_order_payment(
     order.payment_status = payment_status
 
     if payment_status == "paid":
-        order.paid_at = datetime.utcnow()
+        order.paid_at = datetime.now(UTC)
 
     await db.flush()
     await db.refresh(order)
