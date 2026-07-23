@@ -114,6 +114,23 @@ class OrderListResponse(BaseModel):
     pages: int
 
 
+class ReleaseReservationsResponse(BaseModel):
+    """Result of the customer releasing the points their unfinished orders were holding.
+
+    Reports a partial outcome honestly instead of collapsing it into ok/error: ``blocked_orders``
+    counts reservations whose Multicard invoice refused deletion (the case where cancelling would
+    risk a late charge), and those points are still held. A response with ``released_points == 0``
+    and ``blocked_orders == 0`` simply means there was nothing to release — pressing the button
+    twice is not an error.
+    """
+
+    released_orders: int = Field(ge=0, description="How many reserving orders were cancelled")
+    released_points: int = Field(ge=0, description="How many points became spendable again")
+    blocked_orders: int = Field(
+        ge=0, description="Reservations that could not be released and still hold their points"
+    )
+
+
 class OrderStatusUpdate(BaseModel):
     """Update order status schema."""
 

@@ -925,3 +925,283 @@ async def test_stale_partial_with_unremovable_invoice_is_not_cancelled(
     stale = await _committed_order(maker, stale_id)
     assert stale.payment_status == "pending"  # NOT cancelled — the invoice may still be charged
     assert stale.status == OrderStatus.PENDING
+
+
+# --------------------------------------------------------------------------- #
+# PR-6.6-B: the customer releases their own reservations on demand
+#
+# Same machinery as the lazy cleanup, minus the age bar: the customer has just said they are not
+# paying, so there is nothing to wait for. Safety still lives in delete-invoice-BEFORE-cancel.
+# --------------------------------------------------------------------------- #
+
+RELEASE_URL = f"{ORDERS_URL}/reservations/release"
+
+
+async def _always_delete(uuid: str) -> bool:
+    return True
+
+
+async def _never_delete(uuid: str) -> bool:
+    return False
+
+
+async def test_release_frees_a_fresh_reservation_without_waiting(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reservation minutes old — far inside the timeout — is released the moment the customer asks.
+
+    This is the whole point of the endpoint: the lazy cleanup would refuse this order for another
+    ~29 minutes. Mutation: keep the age bar (max_age default instead of None) -> nothing released.
+    """
+    user_id = await _seed_user(maker, telegram_id=80200)
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    order_id = await _seed_partial_order(
+        maker,
+        user_id=user_id,
+        points_applied=60_000,
+        age=timedelta(minutes=1),
+        payment_uuid="fresh-uuid",
+        payment_status="pending",
+    )
+    monkeypatch.setattr(multicard_client, "delete_invoice", _always_delete)
+
+    resp = await client.post(RELEASE_URL, headers=_headers(80200))
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"released_orders": 1, "released_points": 60_000, "blocked_orders": 0}
+    order = await _committed_order(maker, order_id)
+    assert order.payment_status == "failed"
+    assert order.status == OrderStatus.CANCELLED
+    assert order.points_applied == 60_000  # historical fact of the order, never zeroed out
+    assert await _committed_redeem_rows(maker) == []  # releasing a reserve is not a money operation
+    assert await _committed_balance(maker, user_id) == 100_000
+
+
+async def test_release_frees_every_reservation_the_customer_holds(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two live reservations → both released, points summed (decision R-1: the button is not per-order)."""
+    user_id = await _seed_user(maker, telegram_id=80201)
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    await _seed_partial_order(
+        maker, user_id=user_id, points_applied=20_000, age=timedelta(minutes=2), payment_uuid="a"
+    )
+    await _seed_partial_order(
+        maker, user_id=user_id, points_applied=30_000, age=timedelta(minutes=3), payment_uuid="b"
+    )
+    monkeypatch.setattr(multicard_client, "delete_invoice", _always_delete)
+
+    resp = await client.post(RELEASE_URL, headers=_headers(80201))
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["released_orders"] == 2
+    assert resp.json()["released_points"] == 50_000
+
+
+async def test_release_leaves_an_unremovable_invoice_alone_and_409s(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Multicard refuses the delete → the order is NOT cancelled and the caller gets a 409.
+
+    The refusal is exactly the case where cancelling would be dangerous: the invoice may already be
+    paid, and a cancelled-but-payable order means a late charge for goods nobody will ship.
+    Mutation: cancel before/regardless of the delete result -> the order flips -> red.
+    """
+    user_id = await _seed_user(maker, telegram_id=80202)
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    order_id = await _seed_partial_order(
+        maker,
+        user_id=user_id,
+        points_applied=60_000,
+        age=timedelta(minutes=1),
+        payment_uuid="paid-uuid",
+        payment_status="pending",
+    )
+    monkeypatch.setattr(multicard_client, "delete_invoice", _never_delete)
+
+    resp = await client.post(RELEASE_URL, headers=_headers(80202))
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "reservations_not_released"
+    order = await _committed_order(maker, order_id)
+    assert order.payment_status == "pending"  # untouched — its reserve still stands
+    assert order.status != OrderStatus.CANCELLED
+
+
+async def test_release_reports_partial_success_as_200_not_409(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One released, one blocked → 200 with both counts (invariant I-3).
+
+    Collapsing this into a 409 would tell a customer whose points partly came back that nothing
+    happened — they would press again, and the second press would report 0 released.
+    """
+    user_id = await _seed_user(maker, telegram_id=80203)
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    await _seed_partial_order(
+        maker, user_id=user_id, points_applied=20_000, age=timedelta(minutes=2), payment_uuid="ok"
+    )
+    await _seed_partial_order(
+        maker,
+        user_id=user_id,
+        points_applied=30_000,
+        age=timedelta(minutes=3),
+        payment_uuid="stuck",
+    )
+
+    async def _selective(uuid: str) -> bool:
+        return uuid == "ok"
+
+    monkeypatch.setattr(multicard_client, "delete_invoice", _selective)
+
+    resp = await client.post(RELEASE_URL, headers=_headers(80203))
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"released_orders": 1, "released_points": 20_000, "blocked_orders": 1}
+
+
+async def test_release_cancels_an_order_that_never_reached_the_gateway(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No ``payment_uuid`` (the customer never got to /payments/create) → cancelled with no Multicard call at all."""
+    user_id = await _seed_user(maker, telegram_id=80204)
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    order_id = await _seed_partial_order(
+        maker, user_id=user_id, points_applied=15_000, age=timedelta(minutes=1)
+    )
+    called: list[str] = []
+
+    async def _tracking(uuid: str) -> bool:
+        called.append(uuid)
+        return True
+
+    monkeypatch.setattr(multicard_client, "delete_invoice", _tracking)
+
+    resp = await client.post(RELEASE_URL, headers=_headers(80204))
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["released_points"] == 15_000
+    assert called == []  # there is no invoice to annul, so the gateway is not called at all
+    assert (await _committed_order(maker, order_id)).status == OrderStatus.CANCELLED
+
+
+async def test_release_with_nothing_held_is_a_quiet_200(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Nothing reserved (or a second click right after a successful release) → 200, zero released.
+
+    An error here would punish a customer for pressing a button twice (invariant I-4).
+    """
+    user_id = await _seed_user(maker, telegram_id=80205)
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+
+    resp = await client.post(RELEASE_URL, headers=_headers(80205))
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"released_orders": 0, "released_points": 0, "blocked_orders": 0}
+
+
+async def test_release_is_idempotent_on_a_second_press(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Press, then press again: the first frees the points, the second is a harmless zero (invariant I-4)."""
+    user_id = await _seed_user(maker, telegram_id=80206)
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    await _seed_partial_order(
+        maker, user_id=user_id, points_applied=25_000, age=timedelta(minutes=1), payment_uuid="one"
+    )
+    monkeypatch.setattr(multicard_client, "delete_invoice", _always_delete)
+
+    first = await client.post(RELEASE_URL, headers=_headers(80206))
+    second = await client.post(RELEASE_URL, headers=_headers(80206))
+
+    assert first.json()["released_points"] == 25_000
+    assert second.status_code == 200, second.text
+    assert second.json() == {"released_orders": 0, "released_points": 0, "blocked_orders": 0}
+
+
+async def test_release_never_touches_another_customers_reservation(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B pressing the button must not cancel A's order. Mutation: drop the user_id filter -> red."""
+    victim_id = await _seed_user(maker, telegram_id=80207)
+    await _seed_points(maker, user_id=victim_id, amount=100_000)
+    victim_order = await _seed_partial_order(
+        maker,
+        user_id=victim_id,
+        points_applied=40_000,
+        age=timedelta(minutes=1),
+        payment_uuid="v",
+        payment_status="pending",
+    )
+    await _seed_user(maker, telegram_id=80208)
+    monkeypatch.setattr(multicard_client, "delete_invoice", _always_delete)
+
+    resp = await client.post(RELEASE_URL, headers=_headers(80208))
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["released_orders"] == 0
+    order = await _committed_order(maker, victim_order)
+    assert order.payment_status == "pending"
+    assert order.status != OrderStatus.CANCELLED
+
+
+async def test_release_never_cancels_a_paid_order(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A settled order is not a reservation — its points were already debited by ``commit_redeem``.
+
+    Mutation: drop the payment_status filter -> a paid order gets cancelled -> red.
+    """
+    user_id = await _seed_user(maker, telegram_id=80209)
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    paid_id = await _seed_partial_order(
+        maker,
+        user_id=user_id,
+        points_applied=30_000,
+        age=timedelta(minutes=1),
+        payment_uuid="paid",
+        payment_status="paid",
+    )
+    monkeypatch.setattr(multicard_client, "delete_invoice", _always_delete)
+
+    resp = await client.post(RELEASE_URL, headers=_headers(80209))
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["released_orders"] == 0
+    order = await _committed_order(maker, paid_id)
+    assert order.payment_status == "paid"
+    assert order.status != OrderStatus.CANCELLED
+
+
+async def test_lazy_cleanup_still_spares_a_fresh_reservation(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The DEFAULT age bar is intact: creating a new order does not reap a minutes-old reservation.
+
+    Guards the compatibility claim behind ``max_age``'s default. Mutation: make ``None`` the default
+    -> creating any redeeming order would instantly reap the customer's live reservation -> red,
+    because the fresh reserve would stop being counted and the 409 below would not happen.
+    """
+    user_id = await _seed_user(maker, telegram_id=80210)
+    product_id = await _seed_product(maker, slug="redeem-fresh-spared")
+    await _seed_points(maker, user_id=user_id, amount=100_000)
+    fresh_id = await _seed_partial_order(
+        maker,
+        user_id=user_id,
+        points_applied=60_000,
+        age=timedelta(minutes=1),
+        payment_uuid="fresh",
+        payment_status="pending",
+    )
+    monkeypatch.setattr(multicard_client, "delete_invoice", _always_delete)
+
+    # 60 000 is still reserved, so only 40 000 is available and a second 60 000 spend must be refused.
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=60_000), headers=_headers(80210)
+    )
+
+    assert resp.status_code == 409, resp.text
+    order = await _committed_order(maker, fresh_id)
+    assert order.payment_status == "pending"  # the lazy path left the fresh reservation alone
+    assert order.status != OrderStatus.CANCELLED

@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -310,41 +311,77 @@ async def create_order(
 REDEEM_RESERVE_TIMEOUT = timedelta(minutes=30)
 
 
-async def expire_stale_partials(db: AsyncSession, *, user_id: int) -> int:
-    """Reclaim this user's abandoned partial-redemption reservations (Model-1 lazy cleanup).
+@dataclass(frozen=True)
+class ReleaseOutcome:
+    """What one reservation-release pass actually managed to do.
+
+    ``blocked_orders`` is not an error count — it is the orders whose Multicard invoice refused to be
+    deleted, which is precisely the case where cancelling would be dangerous. It is reported so the
+    caller can tell "nothing was freed" from "some was freed" instead of collapsing both into a
+    failure: a customer whose points partly came back must not be told the whole thing failed.
+    """
+
+    released_orders: int
+    released_points: int
+    blocked_orders: int
+
+
+async def expire_stale_partials(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    max_age: timedelta | None = REDEEM_RESERVE_TIMEOUT,
+) -> ReleaseOutcome:
+    """Reclaim this user's partial-redemption reservations (Model-1) — lazily, or on demand.
 
     A partial redemption reserves points by keeping an unpaid order alive with no ledger row. If the
     customer abandons the card leg the reservation would pin those points forever — Multicard sends
-    NO webhook on an abandoned invoice, so nothing else ever frees it. So on the user's NEXT redeem
-    attempt we expire their OWN reservations older than :data:`REDEEM_RESERVE_TIMEOUT`: delete the
-    Multicard invoice first, then cancel the order (see :func:`_expire_partial`). Runs BEFORE the
-    reserve lock; the caller commits it as its own unit so the external DELETE is never orphaned by a
-    rollback of the new order. Returns how many orders were expired.
+    NO webhook on an abandoned invoice, so nothing else ever frees it. Reclaiming means: delete the
+    Multicard invoice FIRST, cancel the order only on a confirmed deletion (see
+    :func:`_expire_partial`). The caller commits this as its own unit so the external DELETE is never
+    orphaned by a later rollback.
+
+    ``max_age`` decides WHICH reservations qualify, and it is the only difference between the two
+    callers:
+
+    * the default :data:`REDEEM_RESERVE_TIMEOUT` is the lazy cleanup that runs before a new
+      redemption — it waits, because it cannot know whether the customer is still mid-payment;
+    * ``None`` drops the age bar entirely and is used by the customer-triggered release ("вернуть
+      баллы"): the customer has just said they are not paying, so there is nothing to wait for.
+
+    Dropping the age bar is safe for the same reason the lazy path is safe — safety lives in the
+    delete-then-cancel order, not in the waiting. An invoice that is actually paid refuses deletion
+    and its order is left untouched.
 
     Only THIS user's reservations are touched — a reserve is per-user (it reduces only its owner's
     available balance), so a customer who never returns harms no one else; a periodic sweep for those
     stragglers is deliberately out of scope (no scheduler exists) and tracked separately.
     """
-    cutoff = datetime.now(UTC) - REDEEM_RESERVE_TIMEOUT
-    stale = (
-        (
-            await db.execute(
-                select(Order).where(
-                    Order.user_id == user_id,
-                    Order.payment_status.in_(("unpaid", "pending")),
-                    Order.points_applied > 0,
-                    Order.created_at < cutoff,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    expired = 0
+    filters = [
+        Order.user_id == user_id,
+        Order.payment_status.in_(("unpaid", "pending")),
+        Order.points_applied > 0,
+    ]
+    if max_age is not None:
+        filters.append(Order.created_at < datetime.now(UTC) - max_age)
+    stale = (await db.execute(select(Order).where(*filters))).scalars().all()
+
+    released_orders = released_points = blocked_orders = 0
     for order in stale:
+        # Read the amount BEFORE cancelling: after the update+commit the instance can be expired,
+        # and re-reading it then would either refetch or raise instead of yielding the figure we
+        # need to report back to the customer.
+        points = order.points_applied
         if await _expire_partial(db, order):
-            expired += 1
-    return expired
+            released_orders += 1
+            released_points += points
+        else:
+            blocked_orders += 1
+    return ReleaseOutcome(
+        released_orders=released_orders,
+        released_points=released_points,
+        blocked_orders=blocked_orders,
+    )
 
 
 async def _expire_partial(db: AsyncSession, order: Order) -> bool:
