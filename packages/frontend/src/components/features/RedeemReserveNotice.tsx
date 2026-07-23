@@ -1,5 +1,6 @@
 import { Card } from '@components/ui/Card';
 import { useTranslation } from '@/i18n';
+import { useReleaseReservations } from '@hooks/useReleaseReservations';
 
 interface RedeemReserveNoticeProps {
   /** Сколько баллов удерживают собственные незавершённые заказы (баланс − доступное). */
@@ -25,10 +26,11 @@ export function RedeemReserveNotice({
   formatPrice,
 }: RedeemReserveNoticeProps) {
   const { t } = useTranslation();
+  const release = useReleaseReservations();
   if (reservedPoints <= 0) return null;
 
   return (
-    <Card className="p-4" data-testid="redeem-reserve-notice">
+    <Card className="p-4 space-y-3" data-testid="redeem-reserve-notice">
       <p className="text-sm text-[var(--text-muted)]">
         {t('checkout.redeem.reserved', { points: formatPrice(reservedPoints) })}
         {reservedUntil &&
@@ -43,6 +45,25 @@ export function RedeemReserveNotice({
               }),
             })}
       </p>
+
+      <button
+        type="button"
+        // disabled на время запроса — единственная защита от двойного нажатия: второй запрос
+        // сервер отдал бы как «освобождено 0», и человек прочитал бы это как «не сработало».
+        disabled={release.isPending}
+        onClick={() => release.mutate()}
+        className="text-sm font-medium text-[var(--primary)] disabled:opacity-50"
+      >
+        {release.isPending ? t('checkout.redeem.releasing') : t('checkout.redeem.release')}
+      </button>
+
+      {release.isError && (
+        // Причину назвать НЕЛЬЗЯ: сервер сам не отличает «счёт уже оплачен» от «лёг транспорт»
+        // (delete_invoice возвращает False в обоих случаях), поэтому текст нейтральный.
+        <p className="text-sm text-[var(--error,#c0392b)]" data-testid="release-error">
+          {t('checkout.redeem.releaseFailed')}
+        </p>
+      )}
     </Card>
   );
 }
