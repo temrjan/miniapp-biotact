@@ -5,7 +5,13 @@ import { useTranslation } from '@/i18n';
 import { REDEEM_STEP, clampRedeem, maxRedeemable, type OrderMoney } from '@/utils/redeem';
 
 interface RedeemStepperProps {
+  /** Полный баланс — участвует ТОЛЬКО в подписи; все расчёты идут по {@link available}. */
   balance: number;
+  /**
+   * Сколько можно потратить прямо сейчас = баланс минус резервы своих незавершённых заказов.
+   * Ползунок считается отсюда, иначе он предложит сумму, которую сервер отобьёт 409-м.
+   */
+  available: number;
   /** Сумма товаров — то, что можно погасить баллами. */
   subtotal: number;
   /** Итог заказа (subtotal + доставка). Остаток картой = total − value. */
@@ -23,6 +29,7 @@ interface RedeemStepperProps {
  */
 export function RedeemStepper({
   balance,
+  available,
   subtotal,
   total,
   value,
@@ -30,9 +37,12 @@ export function RedeemStepper({
   formatPrice,
 }: RedeemStepperProps) {
   const { t } = useTranslation();
-  const money: OrderMoney = { balance, subtotal, total };
+  const money: OrderMoney = { balance: available, subtotal, total };
   const max = maxRedeemable(money);
   const cardDue = total - value;
+  // Часть баллов удерживает незавершённый заказ — тогда показанное число уже НЕ баланс, и называть
+  // его балансом значит соврать в другую сторону (человек с 17 338 прочитал бы «Баланс: 38»).
+  const hasReserve = available < balance;
 
   return (
     <Card className="p-4 space-y-3">
@@ -42,7 +52,8 @@ export function RedeemStepper({
           <span className="font-semibold">{t('checkout.redeem.title')}</span>
         </div>
         <span className="text-sm text-[var(--text-muted)]">
-          {t('checkout.redeem.balance')}: {formatPrice(balance)}
+          {hasReserve ? t('checkout.redeem.available') : t('checkout.redeem.balance')}:{' '}
+          {formatPrice(available)}
         </span>
       </div>
 

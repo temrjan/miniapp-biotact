@@ -1,6 +1,7 @@
 """Loyalty API schemas (Stage 2): QR activation request/response."""
 
 import enum
+from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
@@ -85,6 +86,19 @@ class LoyaltySummaryResponse(BaseModel):
 
     tier: LoyaltyStatus = Field(description="Loyalty tier (newbie | biotact_friend)")
     balance: int = Field(ge=0, description="Current point balance = SUM(point_ledger.amount)")
+    # No ge= bound here, on purpose — same reasoning as the survey echo below. The service already
+    # clamps this to >= 0; a duplicated bound would add nothing on the happy path and would turn a
+    # data anomaly into a 500 for the whole profile card instead of one wrong number.
+    available: int = Field(
+        description="Points spendable right now = balance minus this user's live reservations"
+    )
+    reserved_until: datetime | None = Field(
+        description=(
+            "When the earliest live reservation expires; null when nothing is reserved. "
+            "Reservations are reclaimed by the customer's next redeem attempt, not by a timer — "
+            "phrase this to the customer as 'try again after', never as 'points return at'."
+        )
+    )
     lifetime_activations: int = Field(ge=0, description="Lifetime QR activations")
     activations_to_friend: int = Field(
         ge=0, description="Activations remaining until 'Друг' (0 once a friend)"

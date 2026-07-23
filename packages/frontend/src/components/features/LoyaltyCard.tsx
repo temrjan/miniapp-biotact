@@ -49,6 +49,17 @@ export function LoyaltyCard() {
           <span className="text-sm text-[var(--text-muted)]">{t('profile.loyalty.points')}</span>
         </div>
 
+        {/* Баланс остаётся полным — баллы под резервом всё ещё принадлежат человеку. Но молча
+            показывать сумму, часть которой сейчас не потратить, — это и есть исходный дефект:
+            в Профиле «баллы на месте», а на чекауте «недостаточно баллов». */}
+        {data.available < data.balance && (
+          <p data-testid="loyalty-reserved" className="text-xs text-[var(--text-muted)]">
+            {t('profile.loyalty.reserved', {
+              points: (data.balance - data.available).toLocaleString('ru-RU'),
+            })}
+          </p>
+        )}
+
         {isFriend ? (
           <p className="text-sm font-medium text-[var(--primary)]">
             {t('profile.loyalty.friendPerk')}

@@ -19,6 +19,8 @@ describe('loyaltyApi.getMe', () => {
     getMock.mockResolvedValue({
       tier: 'newbie',
       balance: 5800,
+      available: 2400,
+      reserved_until: '2026-07-23T09:30:00+00:00',
       lifetime_activations: 3,
       activations_to_friend: 7,
       is_member: true,
@@ -29,10 +31,12 @@ describe('loyaltyApi.getMe', () => {
 
     const result = await loyaltyApi.getMe();
 
-    // Distinct values (3 vs 7) catch a crossed mapping that would still typecheck.
+    // Distinct values (3 vs 7, 5800 vs 2400) catch a crossed mapping that would still typecheck.
     expect(result).toEqual({
       tier: 'newbie',
       balance: 5800,
+      available: 2400,
+      reservedUntil: new Date('2026-07-23T09:30:00+00:00'),
       lifetimeActivations: 3,
       activationsToFriend: 7,
       isMember: true,
@@ -58,6 +62,42 @@ describe('loyaltyApi.getMe', () => {
     expect(result.gender).toBeNull();
     expect(result.age).toBeNull();
     expect(result.city).toBeNull();
+  });
+
+  it('falls back to the full balance when an older API omits `available` (deploy window)', async () => {
+    // A NON-ZERO balance is what makes this test honest: with balance 0 it could not tell
+    // `?? balance` apart from `?? 0`. Falling back to 0 would show a customer WITH points that
+    // they have none — the exact lie `available` exists to remove; falling back to the balance
+    // degrades to the pre-`available` behaviour, where the server's 409 is the backstop.
+    getMock.mockResolvedValue({
+      tier: 'newbie',
+      balance: 5800,
+      lifetime_activations: 3,
+      activations_to_friend: 7,
+      is_member: true,
+    });
+
+    const result = await loyaltyApi.getMe();
+
+    expect(result.available).toBe(5800);
+    expect(result.reservedUntil).toBeNull();
+  });
+
+  it('maps an unparseable reserved_until to null instead of an Invalid Date', async () => {
+    getMock.mockResolvedValue({
+      tier: 'newbie',
+      balance: 100,
+      available: 100,
+      reserved_until: 'not-a-timestamp',
+      lifetime_activations: 0,
+      activations_to_friend: 10,
+      is_member: true,
+    });
+
+    const result = await loyaltyApi.getMe();
+
+    // An Invalid Date would render as "Invalid Date" in the reserve notice.
+    expect(result.reservedUntil).toBeNull();
   });
 });
 

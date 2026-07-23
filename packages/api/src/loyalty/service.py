@@ -2,10 +2,12 @@
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from src.auth.schemas import TelegramUser
 from src.auth.service import get_or_create_user, get_user_by_telegram_id
@@ -79,23 +81,85 @@ class InsufficientPointsError(Exception):
         super().__init__(f"insufficient points: available={balance}, required={required}")
 
 
-async def _reserved_points(db: AsyncSession, *, user_id: int, exclude_order_id: int) -> int:
+def _reserve_filters(
+    *, user_id: int, exclude_order_id: int | None, created_after: datetime | None
+) -> list[ColumnElement[bool]]:
+    """Rows that pin points RIGHT NOW — the single definition of "a reservation", shared by callers.
+
+    Both the money path (:func:`reserve_points`) and the read-only profile snapshot
+    (:func:`get_loyalty_summary`) filter reservations from here, so the two can never drift apart.
+
+    ``exclude_order_id`` drops the order currently being admitted so its own reservation is not
+    counted against itself; it is compared explicitly rather than left as a bare ``!=`` against a
+    possible ``None`` — the query must not depend on the ORM's null-aware rewriting to stay correct.
+
+    ``created_after`` keeps only reservations younger than it. The money path passes ``None`` (a
+    reservation pins points at ANY age — a stale one is often stale precisely because its invoice
+    was paid, and ignoring it would spend points that are already committed). The profile passes the
+    expiry cutoff, because a reservation past it is reclaimed by
+    :func:`~src.orders.service.expire_stale_partials` on the customer's very next attempt.
+    """
+    filters = [
+        Order.user_id == user_id,
+        Order.payment_status.in_(("unpaid", "pending")),
+        Order.points_applied > 0,
+    ]
+    if exclude_order_id is not None:
+        filters.append(Order.id != exclude_order_id)
+    if created_after is not None:
+        filters.append(Order.created_at >= created_after)
+    return filters
+
+
+async def _reserved_points(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    exclude_order_id: int | None = None,
+    created_after: datetime | None = None,
+) -> int:
     """Points this user has RESERVED but not yet spent — the sum pinned by still-open partial orders.
 
     A partial redemption (Model-1) does not write a ledger row at creation; the unpaid order row
     itself, carrying ``points_applied > 0``, IS the reservation. So the truly spendable balance is
-    ``SUM(ledger) - Sum(points_applied of unpaid/pending redeeming orders)``. ``exclude_order_id`` drops
-    the order currently being admitted so its own reservation is not counted against itself.
+    ``SUM(ledger) - Sum(points_applied of unpaid/pending redeeming orders)``. Which rows count is
+    defined once in :func:`_reserve_filters`.
     """
     result = await db.execute(
         select(func.coalesce(func.sum(Order.points_applied), 0)).where(
-            Order.user_id == user_id,
-            Order.payment_status.in_(("unpaid", "pending")),
-            Order.points_applied > 0,
-            Order.id != exclude_order_id,
+            *_reserve_filters(
+                user_id=user_id,
+                exclude_order_id=exclude_order_id,
+                created_after=created_after,
+            )
         )
     )
     return int(result.scalar_one())
+
+
+async def _live_reserve(
+    db: AsyncSession, *, user_id: int, created_after: datetime
+) -> tuple[int, datetime | None]:
+    """This user's LIVE reservations in ONE read: points pinned, and when the oldest was created.
+
+    Both numbers come from a single statement on purpose. Two separate reads could straddle a
+    concurrent settlement and report a sum and an expiry that never existed together — harmless to
+    money (this path writes nothing) but enough to show a customer a time that contradicts the
+    amount beside it. ``None`` for the timestamp means nothing is pinned.
+
+    The oldest reservation is the one to report: it is reclaimed first, so it is the earliest moment
+    the customer can spend again.
+    """
+    result = await db.execute(
+        select(
+            func.coalesce(func.sum(Order.points_applied), 0),
+            func.min(Order.created_at),
+        ).where(
+            *_reserve_filters(user_id=user_id, exclude_order_id=None, created_after=created_after)
+        )
+    )
+    reserved, earliest = result.one()
+    return int(reserved), earliest
 
 
 async def reserve_points(
@@ -204,6 +268,15 @@ class LoyaltySummary:
 
     tier: LoyaltyStatus
     balance: int  # SUM(point_ledger.amount); 1 балл = 1 сум
+    # What the customer can actually spend right now = balance minus their own LIVE reservations.
+    # Kept beside ``balance`` rather than replacing it: reserved points are still the customer's —
+    # they are pinned by an unfinished order, not gone — so the profile keeps showing the full
+    # balance while every "can I spend it?" question is answered by this field.
+    available: int
+    # When the earliest live reservation expires; None when nothing is pinned. The wording it feeds
+    # must be "try again after HH:MM", not "points come back at HH:MM": nothing happens on a timer,
+    # the reservation is reclaimed by the customer's next attempt (orders.expire_stale_partials).
+    reserved_until: datetime | None
     lifetime_activations: int
     activations_to_friend: int  # remaining activations until "Друг"; 0 once a friend
     is_member: bool  # True once a customer_profile row exists (the canonical "joined" signal)
@@ -214,10 +287,17 @@ class LoyaltySummary:
 
 
 def _non_member_summary(balance: int) -> LoyaltySummary:
-    """Newbie default for both non-member states (unknown user / user without a profile)."""
+    """Newbie default for both non-member states (unknown user / user without a profile).
+
+    ``available`` is 0, mirroring :func:`reserve_points`: without a ``customer_profile`` row there
+    is nothing to lock on, so it refuses any redemption regardless of what the ledger says. Showing
+    a spendable number here would promise what the money path would then deny.
+    """
     return LoyaltySummary(
         tier=LoyaltyStatus.NEWBIE,
         balance=balance,
+        available=0,
+        reserved_until=None,
         lifetime_activations=0,
         activations_to_friend=FRIEND_THRESHOLD,
         is_member=False,
@@ -234,7 +314,18 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     default without inserting any row (so merely opening the profile card costs no writes).
     Survey fields (gender/age/city) are echoed as stored so the mini-app can show the
     "survey filled" state instead of re-asking; ``None`` means "not answered yet".
+
+    Reports BOTH ``balance`` (everything the customer owns) and ``available`` (what a redemption
+    would actually be admitted for today) so the mini-app can never offer points the money path is
+    about to refuse. Deliberately does NOT reclaim expired reservations — a GET must not mutate —
+    it merely stops counting them, which is what the customer's next attempt will make true.
     """
+    # Local import: orders.service imports this module at module scope, so importing it back at the
+    # top would be a cycle. The timeout is owned by the orders domain (it defines the reservation
+    # lifecycle); re-declaring a second copy here is what would actually be dangerous, because it
+    # could drift away from the value expire_stale_partials enforces.
+    from src.orders.service import REDEEM_RESERVE_TIMEOUT
+
     user = await get_user_by_telegram_id(session, telegram_id)
     if user is None:
         return _non_member_summary(balance=0)
@@ -257,9 +348,20 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     tier: LoyaltyStatus = profile.status
     lifetime = int(profile.lifetime_activations)
     remaining = 0 if tier == LoyaltyStatus.BIOTACT_FRIEND else max(0, FRIEND_THRESHOLD - lifetime)
+
+    live_since = datetime.now(UTC) - REDEEM_RESERVE_TIMEOUT
+    reserved, earliest = await _live_reserve(session, user_id=user.id, created_after=live_since)
+    # Clamped, never a bare subtraction: a negative would be a data anomaly, and this response is
+    # the whole profile card — letting one leak into a constrained field would 500 the card itself
+    # instead of degrading one number (the failure mode LoyaltySummaryResponse already warns about).
+    available = max(0, balance - reserved)
+    reserved_until = None if earliest is None else earliest + REDEEM_RESERVE_TIMEOUT
+
     return LoyaltySummary(
         tier=tier,
         balance=balance,
+        available=available,
+        reserved_until=reserved_until,
         lifetime_activations=lifetime,
         activations_to_friend=remaining,
         is_member=True,

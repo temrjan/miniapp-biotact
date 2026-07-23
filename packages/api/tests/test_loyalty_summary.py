@@ -4,13 +4,19 @@ Seeding commits through a second sessionmaker on the same test DB (so the endpoi
 session sees committed rows under READ COMMITTED), mirroring test_loyalty_activation.py.
 """
 
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+
+import pytest
 import pytest_asyncio
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
 from src.loyalty.models import CustomerProfile, Gender, LedgerReason, LoyaltyStatus, PointLedger
-from src.loyalty.service import get_loyalty_summary
+from src.loyalty.service import InsufficientPointsError, get_loyalty_summary, reserve_points
+from src.orders.models import Order, OrderStatus
+from src.orders.service import REDEEM_RESERVE_TIMEOUT
 from src.users.models import User
 from tests.conftest import _make_init_data
 
@@ -257,3 +263,202 @@ async def test_me_echoes_out_of_range_stored_age_verbatim(client, maker, monkeyp
     resp = await client.get("/api/v1/loyalty/me", headers=headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["age"] == 200
+
+
+# --------------------------------------------------------------------------- #
+# Model-1 reservations: `available` is what the money path would actually admit
+#
+# The defect these lock (prod, 2026-07-23): the profile showed SUM(ledger) while `reserve_points`
+# admitted against SUM(ledger) − reservations, so a customer whose card leg was abandoned saw their
+# points "still there" and was then told "not enough points" on the next attempt.
+# --------------------------------------------------------------------------- #
+
+
+async def _seed_reserve(
+    sm: async_sessionmaker[AsyncSession],
+    *,
+    user_id: int,
+    points_applied: int,
+    age: timedelta,
+    payment_status: str = "unpaid",
+    tag: str = "R",
+) -> tuple[int, datetime]:
+    """Commit an order that reserves ``points_applied``, aged ``age``; return (id, created_at).
+
+    ``created_at`` overrides the server default so a test can place the reservation either side of
+    :data:`~src.orders.service.REDEEM_RESERVE_TIMEOUT`.
+    """
+    async with sm() as session, session.begin():
+        order = Order(
+            order_number=f"ORD-{tag}-{user_id}-{int(age.total_seconds())}",
+            user_id=user_id,
+            subtotal=Decimal("69000.00"),
+            delivery_fee=Decimal("0"),
+            total=Decimal("69000.00"),
+            points_applied=points_applied,
+            payment_status=payment_status,
+            status=OrderStatus.PENDING,
+            created_at=datetime.now(UTC) - age,
+        )
+        session.add(order)
+        await session.flush()
+        return order.id, order.created_at
+
+
+async def test_summary_without_reservations_reports_full_balance_as_available(maker) -> None:
+    """Nothing pinned → `available` equals `balance` and there is no expiry to report."""
+    await _seed_profile(maker, 70020, lifetime=1, balance=20_000)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70020)
+    assert summary.balance == 20_000
+    assert summary.available == 20_000
+    assert summary.reserved_until is None
+
+
+async def test_summary_subtracts_live_reservation_and_reports_its_expiry(maker) -> None:
+    """A live reservation is withheld from `available`, and `reserved_until` says when it lapses."""
+    user_id = await _seed_profile(maker, 70021, lifetime=1, balance=20_000)
+    _, created_at = await _seed_reserve(
+        maker, user_id=user_id, points_applied=17_300, age=timedelta(minutes=1)
+    )
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70021)
+    assert summary.balance == 20_000  # the points are still the customer's — not burned
+    assert summary.available == 2_700  # but this is all a redemption would be admitted for
+    assert summary.reserved_until == created_at + REDEEM_RESERVE_TIMEOUT
+    # Timezone-aware, always: a naive value here would repeat the live `paid_at` −2h defect once
+    # this timestamp reaches a customer-facing string.
+    assert summary.reserved_until is not None
+    assert summary.reserved_until.tzinfo is not None
+
+
+async def test_summary_ignores_reservation_past_its_timeout(maker) -> None:
+    """An expired reservation stops counting: the next attempt is what reclaims it, and it will.
+
+    Holding it against `available` would have the screen forbid what the server already allows —
+    `expire_stale_partials` runs before `reserve_points` on the very next redeem attempt.
+    """
+    user_id = await _seed_profile(maker, 70022, lifetime=1, balance=20_000)
+    await _seed_reserve(
+        maker,
+        user_id=user_id,
+        points_applied=17_300,
+        age=REDEEM_RESERVE_TIMEOUT + timedelta(minutes=1),
+    )
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70022)
+    assert summary.available == 20_000
+    assert summary.reserved_until is None
+
+
+async def test_summary_counts_only_the_live_one_when_reservations_are_mixed(maker) -> None:
+    """One live + one expired → only the live one is withheld, and it sets the expiry."""
+    user_id = await _seed_profile(maker, 70023, lifetime=1, balance=20_000)
+    _, live_at = await _seed_reserve(
+        maker, user_id=user_id, points_applied=5_000, age=timedelta(minutes=2), tag="LIVE"
+    )
+    await _seed_reserve(
+        maker,
+        user_id=user_id,
+        points_applied=9_000,
+        age=REDEEM_RESERVE_TIMEOUT + timedelta(minutes=5),
+        tag="STALE",
+    )
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70023)
+    assert summary.available == 15_000  # 20 000 − 5 000, the expired 9 000 is not held
+    assert summary.reserved_until == live_at + REDEEM_RESERVE_TIMEOUT
+
+
+async def test_summary_sums_two_live_reservations_and_reports_the_earliest_expiry(maker) -> None:
+    """Two live reservations: both are withheld, and the EARLIEST one sets `reserved_until`.
+
+    Nothing stops a customer abandoning one payment and starting another. Reporting the later
+    expiry would tell them to wait longer than they actually must.
+    """
+    user_id = await _seed_profile(maker, 70024, lifetime=1, balance=20_000)
+    _, older_at = await _seed_reserve(
+        maker, user_id=user_id, points_applied=5_000, age=timedelta(minutes=20), tag="OLDER"
+    )
+    _, newer_at = await _seed_reserve(
+        maker, user_id=user_id, points_applied=3_000, age=timedelta(minutes=2), tag="NEWER"
+    )
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70024)
+    assert summary.available == 12_000  # both held: 20 000 − 5 000 − 3 000
+    assert summary.reserved_until == older_at + REDEEM_RESERVE_TIMEOUT
+    assert summary.reserved_until != newer_at + REDEEM_RESERVE_TIMEOUT
+
+
+async def test_summary_does_not_treat_a_paid_order_as_a_reservation(maker) -> None:
+    """A settled order pins nothing — its points were already debited by `commit_redeem`."""
+    user_id = await _seed_profile(maker, 70025, lifetime=1, balance=20_000)
+    await _seed_reserve(
+        maker,
+        user_id=user_id,
+        points_applied=17_300,
+        age=timedelta(minutes=1),
+        payment_status="paid",
+    )
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70025)
+    assert summary.available == 20_000
+    assert summary.reserved_until is None
+
+
+async def test_summary_for_a_user_without_a_profile_reports_zero_available(maker) -> None:
+    """No profile → `available` 0, mirroring `reserve_points`, which refuses without a lock row."""
+    await _seed_user(maker, 70026)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70026)
+    assert summary.is_member is False
+    assert summary.available == 0
+    assert summary.reserved_until is None
+
+
+async def test_me_survives_a_reservation_larger_than_the_balance(client, maker, monkeypatch) -> None:
+    """A reservation exceeding the balance clamps `available` to 0 — it must not 500 the card.
+
+    `available` is not a bare subtraction for exactly this reason: the response carries the whole
+    profile, so one anomalous number must degrade alone, not take the card down with it.
+    """
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    user_id = await _seed_profile(maker, 70027, lifetime=1, balance=1_000)
+    await _seed_reserve(
+        maker, user_id=user_id, points_applied=5_000, age=timedelta(minutes=1), tag="ANOMALY"
+    )
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70027, "first_name": "Odd"})
+    }
+    resp = await client.get("/api/v1/loyalty/me", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["balance"] == 1_000
+    assert body["available"] == 0
+
+
+async def test_reserve_points_still_withholds_an_expired_reservation(maker) -> None:
+    """The MONEY path counts reservations of ANY age — only the read-only summary ages them out.
+
+    Not symmetry for its own sake: a reservation often outlives the timeout precisely because its
+    invoice was already paid and `delete_invoice` refused to cancel it. Ignoring it here would admit
+    a redemption against points that are already committed, and `commit_redeem` would then skip the
+    debit rather than drive the balance negative — the goods would leave for points that never existed.
+    """
+    user_id = await _seed_profile(maker, 70028, lifetime=1, balance=20_000)
+    await _seed_reserve(
+        maker,
+        user_id=user_id,
+        points_applied=17_300,
+        age=REDEEM_RESERVE_TIMEOUT + timedelta(hours=3),
+        tag="STALEPAID",
+    )
+    new_order_id, _ = await _seed_reserve(
+        maker, user_id=user_id, points_applied=0, age=timedelta(seconds=0), tag="NEW"
+    )
+    async with maker() as s, s.begin():
+        with pytest.raises(InsufficientPointsError):
+            await reserve_points(
+                s, user_id=user_id, order_id=new_order_id, amount=5_000, settle_now=False
+            )

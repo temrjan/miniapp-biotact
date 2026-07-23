@@ -19,6 +19,8 @@ import type {
 interface LoyaltySummaryDto {
   tier: LoyaltyTier;
   balance: number;
+  available?: number;
+  reserved_until?: string | null;
   lifetime_activations: number;
   activations_to_friend: number;
   is_member: boolean;
@@ -48,6 +50,13 @@ interface SurveyResponseDto {
   survey_done: boolean;
 }
 
+/** ISO timestamp → Date, or null when absent or unparseable (never an Invalid Date downstream). */
+function parseReservedUntil(raw: string | null | undefined): Date | null {
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export const loyaltyApi = {
   // GET /loyalty/me — current user's loyalty snapshot. 404 while the program is dark.
   getMe: async (): Promise<LoyaltySummary> => {
@@ -55,6 +64,12 @@ export const loyaltyApi = {
     return {
       tier: dto.tier,
       balance: dto.balance,
+      // Same deploy-window reasoning as the survey echo below: an older API omits these keys.
+      // Falling back to `balance` degrades to the previous behaviour (offer the full balance and
+      // let the server's 409 backstop it) rather than to 0, which would tell a customer with
+      // points that they have none — the very lie this field exists to remove.
+      available: dto.available ?? dto.balance,
+      reservedUntil: parseReservedUntil(dto.reserved_until),
       lifetimeActivations: dto.lifetime_activations,
       activationsToFriend: dto.activations_to_friend,
       isMember: dto.is_member,

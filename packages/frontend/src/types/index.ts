@@ -117,6 +117,13 @@ export type LoyaltyTier = 'newbie' | 'biotact_friend';
 export interface LoyaltySummary {
   tier: LoyaltyTier;
   balance: number;
+  // What the customer can spend RIGHT NOW = balance minus points pinned by their own unfinished
+  // orders (Model-1 reservations). Always drive redemption UI from this, never from `balance`:
+  // `balance` is what they own, `available` is what the server would actually admit.
+  available: number;
+  // When the earliest live reservation lapses; null when nothing is pinned. Word it as
+  // "try again after" — reservations are reclaimed by the next attempt, not by a timer.
+  reservedUntil: Date | null;
   lifetimeActivations: number;
   activationsToFriend: number;
   isMember: boolean; // true once the user joined the club (a customer_profile row exists)
