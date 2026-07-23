@@ -55,9 +55,7 @@ async def _seed_rich(sm: async_sessionmaker[AsyncSession]) -> None:
     now = datetime.now(UTC)
     async with sm() as s, s.begin():
         # --- product + batch + 5 qr_codes (3 used, 2 generated) ---
-        product = Product(
-            name="Test BAD", slug=f"bad-{secrets.token_hex(4)}", price=Decimal("10000")
-        )
+        product = Product(name="Test BAD", slug=f"bad-{secrets.token_hex(4)}", price=Decimal("10000"))
         s.add(product)
         await s.flush()
         batch = CodeBatch(product_id=product.id, quantity=5, label="test-batch")
@@ -100,7 +98,9 @@ async def _seed_rich(sm: async_sessionmaker[AsyncSession]) -> None:
                     age=30,
                     city="Tashkent",
                 ),
-                CustomerProfile(user_id=u2.id, gender=Gender.FEMALE, age=22, city="Tashkent"),
+                CustomerProfile(
+                    user_id=u2.id, gender=Gender.FEMALE, age=22, city="Tashkent"
+                ),
                 CustomerProfile(user_id=u3.id, gender=Gender.MALE, age=50, city="Samarkand"),
                 CustomerProfile(user_id=u4.id),  # no survey fields
             ]
