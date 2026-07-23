@@ -5,6 +5,7 @@ import { Search, Eye, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
 import { Badge } from '@/shared/components/ui/badge';
+import { getPaymentKind, getCardAmount } from '../lib/paymentKind';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import {
   Table,
@@ -190,9 +191,24 @@ export const OrdersListPage = () => {
                         {formatCurrency(order.total, order.currency)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={order.payment_status === 'paid' ? 'default' : 'secondary'}>
-                          {order.payment_status ? PAYMENT_STATUS_LABELS[order.payment_status] : 'Не оплачен'}
-                        </Badge>
+                        <div className="space-y-1">
+                          <Badge variant={order.payment_status === 'paid' ? 'default' : 'secondary'}>
+                            {order.payment_status ? PAYMENT_STATUS_LABELS[order.payment_status] : 'Не оплачен'}
+                          </Badge>
+                          {/* Бейдж отвечает «закрыт ли заказ», а не «пришли ли деньги». Заказ,
+                              покрытый баллами целиком, выглядел здесь как оплаченный картой —
+                              именно по этому списку сверяют поступления. */}
+                          {getPaymentKind(order) !== 'card' && (
+                            <div
+                              className="text-xs text-muted-foreground"
+                              data-testid={`payment-kind-${order.id}`}
+                            >
+                              {getPaymentKind(order) === 'full-points'
+                                ? 'Баллами · денег не поступало'
+                                : `Баллами ${formatCurrency(String(order.points_applied), order.currency)} · картой ${formatCurrency(String(getCardAmount(order)), order.currency)}`}
+                            </div>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Select
