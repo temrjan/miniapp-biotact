@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import WebApp from '@twa-dev/sdk';
 
 import { api, ApiError } from '@/api/client';
@@ -36,8 +37,16 @@ const openLinkMock = vi.mocked(WebApp.openLink);
 const product = { id: '7', name: 'X', price: 30000 } as Product;
 const items: CartItem[] = [{ productId: '7', product, quantity: 1 }];
 
+// The hook invalidates the loyalty snapshot after a redeem changes it, so it needs the same
+// QueryClient the app provides. Exposed so a test can assert what got invalidated.
+let queryClient: QueryClient;
+
 function wrapper({ children }: { children: ReactNode }) {
-  return createElement(MemoryRouter, null, children);
+  return createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(MemoryRouter, null, children)
+  );
 }
 
 type Options = Parameters<typeof usePayment>[0];
@@ -66,6 +75,7 @@ beforeEach(() => {
   postMock.mockReset();
   navigateMock.mockReset();
   openLinkMock.mockReset();
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // jsdom does not implement window.alert — stub it so error paths don't blow up the test.
   vi.spyOn(window, 'alert').mockImplementation(() => {});
 });
@@ -153,5 +163,39 @@ describe('usePayment', () => {
     });
 
     expect(onInvalidAmount).toHaveBeenCalledWith(4000);
+  });
+
+  // Без инвалидации фикс не виден там, где он и нужен: `refetchOnWindowFocus` в приложении
+  // выключен (App.tsx), а `staleTime` — минута, поэтому вернувшийся из платёжного приложения
+  // клиент читал бы кэш, снятый ДО того, как его заказ зарезервировал баллы.
+  it('уход на оплату → снимок лояльности инвалидируется (резерв уже создан заказом)', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    postMock
+      .mockResolvedValueOnce({ id: 5, order_number: 'ORD-5', payment_status: 'unpaid' })
+      .mockResolvedValueOnce({ payment_url: 'https://pay/5' });
+
+    const { result } = renderPay();
+    await act(async () => {
+      await result.current.pay();
+    });
+
+    expect(openLinkMock).toHaveBeenCalled();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['loyalty', 'me'] });
+  });
+
+  it('409 → снимок лояльности инвалидируется, чтобы степпер пришёл к правде', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    postMock.mockRejectedValue(
+      new ApiError('conflict', 409, {
+        detail: { error: 'insufficient_points', balance: 0, required: 5000, deficit: 5000 },
+      })
+    );
+
+    const { result } = renderPay();
+    await act(async () => {
+      await result.current.pay();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['loyalty', 'me'] });
   });
 });

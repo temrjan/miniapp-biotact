@@ -22,6 +22,8 @@ const getMeMock = vi.mocked(loyaltyApi.getMe);
 const base: LoyaltySummary = {
   tier: 'newbie',
   balance: 0,
+  available: 0,
+  reservedUntil: null,
   lifetimeActivations: 0,
   activationsToFriend: 10,
   isMember: false,

@@ -21,6 +21,8 @@ function renderCard(ui: ReactElement) {
 const newbie: LoyaltySummary = {
   tier: 'newbie',
   balance: 5800,
+  available: 5800,
+  reservedUntil: null,
   lifetimeActivations: 3,
   activationsToFriend: 7,
   isMember: true,
@@ -29,6 +31,8 @@ const newbie: LoyaltySummary = {
 const friend: LoyaltySummary = {
   tier: 'biotact_friend',
   balance: 9000,
+  available: 9000,
+  reservedUntil: null,
   lifetimeActivations: 14,
   activationsToFriend: 0,
   isMember: true,
@@ -75,6 +79,25 @@ describe('LoyaltyCard', () => {
     expect(screen.queryByText('Друг BIOTACT')).not.toBeInTheDocument();
     // server goal = lifetime 12 + remaining 0 → full bar "12 / 12", still newbie — no "Друг" claim
     expect(screen.getByText(/12 \/ 12/)).toBeInTheDocument();
+  });
+
+  it('shows the full balance plus a reserve note when part of it is pinned', async () => {
+    // The prod defect this locks: the profile showed the full balance with no hint that part of it
+    // was pinned by an abandoned order, so "Недостаточно баллов" at checkout looked like a bug.
+    getMeMock.mockResolvedValue({ ...newbie, available: 500, reservedUntil: null });
+    renderCard(<LoyaltyCard />);
+
+    const balance = await screen.findByTestId('loyalty-balance');
+    expect(balance.textContent?.replace(/\s/g, '')).toBe('5800'); // still theirs — not burned
+    expect(screen.getByTestId('loyalty-reserved').textContent?.replace(/\s/g, '')).toContain('5300');
+  });
+
+  it('shows no reserve note when the whole balance is spendable', async () => {
+    getMeMock.mockResolvedValue(newbie); // available === balance
+    renderCard(<LoyaltyCard />);
+
+    await screen.findByTestId('loyalty-balance');
+    expect(screen.queryByTestId('loyalty-reserved')).not.toBeInTheDocument();
   });
 
   it('renders nothing while the program is dark (endpoint 404 / error)', async () => {

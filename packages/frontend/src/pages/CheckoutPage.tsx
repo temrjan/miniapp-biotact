@@ -128,7 +128,12 @@ export function CheckoutPage() {
   // become distinct (subtotal from the cart, total = subtotal + fee) and only ``subtotal`` is
   // redeemable (see redeem.ts / payments/service.py).
   const balance = loyalty?.balance ?? 0;
-  const money = { balance, subtotal: totalAmount, total: totalAmount };
+  // Списание считается от ДОСТУПНОГО, не от баланса: часть баллов может удерживать собственный
+  // незавершённый заказ (резерв Модели-1), и предложить их — значит гарантированно получить 409.
+  const available = loyalty?.available ?? 0;
+  const reservedUntil = loyalty?.reservedUntil ?? null;
+  const reservedPoints = Math.max(0, balance - available);
+  const money = { balance: available, subtotal: totalAmount, total: totalAmount };
   // Points redemption is safe since Model-1 (backend): a partial spend RESERVES points and the real
   // debit lands only when the card settles, so an abandoned payment can no longer burn points. (The
   // temporary kill-switch that hid this stepper after the burn incident is removed with that fix.)
@@ -409,12 +414,32 @@ export function CheckoutPage() {
               {canRedeem && (
                 <RedeemStepper
                   balance={balance}
+                  available={available}
                   subtotal={totalAmount}
                   total={totalAmount}
                   value={pointsToApply}
                   onChange={setPointsToApply}
                   formatPrice={formatPrice}
                 />
+              )}
+
+              {/* Рендерится ОТДЕЛЬНО от степпера и намеренно: главный случай — когда резерв съел
+                  всё доступное, степпера нет вовсе, и без этой строки человек видит свои баллы в
+                  Профиле и не понимает, почему их «нет». Молчать здесь — и есть исходный баг. */}
+              {reservedPoints > 0 && (
+                <Card className="p-4" data-testid="redeem-reserve-notice">
+                  <p className="text-sm text-[var(--text-muted)]">
+                    {t('checkout.redeem.reserved', { points: formatPrice(reservedPoints) })}
+                    {reservedUntil &&
+                      ' ' +
+                        t('checkout.redeem.reservedUntil', {
+                          time: reservedUntil.toLocaleTimeString(undefined, {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }),
+                        })}
+                  </p>
+                </Card>
               )}
 
               <Card className="p-4">

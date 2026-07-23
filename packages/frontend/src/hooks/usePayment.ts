@@ -1,8 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
 import WebApp from '@twa-dev/sdk';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 
 import { useHaptic } from '@hooks/useTelegram';
+import { LOYALTY_ME_KEY } from '@hooks/useLoyalty';
 import { useTranslation } from '@/i18n';
 import { api, ApiError } from '@/api/client';
 import { buildOrderRequest } from '@/utils/order';
@@ -65,6 +67,7 @@ export function usePayment({
 }: UsePaymentOptions) {
   const navigate = useNavigate();
   const haptic = useHaptic();
+  const queryClient = useQueryClient();
   const { t } = useTranslation();
   const [isProcessing, setIsProcessing] = useState(false);
   const isProcessingRef = useRef(false);
@@ -90,6 +93,11 @@ export function usePayment({
         order_id: order.id,
         return_url: returnUrl,
       });
+      // The order above already RESERVED the points, so the cached snapshot is now stale. Refresh
+      // it before handing the customer to the gateway: `refetchOnWindowFocus` is off app-wide
+      // (App.tsx), so nothing re-reads it when they come back from an abandoned payment — which is
+      // exactly when they look at their balance and try to redeem again.
+      void queryClient.invalidateQueries({ queryKey: LOYALTY_ME_KEY });
       WebApp.openLink(payment.payment_url);
     } catch (error) {
       // Failed — release the guard so the customer can retry.
@@ -104,13 +112,27 @@ export function usePayment({
         return;
       }
       if (error instanceof ApiError && error.status === 409) {
+        // The server refused against a reserve-aware balance the cache does not know about — refresh
+        // so the stepper clamps to the truth and the reserve notice appears instead of a bare alert.
+        void queryClient.invalidateQueries({ queryKey: LOYALTY_ME_KEY });
         alert(t('checkout.redeem.insufficient'));
         return;
       }
       console.error('Payment error:', error);
       alert(error instanceof Error ? error.message : t('common.error'));
     }
-  }, [items, deliveryAddress, name, phone, redeemPoints, onInvalidAmount, navigate, haptic, t]);
+  }, [
+    items,
+    deliveryAddress,
+    name,
+    phone,
+    redeemPoints,
+    onInvalidAmount,
+    navigate,
+    haptic,
+    queryClient,
+    t,
+  ]);
 
   return { pay, isProcessing };
 }

@@ -107,7 +107,10 @@
       "max": "Maksimum",
       "payWithPoints": "Ballar bilan to'lash",
       "invalidAmount": "Ballar miqdori to'g'rilandi — qaytadan urinib ko'ring",
-      "insufficient": "Ballar yetarli emas"
+      "insufficient": "Ballar yetarli emas",
+      "available": "Mavjud",
+      "reserved": "{points} tugallanmagan buyurtma bilan band.",
+      "reservedUntil": "{time} dan keyin qayta urinib ko'ring."
     }
   },
   "profile": {
@@ -131,7 +134,8 @@
       "newbie": "Yangi a'zo",
       "friend": "BIOTACT Do'sti",
       "toFriend": "«Do'st»gacha faollashtirish",
-      "friendPerk": "Doimiy 8% keshbek"
+      "friendPerk": "Doimiy 8% keshbek",
+      "reserved": "shundan {points} tugallanmagan buyurtma bilan band"
     }
   },
   "activation": {
