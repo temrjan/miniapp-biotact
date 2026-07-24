@@ -95,6 +95,12 @@ class CustomerProfile(Base):
     purchase_goal: Mapped[str | None] = mapped_column(String(50))
     purchase_for_whom: Mapped[str | None] = mapped_column(String(50))
 
+    # 18+ self-confirmation (Stage 5 lottery — legal condition of entry). NOT NULL with
+    # server_default false so existing rows backfill without a data migration. A stored false
+    # never wrongly excludes an existing member: eligibility grandfathers anyone with age>=18
+    # (see loyalty.lottery.compute_ticket_count); the checkbox is what new members tick.
+    is_adult: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+
     # Loyalty status + counters.
     status: Mapped[LoyaltyStatus] = mapped_column(
         Enum(LoyaltyStatus, name="loyalty_status", create_type=True),
@@ -328,4 +334,91 @@ class QrCode(Base):
         return (
             f"<QrCode(id={self.id}, code={self.code}, "
             f"product_id={self.product_id}, status={self.status})>"
+        )
+
+
+class LotteryDrawStatus(enum.StrEnum):
+    """Monthly-draw lifecycle, stored as a free String (not a PG enum) — same approach as
+    :class:`QrCodeStatus`. ``open`` (month is accumulating) → ``committed`` (participant
+    snapshot frozen + hash published) → ``drawn`` (winning numbers recorded).
+    """
+
+    OPEN = "open"
+    COMMITTED = "committed"
+    DRAWN = "drawn"
+
+
+class LotteryTicketSource(enum.StrEnum):
+    """Why a ticket exists in the snapshot (String, not PG enum). ``survey`` = base ticket for a
+    filled survey; ``friend`` = the automatic +1 for ``biotact_friend`` status.
+    """
+
+    SURVEY = "survey"
+    FRIEND = "friend"
+
+
+class LotteryDraw(Base):
+    """One monthly prize draw. Low-volume (one row per calendar month).
+
+    ``period`` names the calendar month being drawn (``YYYY-MM``); the live draw airs on the 1st
+    of the FOLLOWING month, with the participant snapshot frozen 24h before. Fairness is
+    commit-reveal: at commit (PR-5.3) we snapshot every eligible participant's tickets into
+    ``lottery_tickets`` with sequential numbers, publish ``participant_hash`` (SHA-256 of the
+    canonical ticket list), and later (PR-5.4) record the winning numbers drawn LIVE via
+    random.org — the winner is never chosen by this code. Dark behind ``loyalty_enabled``; no
+    endpoints at PR-5.1 (schema only).
+    """
+
+    __tablename__ = "lottery_draws"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period: Mapped[str] = mapped_column(String(7), unique=True)  # "YYYY-MM" — month being drawn
+    prize_label: Mapped[str | None] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default=LotteryDrawStatus.OPEN,
+        server_default=LotteryDrawStatus.OPEN.value,
+    )
+    total_tickets: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    participant_hash: Mapped[str | None] = mapped_column(String(64))  # SHA-256 hex, set on commit
+    hash_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    drawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<LotteryDraw(id={self.id}, period={self.period}, status={self.status})>"
+
+
+class LotteryTicket(Base):
+    """One frozen lottery entry inside a committed draw. High-volume (up to one row per ticket
+    per participant per month), so BigInteger PK and no ORM relationship back to ``User`` —
+    queried by ``draw_id`` / ``user_id`` directly. Written once at commit; only ever mutated to
+    mark winners (``is_winner`` / ``prize_rank``) after the live draw.
+
+    ``ticket_number`` is sequential within a draw (1..``total_tickets``); ``UNIQUE(draw_id,
+    ticket_number)`` makes the number the stable public identifier the published hash covers.
+    ``prize_rank`` is 1 (main prize) or 2..4 (consolation), NULL for non-winners.
+    """
+
+    __tablename__ = "lottery_tickets"
+    __table_args__ = (
+        Index("uq_lottery_tickets_draw_number", "draw_id", "ticket_number", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    draw_id: Mapped[int] = mapped_column(
+        ForeignKey("lottery_draws.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    ticket_number: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(16))
+    is_winner: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    prize_rank: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return (
+            f"<LotteryTicket(id={self.id}, draw_id={self.draw_id}, "
+            f"user_id={self.user_id}, number={self.ticket_number})>"
         )
