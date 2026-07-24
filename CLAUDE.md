@@ -68,9 +68,9 @@ feature-branch → push → CI (type-check + lint + test + build) → PR → mer
 
 **Источники правды (по порядку):**
 1. **План ФИНАЛ v4** (выше) — что строим в целом.
-2. **README-ориентир:** `docs/biotact-club/README.md` — что где лежит по пакетам (API/bot/frontend/admin), архитектурные решения, бренд↔код. Начинать отсюда, если контекст потерян.
+2. **README-ориентир:** `docs/loyalty/README.md` — что где лежит по пакетам (API/bot/frontend/admin), архитектурные решения, бренд↔код. Начинать отсюда, если контекст потерян.
 3. **Инженерные спеки:** `.claude/specs/` — по одной на PR/этап (последняя: `2026-07-10-pr2-club-in-customers.md`); отчёты — в `.claude/reports/`.
-4. **Концепт для руководства (визуальный прогресс):** `docs/biotact-club/concept.html`.
+4. **Концепт для руководства (визуальный прогресс):** `docs/loyalty/concept.html`.
 5. **Состояние/resume:** memory `handoff-biotact-club` (единственный актуальный хэндофф; старые описания НЕ актуальны — объём менялся) + локальный трекер `.claude/workflow-state.json`.
 
 Суть: уникальный QR на коробке (несёт SKU) → бот (лаунчер + шеринг телефона) → мини-апп под initData пишет CRM/лоялти. Кэшбэк 5%/8% + статус «Друг» (10 активаций lifetime) + welcome ×1.5 + трата баллов в мини-аппе + розыгрыш. **Инкрементальная customer-модель:** `consent`/`customer_profile`/`customer_event` рядом с `users`; `balance = SUM(point_ledger)` (единый источник, не колонка). Лоялти живёт в `customer_profile`, НЕ на `users` (у бота своя `User`-модель).
