@@ -1,7 +1,7 @@
 # Biotact Club — План реализации (ПОЛНАЯ программа) · ФИНАЛ
 
 > Версия: **2026-06-25 (v4 — финальная, неизменяемая)**. Учтены все 7 находок `/check`. Источник: `Biotact_Club_Strategy_Final` v3.1 (прочитан целиком) + решения Капитана 2026-06-25 + OSS-research.
-> Проект: `miniapp-biotact` (brownfield). Кресло: соло-инженер (Капитан = Temrjan). HTML-концепт: `docs/biotact-club-concept.html`.
+> Проект: `miniapp-biotact` (brownfield). Кресло: соло-инженер (Капитан = Temrjan). HTML-концепт: `docs/loyalty/concept.html` (перемещён из `docs/biotact-club-concept.html` 2026-07-24, папка названа по коду — см. `docs/loyalty/README.md`).
 > ⚠️ Уровень дизайна + роадмапа; детальная PR-спека — следующим шагом. **Полный объём выкатываем сериями маленьких обратимых PR** (production-grade, без MVP). Этот документ — опорный, дальше дополняем только PR-спеками, не урезаем.
 
 ---

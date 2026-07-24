@@ -116,7 +116,7 @@
   /* build progress (checklist) */
   .bsum{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:24px}
   .bsum .pbar{flex:1;min-width:220px;margin:0}
-  .bsum .pbar span{width:56%}
+  .bsum .pbar span{width:70%}
   .bsum .lbl{font-weight:800;color:var(--green-700);font-size:14.5px;white-space:nowrap}
   .build{display:grid;gap:14px}
   .bstage{background:var(--white);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow)}
@@ -403,13 +403,13 @@
     <div class="sec-head">
       <span class="eyebrow">Где мы сейчас</span>
       <h2>Прогресс сборки — этап за этапом</h2>
-      <p>Программа собирается сериями маленьких безопасных шагов. <b>🚀 Система ЗАПУЩЕНА в прод (6 июля 2026):</b> общий выключатель включён — вход через бота, активация кодов, кэшбэк, статус «Друг» и анкета работают вживую, проверено сквозным тестом с реальными начислениями. Дальше — печать коробок с кодами, пилот и следующие этапы (розыгрыш, трата баллов).</p>
+      <p>Программа собирается сериями маленьких безопасных шагов. <b>🚀 Система ЗАПУЩЕНА в прод (6 июля 2026):</b> вход через бота, активация кодов, кэшбэк, статус «Друг», анкета — и с тех пор ещё и трата баллов на кассе. Весь путь <b>от скана QR до оплаты покупки баллами</b> проверен вживую целиком. Дальше — добить несколько хвостов Этапа 6 и перейти к розыгрышу (Этап 5).</p>
     </div>
 
     <div class="bsum">
-      <div class="lbl">Готово 4 этапа из 8 · 🚀 запущена</div>
+      <div class="lbl">Готово 5 этапов из 8 · 🚀 запущена</div>
       <div class="pbar"><span></span></div>
-      <div class="lbl" style="color:var(--gold)">◀ Сейчас: Этап 5</div>
+      <div class="lbl" style="color:var(--gold)">◀ Сейчас: хвосты Этапа 6</div>
     </div>
 
     <div class="build">
@@ -469,8 +469,8 @@
         </div>
       </div>
 
-      <div class="bstage now">
-        <div class="bhead"><span class="bnum">5</span><h3>Ежемесячный розыгрыш</h3><span class="bpill now">◀ Сейчас</span></div>
+      <div class="bstage">
+        <div class="bhead"><span class="bnum">5</span><h3>Ежемесячный розыгрыш</h3><span class="bpill next">Дальше — после хвостов Этапа 6</span></div>
         <p class="bdesc">Честный и проверяемый розыгрыш Аэрогриля, билеты и снимок участников.</p>
         <div class="bsteps">
           <div class="bstep todo"><span class="cb"></span><span>Доказуемо честный розыгрыш</span></div>
@@ -478,11 +478,18 @@
         </div>
       </div>
 
-      <div class="bstage">
-        <div class="bhead"><span class="bnum">6</span><h3>Трата баллов</h3><span class="bpill next">Дальше</span></div>
-        <p class="bdesc">Баллами можно оплатить покупку в мини-приложении — петля удержания.</p>
+      <div class="bstage now">
+        <div class="bhead"><span class="bnum">6</span><h3>Трата баллов</h3><span class="bpill now">◀ Сейчас: добиваем хвосты</span></div>
+        <p class="bdesc">Баллами можно оплатить покупку в мини-приложении — петля удержания. <b>Основной цикл на проде и проверен целиком</b> — от скана QR до оплаты баллами на кассе. Хвосты ниже не блокируют использование.</p>
         <div class="bsteps">
-          <div class="bstep todo"><span class="cb"></span><span>Оплата баллами в корзине (пересчёт на сервере)</span></div>
+          <div class="bstep ok"><span class="cb">✓</span><span>Оплата баллами в корзине, сервер пересчитывает скидку и total</span><span class="ref">#82 · #84</span></div>
+          <div class="bstep ok"><span class="cb">✓</span><span>Частичная оплата + разбивка чека по позициям</span><span class="ref">#86 · #87</span></div>
+          <div class="bstep ok"><span class="cb">✓</span><span>Баллы резервируются на время оплаты — не сгорают при брошенной попытке</span><span class="ref">#89</span></div>
+          <div class="bstep ok"><span class="cb">✓</span><span>Клиент видит резерв и может сам вернуть баллы кнопкой</span><span class="ref">#91 · #92</span></div>
+          <div class="bstep ok"><span class="cb">✓</span><span>В админке видно, чем оплачен заказ — баллами, деньгами или без денег вообще</span><span class="ref">#93</span></div>
+          <div class="bstep todo"><span class="cb"></span><span>Отчёт и выгрузка «оплачено баллами» для бухгалтерии</span></div>
+          <div class="bstep todo"><span class="cb"></span><span>Разбивка чека при нескольких одинаковых товарах — код готов, живьём ещё не подтверждена</span></div>
+          <div class="bstep todo"><span class="cb"></span><span>Автоматический возврат баллов из зависших резервов (без ручной кнопки)</span></div>
         </div>
       </div>
 
@@ -540,7 +547,7 @@
     </div>
     <div style="text-align:right">
       <div style="font-weight:800;color:#fff;font-size:16px">Biotact&nbsp;Club</div>
-      <div style="font-size:13px;margin-top:4px">Полная версия концепта · обновлено 09.07.2026</div>
+      <div style="font-size:13px;margin-top:4px">Полная версия концепта · обновлено 24.07.2026</div>
     </div>
   </div>
 </footer>
