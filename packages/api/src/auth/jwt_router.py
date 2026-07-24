@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
@@ -82,7 +82,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(user_id: int) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode = {"sub": str(user_id), "type": "access", "exp": expire}
     token: str = jwt.encode(
         to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm
@@ -91,7 +91,7 @@ def create_access_token(user_id: int) -> str:
 
 
 def create_refresh_token(user_id: int) -> str:
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode = {"sub": str(user_id), "type": "refresh", "exp": expire}
     token: str = jwt.encode(
         to_encode, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm
@@ -148,7 +148,7 @@ async def register(
         last_name=data.last_name,
         is_verified=False,
         verification_token=verification_token,
-        verification_token_expires=datetime.utcnow() + timedelta(hours=24),
+        verification_token_expires=datetime.now(UTC) + timedelta(hours=24),
     )
     session.add(user)
     await session.commit()
@@ -173,7 +173,7 @@ async def login(data: LoginRequest, session: AsyncSession = Depends(get_db)) -> 
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Account is disabled")
 
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(UTC)
     await session.commit()
 
     return TokenResponse(
@@ -218,7 +218,7 @@ async def verify_email(token: str, session: AsyncSession = Depends(get_db)) -> M
     result = await session.execute(
         select(AdminUser).where(
             AdminUser.verification_token == token,
-            AdminUser.verification_token_expires > datetime.utcnow(),
+            AdminUser.verification_token_expires > datetime.now(UTC),
         )
     )
     user = result.scalar_one_or_none()
@@ -249,7 +249,7 @@ async def forgot_password(
     if user:
         reset_token = generate_token()
         user.reset_token = reset_token
-        user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
+        user.reset_token_expires = datetime.now(UTC) + timedelta(hours=1)
         await session.commit()
         email_service.send_password_reset_email(data.email, reset_token, user.first_name)
 
@@ -262,7 +262,7 @@ async def reset_password(
 ) -> MessageResponse:
     result = await session.execute(
         select(AdminUser).where(
-            AdminUser.reset_token == data.token, AdminUser.reset_token_expires > datetime.utcnow()
+            AdminUser.reset_token == data.token, AdminUser.reset_token_expires > datetime.now(UTC)
         )
     )
     user = result.scalar_one_or_none()
