@@ -367,6 +367,11 @@ class LotteryDraw(Base):
     canonical ticket list), and later (PR-5.4) record the winning numbers drawn LIVE via
     random.org — the winner is never chosen by this code. Dark behind ``loyalty_enabled``; no
     endpoints at PR-5.1 (schema only).
+
+    ⚠️ ``open`` does not materialise today: :func:`~src.loyalty.lottery.commit_draw` creates the
+    row already ``committed``, so nothing ever writes ``open``. The state becomes real when a
+    draw can be opened ahead of time (PR-5.7) — and that is also when the row stops being
+    terminal and the freeze needs a row lock again.
     """
 
     __tablename__ = "lottery_draws"

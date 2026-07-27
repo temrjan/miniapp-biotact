@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.exceptions import ConflictException
+from src.common.exceptions import BadRequestException, ConflictException
 from src.loyalty.models import (
     CustomerProfile,
     LotteryDraw,
@@ -106,6 +106,22 @@ def period_of(moment: datetime) -> str:
     return moment.astimezone(TASHKENT).strftime("%Y-%m")
 
 
+def committable_periods(as_of: datetime) -> tuple[str, str]:
+    """Periods a freeze may legally target at ``as_of``: the previous and the current month.
+
+    Tashkent months, not UTC ones — see :func:`period_of`. The window is two wide because the
+    snapshot is taken 24h before the live draw on the 1st: that moment can fall on the last day of
+    the month being drawn or already on the 1st of the next one.
+
+    Anything else is refused, and the refusal is not pedantry: freezing is irreversible, so a typo
+    in the year would burn a period that has not happened yet — filled with today's participants —
+    and freezing a long-past month would fill it with today's eligibility instead of that month's.
+    """
+    local = as_of.astimezone(TASHKENT)
+    previous_month_day = local.replace(day=1) - timedelta(days=1)
+    return previous_month_day.strftime("%Y-%m"), local.strftime("%Y-%m")
+
+
 def canonical_snapshot(rows: list[tuple[int, int, str]]) -> str:
     """Serialize ``(ticket_number, user_id, source)`` rows into the string the hash is taken over.
 
@@ -148,6 +164,10 @@ class CommitOutcome:
 # Two different races, two different serializers — see the spec §2.
 _ALREADY_COMMITTED = "Розыгрыш за период {period} уже заморожен"
 _NO_PARTICIPANTS = "За период {period} нет подходящих участников — замораживать нечего"
+_PERIOD_OUT_OF_WINDOW = (
+    "Период {period} нельзя заморозить сейчас: заморозка идёт по текущему или прошлому месяцу "
+    "(допустимо: {allowed}). Заморозка необратима, поэтому чужой период не принимается."
+)
 
 
 async def commit_draw(
@@ -180,9 +200,16 @@ async def commit_draw(
     needs to know why it is empty, not to record the emptiness.
     """
     as_of = as_of or utc_now()
-    # Fast path, NOT the serializer: it spares a full profile scan and gives the administrator a
-    # precise message. Correctness does not rest on it — without it the insert below would hit the
-    # unique index and answer the same 409.
+    allowed = committable_periods(as_of)
+    if period not in allowed:
+        raise BadRequestException(
+            _PERIOD_OUT_OF_WINDOW.format(period=period, allowed=" | ".join(allowed))
+        )
+
+    # Not the serializer (that is the unique index) — but load-bearing for the DIAGNOSIS, which on
+    # an irreversible operation matters as much. Without this check a repeat freeze of a period
+    # whose participants have since gone stale would fall through to the "nobody qualifies" branch
+    # and tell the administrator the wrong thing about an already-frozen month.
     existing = (
         await db.execute(select(LotteryDraw.id).where(LotteryDraw.period == period))
     ).one_or_none()

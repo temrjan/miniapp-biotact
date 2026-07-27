@@ -15,9 +15,15 @@ from jose import jwt
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.common.exceptions import ConflictException
+from src.common.exceptions import BadRequestException, ConflictException
 from src.config import settings
-from src.loyalty.lottery import canonical_snapshot, commit_draw, period_of, snapshot_hash
+from src.loyalty.lottery import (
+    canonical_snapshot,
+    commit_draw,
+    committable_periods,
+    period_of,
+    snapshot_hash,
+)
 from src.loyalty.models import (
     CustomerProfile,
     Gender,
@@ -300,13 +306,17 @@ async def _seed_admin(sm: async_sessionmaker[AsyncSession], telegram_id: int) ->
 
 async def test_endpoint_dark_returns_404(client) -> None:
     """loyalty_enabled off → 404 before auth: the surface is not probeable while dark."""
-    resp = await client.post("/api/v1/admin/lottery/commit", json={"period": PERIOD})
+    resp = await client.post(
+        "/api/v1/admin/lottery/commit", json={"period": period_of(datetime.now(UTC))}
+    )
     assert resp.status_code == 404
 
 
 async def test_endpoint_requires_a_token(client, monkeypatch) -> None:
     monkeypatch.setattr(settings, "loyalty_enabled", True)
-    resp = await client.post("/api/v1/admin/lottery/commit", json={"period": PERIOD})
+    resp = await client.post(
+        "/api/v1/admin/lottery/commit", json={"period": period_of(datetime.now(UTC))}
+    )
     assert resp.status_code == 401  # no credentials at all — refused before the role is looked up
 
 
@@ -316,7 +326,9 @@ async def test_endpoint_refuses_a_non_admin_token(client, maker, monkeypatch) ->
     user_id = await _seed_member(maker, 90020)
     headers = {"Authorization": f"Bearer {_user_token(user_id)}"}
     resp = await client.post(
-        "/api/v1/admin/lottery/commit", json={"period": PERIOD}, headers=headers
+        "/api/v1/admin/lottery/commit",
+        json={"period": period_of(datetime.now(UTC))},
+        headers=headers,
     )
     assert resp.status_code == 403, resp.text
 
@@ -329,7 +341,9 @@ async def test_endpoint_refuses_admin_typed_token_of_a_plain_user(
     user_id = await _seed_member(maker, 90021)
     headers = {"Authorization": f"Bearer {_admin_token(user_id)}"}
     resp = await client.post(
-        "/api/v1/admin/lottery/commit", json={"period": PERIOD}, headers=headers
+        "/api/v1/admin/lottery/commit",
+        json={"period": period_of(datetime.now(UTC))},
+        headers=headers,
     )
     assert resp.status_code == 403, resp.text
 
@@ -342,7 +356,9 @@ async def test_endpoint_admin_freezes_the_draw(client, maker, monkeypatch) -> No
     headers = {"Authorization": f"Bearer {_admin_token(admin_id)}"}
 
     resp = await client.post(
-        "/api/v1/admin/lottery/commit", json={"period": PERIOD}, headers=headers
+        "/api/v1/admin/lottery/commit",
+        json={"period": period_of(datetime.now(UTC))},
+        headers=headers,
     )
 
     assert resp.status_code == 200, resp.text
@@ -360,3 +376,78 @@ async def test_endpoint_rejects_a_malformed_period(client, maker, monkeypatch) -
         "/api/v1/admin/lottery/commit", json={"period": "2026-13"}, headers=headers
     )
     assert resp.status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# Period window — freezing is irreversible, so the target month is checked
+# --------------------------------------------------------------------------- #
+
+
+def test_committable_window_is_previous_and_current_tashkent_month() -> None:
+    """The window is two months wide: the freeze runs 24h before the draw, either side of midnight."""
+    assert committable_periods(AS_OF) == ("2026-07", "2026-08")
+
+
+def test_committable_window_uses_tashkent_not_utc() -> None:
+    """22:00 UTC on 31 July is already 1 August in Tashkent — the window moves with the audience."""
+    assert committable_periods(datetime(2026, 7, 31, 22, 0, tzinfo=UTC)) == ("2026-07", "2026-08")
+    assert committable_periods(datetime(2026, 7, 31, 18, 0, tzinfo=UTC)) == ("2026-06", "2026-07")
+
+
+@pytest.mark.parametrize(
+    "period",
+    [
+        pytest.param("2027-07", id="future_year_typo"),
+        pytest.param("2026-09", id="future_month"),
+        pytest.param("2026-05", id="long_past_month"),
+    ],
+)
+async def test_commit_refuses_a_period_outside_the_window(
+    test_db: AsyncSession, maker, period: str
+) -> None:
+    """A typo in the year would burn a period that has not happened yet — refused, nothing written.
+
+    Freezing a long-past month is refused for the mirror reason: it would fill that month's draw
+    with TODAY's eligibility, not the eligibility of the month being drawn.
+    """
+    await _seed_member(maker, 90030)
+    async with maker() as s:
+        with pytest.raises(BadRequestException):
+            await commit_draw(s, period=period, as_of=AS_OF)
+
+    async with maker() as s:
+        assert (await s.execute(select(func.count()).select_from(LotteryDraw))).scalar_one() == 0
+
+
+async def test_commit_accepts_the_current_month_too(test_db: AsyncSession, maker) -> None:
+    """The current month is inside the window: the snapshot may be taken on the 1st itself."""
+    await _seed_member(maker, 90031)
+    async with maker() as s:
+        outcome = await commit_draw(s, period="2026-08", as_of=AS_OF)
+    assert outcome.period == "2026-08"
+
+
+async def test_repeat_commit_says_frozen_even_when_participants_went_stale(
+    test_db: AsyncSession, maker
+) -> None:
+    """A repeat freeze reports "already frozen" — not "nobody qualifies" — after eligibility lapses.
+
+    This is what the existence check earns its place with: the branches below it would otherwise
+    answer first and hand the administrator a wrong diagnosis about an irreversible operation.
+    Removing that check turns this test red.
+    """
+    user_id = await _seed_member(maker, 90032)
+    async with maker() as s:
+        await commit_draw(s, period=PERIOD, as_of=AS_OF)
+
+    async with maker() as s, s.begin():  # everyone goes stale after the freeze
+        profile = (
+            await s.execute(select(CustomerProfile).where(CustomerProfile.user_id == user_id))
+        ).scalar_one()
+        profile.last_activation_at = None
+
+    async with maker() as s:
+        with pytest.raises(ConflictException) as refusal:
+            await commit_draw(s, period=PERIOD, as_of=AS_OF)
+    assert "уже заморожен" in refusal.value.detail
+    assert "нет подходящих участников" not in refusal.value.detail
