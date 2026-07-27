@@ -394,6 +394,16 @@ def test_committable_window_uses_tashkent_not_utc() -> None:
     assert committable_periods(datetime(2026, 7, 31, 18, 0, tzinfo=UTC)) == ("2026-06", "2026-07")
 
 
+def test_committable_window_crosses_the_year_boundary() -> None:
+    """January must look back to DECEMBER of the previous year, not to month zero.
+
+    A naive ``month - 1`` yields "2026-00" on 1 January, the December period falls outside the
+    window, and the December draw becomes unfreezable on the very day it airs. The function runs
+    every month and January arrives on schedule, so this boundary is pinned rather than trusted.
+    """
+    assert committable_periods(datetime(2026, 1, 15, 12, 0, tzinfo=UTC)) == ("2025-12", "2026-01")
+
+
 @pytest.mark.parametrize(
     "period",
     [
