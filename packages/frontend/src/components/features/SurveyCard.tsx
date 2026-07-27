@@ -60,6 +60,10 @@ export function SurveyCard({
     setAge(savedAge !== null ? String(savedAge) : '');
     setCity(savedCity ?? '');
     setIsAdult(savedIsAdult);
+    // Drop the previous call's confirmation: in this visit nothing has been saved yet, and since
+    // the 18+ checkbox there are two different "saved" lines — a stale one can now claim a save
+    // that did not happen here. Covers the «Отмена» → «Изменить» path too: both go through here.
+    survey.reset();
     setEditing(true);
   };
 
