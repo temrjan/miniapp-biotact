@@ -162,26 +162,32 @@ async def commit_draw(
     would raise ``A transaction is already begun``. On any exception the caller rolls back
     (``get_db``), so a refusal leaves nothing behind.
 
-    **Two races, two serializers.** The FIRST commit of a period cannot be serialized by a row
-    lock: there is no row yet to lock, and two callers would both pass the status check. What
-    serializes them is ``UNIQUE(lottery_draws.period)`` — the loser's flush raises ``IntegrityError``
-    and is answered 409. A REPEAT commit (row exists) is serialized by ``SELECT … FOR UPDATE``
-    below. A test covering only the repeat case would miss the first-commit race entirely.
+    **One serializer: ``UNIQUE(lottery_draws.period)``.** The first commit of a period cannot be
+    serialized by a row lock — there is no row yet to lock — so the loser's flush raises
+    ``IntegrityError`` and is answered 409. A repeat commit needs no serializer at all: the row is
+    created already ``committed`` and never returns to ``open``, so "row exists → refuse" is a
+    terminal, race-free state. A ``SELECT … FOR UPDATE`` was written here first (by analogy with
+    ``submit_survey``) and a mutation run proved it dead — removing it reddened nothing. It is
+    gone rather than kept "just in case": protection against an unreachable state is what the
+    rules forbid.
+
+    ⚠️ When PR-5.7 introduces a real ``open`` state (a draw opened ahead of time and committed
+    later), the row stops being terminal and the lock becomes load-bearing — it must come back
+    together with a race test that fails without it.
 
     Refuses an empty snapshot: freezing zero participants would burn the period irreversibly (the
     next attempt is rejected as "already committed"), and an administrator facing an empty month
     needs to know why it is empty, not to record the emptiness.
     """
     as_of = as_of or utc_now()
+    # Fast path, NOT the serializer: it spares a full profile scan and gives the administrator a
+    # precise message. Correctness does not rest on it — without it the insert below would hit the
+    # unique index and answer the same 409.
     existing = (
-        await db.execute(
-            select(LotteryDraw.id).where(LotteryDraw.period == period).with_for_update()
-        )
+        await db.execute(select(LotteryDraw.id).where(LotteryDraw.period == period))
     ).one_or_none()
     if existing is not None:
-        # Release the FOR UPDATE lock before answering: a refusal must not keep the row pinned
-        # until the session happens to close, or a concurrent caller waits on it forever.
-        await db.rollback()
+        await db.rollback()  # leave no open transaction behind a refusal
         raise ConflictException(_ALREADY_COMMITTED.format(period=period))
 
     profiles = (
