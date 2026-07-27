@@ -27,6 +27,7 @@ from src.crm.admin_router import router as crm_admin_router
 from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
 from src.database import async_session_maker, engine
+from src.loyalty.admin_router import router as admin_lottery_router
 from src.loyalty.router import router as loyalty_router
 from src.loyalty.router import summary_router as loyalty_summary_router
 from src.orders.admin_router import router as admin_orders_router
@@ -173,6 +174,11 @@ def create_app() -> FastAPI:
     )
 
     # Analytics router
+    app.include_router(
+        admin_lottery_router,
+        prefix=f"{settings.api_v1_prefix}/admin/lottery",
+        tags=["admin-lottery"],
+    )
     app.include_router(
         analytics_router,
         prefix=f"{settings.api_v1_prefix}/analytics",

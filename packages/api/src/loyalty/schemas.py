@@ -165,3 +165,31 @@ class SurveyResponse(BaseModel):
     survey_done: bool = Field(
         description="True only if THIS call wrote the one-time survey_done event"
     )
+
+
+# Period label of a monthly draw: "YYYY-MM". Validated by pattern rather than parsed — the column
+# is VARCHAR(7) and the value is a public label, so a malformed one must be refused at the edge.
+DrawPeriod = Annotated[
+    str, StringConstraints(strip_whitespace=True, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+]
+
+
+class CommitDrawRequest(BaseModel):
+    """Body of ``POST /admin/lottery/commit`` — which month to freeze."""
+
+    period: DrawPeriod = Field(description="Calendar month being drawn, YYYY-MM (Tashkent time)")
+    prize_label: str | None = Field(default=None, max_length=200, description="Marketing label")
+
+
+class CommitDrawResponse(BaseModel):
+    """What was frozen — the numbers an administrator publishes for external verification."""
+
+    draw_id: int
+    period: str
+    total_tickets: int = Field(
+        ge=1, description="Tickets in the snapshot; a draw is never frozen empty"
+    )
+    participant_hash: str = Field(
+        description="SHA-256 (lowercase hex) of the canonical ticket list"
+    )
+    committed_at: datetime
