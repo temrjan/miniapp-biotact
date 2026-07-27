@@ -27,6 +27,7 @@ describe('loyaltyApi.getMe', () => {
       gender: 'male',
       age: 47,
       city: 'Ташкент',
+      is_adult: true,
     });
 
     const result = await loyaltyApi.getMe();
@@ -43,6 +44,7 @@ describe('loyaltyApi.getMe', () => {
       gender: 'male',
       age: 47,
       city: 'Ташкент',
+      isAdult: true,
     });
     expect(getMock).toHaveBeenCalledWith('/loyalty/me');
   });
@@ -62,6 +64,9 @@ describe('loyaltyApi.getMe', () => {
     expect(result.gender).toBeNull();
     expect(result.age).toBeNull();
     expect(result.city).toBeNull();
+    // `is_adult` is a bool, not a nullable answer: absent degrades to "not confirmed", which asks
+    // the member once more rather than displaying a confirmation they never gave.
+    expect(result.isAdult).toBe(false);
   });
 
   it('falls back to the full balance when an older API omits `available` (deploy window)', async () => {
@@ -159,5 +164,32 @@ describe('loyaltyApi.survey', () => {
 
     expect(postMock).toHaveBeenCalledWith('/loyalty/survey', { age: 30, city: 'Tashkent' });
     expect(result).toEqual({ updatedFields: ['age', 'city'], surveyDone: true });
+  });
+
+  it('renames isAdult to the wire key is_adult', async () => {
+    postMock.mockResolvedValue({ updated_fields: ['is_adult'], survey_done: false });
+
+    await loyaltyApi.survey({ isAdult: true });
+
+    // The server field is `is_adult`; a camelCase key would be ignored and 422 the empty body.
+    expect(postMock).toHaveBeenCalledWith('/loyalty/survey', { is_adult: true });
+  });
+
+  it('sends is_adult false when a stored confirmation is withdrawn', async () => {
+    postMock.mockResolvedValue({ updated_fields: ['is_adult'], survey_done: false });
+
+    await loyaltyApi.survey({ isAdult: false, city: 'Tashkent' });
+
+    // `false` is a value: dropping it as falsy would leave the member confirmed against their edit.
+    expect(postMock).toHaveBeenCalledWith('/loyalty/survey', { city: 'Tashkent', is_adult: false });
+  });
+
+  it('omits the is_adult key entirely when the checkbox was not touched', async () => {
+    postMock.mockResolvedValue({ updated_fields: ['city'], survey_done: true });
+
+    await loyaltyApi.survey({ city: 'Tashkent' });
+
+    // A present `is_adult` would overwrite the stored confirmation on every unrelated edit.
+    expect(postMock).toHaveBeenCalledWith('/loyalty/survey', { city: 'Tashkent' });
   });
 });

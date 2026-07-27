@@ -131,6 +131,9 @@ export interface LoyaltySummary {
   gender: Gender | null;
   age: number | null;
   city: string | null;
+  // 18+ self-confirmation (lottery entry). A boolean, not a nullable answer: "never asked" and
+  // "declined" both read as false. Echoed so the checkbox renders as the member left it.
+  isAdult: boolean;
 }
 
 // How the customer entered the program (sent to POST /loyalty/consent).
@@ -163,6 +166,9 @@ export interface SurveyPayload {
   gender?: Gender;
   age?: number;
   city?: string;
+  // 18+ confirmation. `false` is a value, not an absence — sending it withdraws a prior
+  // confirmation, so omit the key entirely when the member did not touch the checkbox.
+  isAdult?: boolean;
 }
 
 export interface SurveyResult {

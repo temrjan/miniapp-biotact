@@ -13,6 +13,9 @@ interface SurveyCardProps {
   gender: Gender | null;
   age: number | null;
   city: string | null;
+  // Stored 18+ confirmation (lottery entry). Not part of "is the survey filled": it is a legal
+  // self-confirmation, not an answer about the member — see `filled` below.
+  isAdult: boolean;
 }
 
 // Shared entrance animation for both branches (filled row / form) of this card.
@@ -27,21 +30,36 @@ const ENTRANCE = {
 // "survey filled" row with an edit button; the edit form is pre-filled from the saved values.
 // Present fields overwrite on the server (no COALESCE), so partial corrections are safe.
 // The collapse itself is the save confirmation — no extra post-save state.
-export function SurveyCard({ gender: savedGender, age: savedAge, city: savedCity }: SurveyCardProps) {
+export function SurveyCard({
+  gender: savedGender,
+  age: savedAge,
+  city: savedCity,
+  isAdult: savedIsAdult,
+}: SurveyCardProps) {
   const { t } = useTranslation();
   const [gender, setGender] = useState<Gender | ''>('');
   const [age, setAge] = useState('');
   const [city, setCity] = useState('');
+  // Seeded from the server (unlike the text fields, which start blank): the box can already be
+  // ticked while the survey itself is unanswered, and a stored confirmation must render as given.
+  const [isAdult, setIsAdult] = useState(savedIsAdult);
   const [editing, setEditing] = useState(false);
   const survey = useSurvey();
 
+  // "Survey filled" is about the DEMOGRAPHIC answers only. The 18+ box deliberately does not
+  // collapse the card: confirming an age bracket is not telling us who you are, and the server
+  // agrees — a call carrying only `is_adult` does not mark the survey done either.
   const filled = savedGender !== null || savedAge !== null || savedCity !== null;
-  const isEmpty = gender === '' && age === '' && city.trim() === '';
+  // The server rejects an empty body (422), so Save stays disabled until this call would actually
+  // carry something: a typed value, or the box toggled away from what is stored.
+  const adultChanged = isAdult !== savedIsAdult;
+  const isEmpty = gender === '' && age === '' && city.trim() === '' && !adultChanged;
 
   const startEditing = () => {
     setGender(savedGender ?? '');
     setAge(savedAge !== null ? String(savedAge) : '');
     setCity(savedCity ?? '');
+    setIsAdult(savedIsAdult);
     setEditing(true);
   };
 
@@ -52,6 +70,9 @@ export function SurveyCard({ gender: savedGender, age: savedAge, city: savedCity
     if (age !== '') payload.age = Number(age);
     const trimmedCity = city.trim();
     if (trimmedCity !== '') payload.city = trimmedCity;
+    // Sent only when it differs from the stored value: re-sending an unchanged `true` would list
+    // `is_adult` among the fields this call wrote, which is not what happened.
+    if (adultChanged) payload.isAdult = isAdult;
     survey.mutate(payload, { onSuccess: () => setEditing(false) });
   };
 
@@ -112,6 +133,16 @@ export function SurveyCard({ gender: savedGender, age: savedAge, city: savedCity
             onChange={(e) => setCity(e.target.value)}
             className="rounded-lg border border-[var(--shadow-dark)]/20 bg-transparent p-2"
           />
+        </label>
+
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={isAdult}
+            onChange={(e) => setIsAdult(e.target.checked)}
+            className="size-4 accent-[var(--primary)]"
+          />
+          <span className="text-[var(--text-secondary)]">{t('survey.adultLabel')}</span>
         </label>
 
         {survey.isError && (

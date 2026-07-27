@@ -27,6 +27,7 @@ interface LoyaltySummaryDto {
   gender: Gender | null;
   age: number | null;
   city: string | null;
+  is_adult?: boolean;
 }
 
 interface ConsentResponseDto {
@@ -48,6 +49,15 @@ interface ActivateResponseDto {
 interface SurveyResponseDto {
   updated_fields: string[];
   survey_done: boolean;
+}
+
+// Wire shape of POST /loyalty/survey. Only `is_adult` needs renaming — the other keys are
+// spelled the same in both conventions, so they pass through untouched.
+interface SurveyRequestDto {
+  gender?: Gender;
+  age?: number;
+  city?: string;
+  is_adult?: boolean;
 }
 
 /** ISO timestamp → Date, or null when absent or unparseable (never an Invalid Date downstream). */
@@ -78,6 +88,10 @@ export const loyaltyApi = {
       gender: dto.gender ?? null,
       age: dto.age ?? null,
       city: dto.city ?? null,
+      // Same deploy-window reasoning: an older API omits the key. `false` is the safe default —
+      // it asks an already-confirmed member once more rather than showing a confirmation they
+      // never gave.
+      isAdult: dto.is_adult ?? false,
     };
   },
 
@@ -107,7 +121,11 @@ export const loyaltyApi = {
 
   // POST /loyalty/survey — write progressive survey fields (idempotent event). 404 while dark.
   survey: async (payload: SurveyPayload): Promise<SurveyResult> => {
-    const dto = await api.post<SurveyResponseDto>('/loyalty/survey', payload);
+    const { isAdult, ...rest } = payload;
+    // `isAdult === undefined` means "not touched" — the key must stay absent, otherwise the
+    // server would read it as a withdrawal of a stored confirmation.
+    const body: SurveyRequestDto = isAdult === undefined ? rest : { ...rest, is_adult: isAdult };
+    const dto = await api.post<SurveyResponseDto>('/loyalty/survey', body);
     return {
       updatedFields: dto.updated_fields,
       surveyDone: dto.survey_done,

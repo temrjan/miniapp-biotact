@@ -189,6 +189,103 @@ async def test_survey_done_event_payload_lists_written_fields(test_db: AsyncSess
 
 
 # --------------------------------------------------------------------------- #
+# 18+ self-confirmation (Stage 5, PR-5.2): written like any survey field, but it
+# is NOT an answer about the member — so it must not spend the survey_done event
+# --------------------------------------------------------------------------- #
+
+
+async def test_survey_only_is_adult_writes_flag_without_survey_done(
+    test_db: AsyncSession, maker
+) -> None:
+    """A call carrying ONLY the 18+ checkbox writes the flag and does NOT mark the survey done.
+
+    ``survey_done`` is the 4th step of the registration funnel (``analytics.get_loyalty_stats``)
+    and reads as "the member told us about themselves". 18+ is a legal condition of lottery entry,
+    not demographics: counting it would report a completed survey for someone who answered none.
+    """
+    await _seed_member(maker, 80030)
+    tg = TelegramUser(id=80030, first_name="AdultOnly")
+    async with maker() as s:
+        outcome = await submit_survey(s, telegram_user=tg, payload=SurveyRequest(is_adult=True))
+    assert outcome.updated_fields == ["is_adult"]
+    assert outcome.survey_done is False
+
+    async with maker() as s:
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert profile.is_adult is True
+        assert (profile.gender, profile.age, profile.city) == (None, None, None)
+        assert await _count_survey_done_events(s) == 0
+
+
+async def test_survey_is_adult_with_demographics_marks_survey_done(
+    test_db: AsyncSession, maker
+) -> None:
+    """18+ alongside a demographic field: both are written and the one-time event fires."""
+    await _seed_member(maker, 80031)
+    tg = TelegramUser(id=80031, first_name="AdultAndCity")
+    async with maker() as s:
+        outcome = await submit_survey(
+            s, telegram_user=tg, payload=SurveyRequest(city="Tashkent", is_adult=True)
+        )
+    assert outcome.updated_fields == ["city", "is_adult"]
+    assert outcome.survey_done is True
+
+    async with maker() as s:
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert (profile.city, profile.is_adult) == ("Tashkent", True)
+        assert await _count_survey_done_events(s) == 1
+
+
+async def test_survey_done_fires_on_the_later_demographic_call_after_is_adult_only(
+    test_db: AsyncSession, maker
+) -> None:
+    """18+ first, demography later → the event is spent by the SECOND call, not the first.
+
+    The funnel must count this member at the moment they actually answered the survey; the event
+    payload therefore lists the demographic field, not the checkbox that preceded it.
+    """
+    await _seed_member(maker, 80032)
+    tg = TelegramUser(id=80032, first_name="AdultThenSurvey")
+    async with maker() as s:
+        first = await submit_survey(s, telegram_user=tg, payload=SurveyRequest(is_adult=True))
+    async with maker() as s:
+        second = await submit_survey(s, telegram_user=tg, payload=SurveyRequest(age=33))
+    assert (first.survey_done, second.survey_done) == (False, True)
+
+    async with maker() as s:
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert (profile.is_adult, profile.age) == (True, 33)
+        assert await _count_survey_done_events(s) == 1
+        event = (
+            await s.execute(
+                select(CustomerEvent).where(
+                    CustomerEvent.event_type == CustomerEventType.SURVEY_DONE
+                )
+            )
+        ).scalar_one()
+        assert event.payload == {"fields": ["age"]}
+
+
+async def test_survey_is_adult_false_overwrites_stored_true(test_db: AsyncSession, maker) -> None:
+    """Un-ticking is a real write: ``False`` is a value, not an absence.
+
+    Guards the ``exclude_none=True`` contract in the service — a falsy filter there would silently
+    drop this call and leave a member confirmed as 18+ against their correction.
+    """
+    await _seed_member(maker, 80033)
+    tg = TelegramUser(id=80033, first_name="Untick")
+    async with maker() as s:
+        await submit_survey(s, telegram_user=tg, payload=SurveyRequest(is_adult=True))
+    async with maker() as s:
+        outcome = await submit_survey(s, telegram_user=tg, payload=SurveyRequest(is_adult=False))
+    assert outcome.updated_fields == ["is_adult"]
+
+    async with maker() as s:
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert profile.is_adult is False
+
+
+# --------------------------------------------------------------------------- #
 # schema: empty body rejected
 # --------------------------------------------------------------------------- #
 
@@ -197,6 +294,16 @@ def test_survey_request_rejects_all_empty_fields() -> None:
     """An all-None body is meaningless — the model validator rejects it (→ 422 at the endpoint)."""
     with pytest.raises(ValueError, match="At least one"):
         SurveyRequest()
+
+
+def test_survey_request_accepts_is_adult_alone() -> None:
+    """The 18+ checkbox on its own is a valid body — it is a field, not a modifier of the others."""
+    assert SurveyRequest(is_adult=True).is_adult is True
+
+
+def test_survey_request_accepts_is_adult_false_alone() -> None:
+    """``False`` alone passes the "at least one field" guard — un-ticking must reach the server."""
+    assert SurveyRequest(is_adult=False).is_adult is False
 
 
 @pytest.mark.parametrize("bad_age", [0, 121])
@@ -422,3 +529,24 @@ async def test_endpoint_happy_e2e_member(client, maker, monkeypatch) -> None:
     resp = await client.post("/api/v1/loyalty/survey", json={"gender": "male"}, headers=headers)
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"updated_fields": ["gender"], "survey_done": True}
+
+
+async def test_endpoint_accepts_is_adult_only_body(client, maker, monkeypatch) -> None:
+    """HTTP: ``{"is_adult": true}`` is a valid body (200), not the 422 an unknown field would give.
+
+    End-to-end proof of the two halves together: the flag is persisted and the funnel event is not.
+    """
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    await _seed_member(maker, 80024)
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 80024, "first_name": "Adult"})
+    }
+    resp = await client.post("/api/v1/loyalty/survey", json={"is_adult": True}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"updated_fields": ["is_adult"], "survey_done": False}
+
+    async with maker() as s:
+        profile = (await s.execute(select(CustomerProfile))).scalar_one()
+        assert profile.is_adult is True
+        assert await _count_survey_done_events(s) == 0
