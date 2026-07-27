@@ -9,7 +9,25 @@ from src.database import Base
 
 
 class AdminUser(Base):
-    """Admin user model with email/password authentication."""
+    """Email/password account of a REMOVED login circuit — kept for schema parity only.
+
+    ⚰️ **No route serves this model since 2026-07-27 (PR-S).** ``jwt_router`` — public
+    ``/auth/register``, ``/auth/login`` and friends — was deleted: it minted ``type="access"``
+    tokens that ``verify_admin_jwt`` accepted without any role check, so self-registration reached
+    every admin endpoint.
+
+    Why the class is still here: ``admin_users`` exists in the migration history, and
+    ``alembic/env.py`` only excludes ``_REF_TABLES``. Drop the model while keeping the table and
+    autogenerate proposes ``DROP TABLE`` → the ``Migration parity`` CI gate goes red. This class IS
+    the table's sole representation in ``Base.metadata`` (imported by ``src/models_registry.py``).
+
+    ⚠️ Do not "restore the login" by adding a router back — that is the hole. Real admin auth lives
+    in ``src/auth/admin_router.py`` (Telegram identity + ``User.is_admin``). Removing the table is a
+    data decision, deliberately not taken in PR-S.
+
+    ⚠️ Name collision: ``src.auth.dependencies.AdminUser`` is a different symbol — a type alias
+    ``Annotated[User, Depends(get_current_admin)]`` over the Telegram ``User``. Check the import.
+    """
 
     __tablename__ = "admin_users"
 
