@@ -18,7 +18,6 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 import src.models_registry  # noqa: F401 — единый реестр моделей (паритет/create_all)
 from src.analytics.router import router as analytics_router
 from src.auth.admin_router import router as admin_auth_router
-from src.auth.jwt_router import router as jwt_auth_router
 from src.banners.router import router as banners_router
 from src.banners.router import settings_router
 from src.broadcasts.admin_router import router as admin_broadcasts_router
@@ -157,13 +156,6 @@ def create_app() -> FastAPI:
         admin_auth_router,
         prefix=settings.api_v1_prefix,
         tags=["admin-auth"],
-    )
-
-    # JWT auth router
-    app.include_router(
-        jwt_auth_router,
-        prefix=settings.api_v1_prefix,
-        tags=["jwt-auth"],
     )
 
     # Admin Users router

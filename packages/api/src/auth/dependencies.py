@@ -64,19 +64,30 @@ async def get_current_admin(
 async def verify_admin_jwt(
     credentials: HTTPAuthorizationCredentials = Depends(_security),
 ) -> int:
-    """Verify JWT token and return user_id. Lightweight — no DB lookup."""
-    token = credentials.credentials
-    for secret, allowed_type in [
-        (settings.secret_key.get_secret_value(), "admin"),
-        (settings.jwt_secret.get_secret_value(), "access"),
-    ]:
-        try:
-            payload = jwt.decode(token, secret, algorithms=[settings.jwt_algorithm])
-            sub = payload.get("sub")
-            if payload.get("type") == allowed_type and sub is not None:
-                return int(sub)
-        except (JWTError, ValueError, TypeError):
-            continue
+    """Verify an ADMIN JWT and return user_id. Lightweight — no DB lookup.
+
+    Only the admin token opens the admin surface: ``type="admin"``, signed with ``secret_key``,
+    issued by ``/admin/auth/login`` (:func:`src.auth.admin_router.create_admin_token`).
+
+    PR-S removed a second accepted token (``type="access"`` signed with ``jwt_secret``). It carried
+    no role at all, so anyone able to obtain one from the self-registration circuit reached every
+    endpoint guarded by this dependency; that circuit is gone with it.
+
+    Decoded with ``settings.algorithm`` — the very setting the issuer signs with. The previous code
+    decoded with ``settings.jwt_algorithm``, a separate field that merely happened to hold the same
+    ``"HS256"``: it worked by coincidence, not by contract.
+    """
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.secret_key.get_secret_value(),
+            algorithms=[settings.algorithm],
+        )
+        sub = payload.get("sub")
+        if payload.get("type") == "admin" and sub is not None:
+            return int(sub)
+    except (JWTError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid token") from exc
     raise HTTPException(status_code=401, detail="Invalid token")
 
 

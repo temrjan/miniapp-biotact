@@ -58,9 +58,9 @@ class Settings(BaseSettings):
     smtp_password: SecretStr = SecretStr("")
     smtp_from_email: str = ""
     smtp_from_name: str = "Biotact Admin"
-    # JWT
-    jwt_secret: SecretStr
-    jwt_algorithm: str = "HS256"
+    # JWT — the admin token is signed/verified with `secret_key` + `algorithm` above.
+    # `jwt_secret`/`jwt_algorithm` served the self-registration circuit removed in PR-S; leftover
+    # JWT_SECRET/JWT_ALGORITHM in a deployed .env are harmless (`extra="ignore"` above).
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
     # Admin
     admin_url: str = "https://admin.biotact.uz"
