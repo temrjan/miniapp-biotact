@@ -16,7 +16,12 @@ export function LoyaltySection() {
   return data.isMember ? (
     <>
       <LoyaltyCard />
-      <SurveyCard gender={data.gender} age={data.age} city={data.city} />
+      <SurveyCard
+        gender={data.gender}
+        age={data.age}
+        city={data.city}
+        isAdult={data.isAdult}
+      />
     </>
   ) : (
     <JoinCard />

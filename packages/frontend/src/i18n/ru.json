@@ -180,8 +180,10 @@
     "genderFemale": "Женский",
     "ageLabel": "Возраст",
     "cityLabel": "Город",
+    "adultLabel": "Мне есть 18 лет",
     "saveButton": "Сохранить",
     "success": "Спасибо! Анкета сохранена.",
+    "adultSaved": "Спасибо! Подтверждение сохранено.",
     "filledTitle": "Анкета заполнена",
     "editButton": "Изменить"
   },

@@ -112,6 +112,10 @@ class LoyaltySummaryResponse(BaseModel):
     gender: Gender | None = Field(description="Survey gender; null until answered")
     age: int | None = Field(description="Survey age; null until answered")
     city: str | None = Field(description="Survey city; null until answered")
+    # NOT part of the survey echo above: a bool column with a server_default, so "never asked" and
+    # "declined" both read as false. Echoed so the mini-app renders the checkbox as the member left
+    # it — a legal self-confirmation must never look un-given after a reload.
+    is_adult: bool = Field(description="18+ self-confirmation (lottery entry); false until ticked")
 
 
 SurveyAge = Annotated[int, Field(ge=1, le=120)]
@@ -124,17 +128,34 @@ class SurveyRequest(BaseModel):
     A present field always overwrites the stored value (no ``COALESCE``) so a member can
     correct/extend the survey on a later call. An all-empty body is rejected (422): a survey
     call that writes nothing is meaningless.
+
+    ``is_adult`` (Stage 5) rides on the same endpoint but is NOT a demographic answer: it is the
+    18+ self-confirmation required to enter the lottery. It counts as a field here — a body
+    carrying only the checkbox is valid — while the service keeps it out of the one-time
+    ``survey_done`` event (see :func:`service.submit_survey`).
     """
 
     gender: Gender | None = None
     age: SurveyAge | None = None
     city: SurveyCity | None = None
+    is_adult: bool | None = None
 
     @model_validator(mode="after")
     def require_at_least_one_field(self) -> "SurveyRequest":
-        if self.gender is None and self.age is None and self.city is None:
-            raise ValueError("At least one of gender, age, city is required")
+        if self.gender is None and self.age is None and self.city is None and self.is_adult is None:
+            raise ValueError("At least one of gender, age, city, is_adult is required")
         return self
+
+
+# Which fields of :class:`SurveyRequest` mean "the member told us about themselves". Lives here,
+# beside the model that owns the field list, and is written out BY HAND on purpose: deriving it by
+# subtraction (``set(model_fields) - {"is_adult"}``) would silently promote the next
+# non-demographic field — the planned «Правила акции» checkbox — into demographics, and a lone
+# consent tick would start spending ``survey_done`` again. A pinning test in
+# ``tests/test_loyalty_survey.py`` fails on any unclassified field, so whoever adds the next one
+# has to place it deliberately.
+DEMOGRAPHIC_SURVEY_FIELDS = frozenset({"gender", "age", "city"})
+NON_DEMOGRAPHIC_SURVEY_FIELDS = frozenset({"is_adult"})
 
 
 class SurveyResponse(BaseModel):

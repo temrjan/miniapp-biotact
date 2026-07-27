@@ -26,7 +26,12 @@ from src.loyalty.models import (
     QrCodeStatus,
 )
 from src.loyalty.pricing import compute_cashback, get_unit_price
-from src.loyalty.schemas import ActivationStatus, RegistrationSource, SurveyRequest
+from src.loyalty.schemas import (
+    DEMOGRAPHIC_SURVEY_FIELDS,
+    ActivationStatus,
+    RegistrationSource,
+    SurveyRequest,
+)
 from src.orders.models import Order
 
 logger = logging.getLogger(__name__)
@@ -284,6 +289,10 @@ class LoyaltySummary:
     gender: Gender | None
     age: int | None
     city: str | None
+    # 18+ self-confirmation (Stage 5 lottery). Deliberately NOT part of the survey echo above: it
+    # is a bool with a server_default, so "never asked" and "declined" are indistinguishable here —
+    # eligibility grandfathers age>=18 rather than reading a missing answer into this flag.
+    is_adult: bool
 
 
 def _non_member_summary(balance: int) -> LoyaltySummary:
@@ -304,6 +313,7 @@ def _non_member_summary(balance: int) -> LoyaltySummary:
         gender=None,
         age=None,
         city=None,
+        is_adult=False,
     )
 
 
@@ -338,6 +348,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
                 CustomerProfile.gender,
                 CustomerProfile.age,
                 CustomerProfile.city,
+                CustomerProfile.is_adult,
             ).where(CustomerProfile.user_id == user.id)
         )
     ).one_or_none()
@@ -368,6 +379,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
         gender=profile.gender,
         age=profile.age,
         city=profile.city,
+        is_adult=bool(profile.is_adult),
     )
 
 
@@ -522,7 +534,9 @@ async def submit_survey(
     hole :func:`record_consent` closes for the entry flow. Present fields always overwrite the
     stored value (no ``COALESCE``): the survey is progressive, so a member may correct/extend it
     on a later call. ``survey_done`` reuses the guard-check-then-insert-under-lock primitive
-    already proven by ``phone_shared`` above.
+    already proven by ``phone_shared`` above, and fires only for a call that carries at least one
+    demographic field (:data:`DEMOGRAPHIC_SURVEY_FIELDS`) — the 18+ checkbox writes on its own but
+    never spends the event.
 
     User resolution runs INSIDE the explicit transaction (mirroring :func:`activate_code` /
     :func:`record_consent`): a read before ``db.begin()`` would autobegin the session's
@@ -561,7 +575,11 @@ async def submit_survey(
                 .limit(1)
             )
         ).first()
-        if prior_survey_event is None:
+        # A call carrying only `is_adult` writes the flag but leaves the event unspent: the member
+        # has confirmed 18+, not answered the survey. Their later demographic call is the one that
+        # marks it done (and the one the funnel counts).
+        answers_something = not DEMOGRAPHIC_SURVEY_FIELDS.isdisjoint(updates)
+        if answers_something and prior_survey_event is None:
             db.add(
                 CustomerEvent(
                     user_id=user.id,

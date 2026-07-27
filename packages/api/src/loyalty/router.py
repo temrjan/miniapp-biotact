@@ -118,7 +118,8 @@ async def get_loyalty_me(
 
     Same dark gate (404 while ``loyalty_enabled`` is off) and initData HMAC auth as activation.
     Pure read — never creates a user/profile row (see :func:`service.get_loyalty_summary`).
-    Echoes the stored survey (gender/age/city) so the mini-app stops re-asking once saved.
+    Echoes the stored survey (gender/age/city) so the mini-app stops re-asking once saved, plus
+    ``is_adult`` so the 18+ checkbox renders as the member left it.
     """
     summary = await service.get_loyalty_summary(db, telegram_user.id)
     return LoyaltySummaryResponse(
@@ -132,6 +133,7 @@ async def get_loyalty_me(
         gender=summary.gender,
         age=summary.age,
         city=summary.city,
+        is_adult=summary.is_adult,
     )
 
 
@@ -170,10 +172,12 @@ async def submit_survey(
     db: Annotated[AsyncSession, Depends(get_db)],
     telegram_user: Annotated[TelegramUser, Depends(get_init_data_user)],
 ) -> SurveyResponse:
-    """Record progressive survey fields (gender/age/city), race-safe and idempotent for the event.
+    """Record progressive survey fields (gender/age/city/is_adult), race-safe and event-idempotent.
 
     Same dark gate (404 while ``loyalty_enabled`` is off) and initData HMAC auth as activation.
     Requires an existing member (``customer_profile`` row) — 404 otherwise; never creates one.
+    A body carrying only ``is_adult`` (the 18+ lottery confirmation) is valid and writes the flag
+    without marking the survey done — see :func:`service.submit_survey`.
     """
     outcome = await service.submit_survey(db, telegram_user=telegram_user, payload=payload)
     return SurveyResponse(

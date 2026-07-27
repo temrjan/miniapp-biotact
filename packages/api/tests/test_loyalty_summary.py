@@ -51,6 +51,7 @@ async def _seed_profile(
     gender: Gender | None = None,
     age: int | None = None,
     city: str | None = None,
+    is_adult: bool = False,
 ) -> int:
     """Commit a user + profile (lifetime/status/survey), optionally a ledger row for a balance."""
     async with sm() as s, s.begin():
@@ -65,6 +66,7 @@ async def _seed_profile(
                 gender=gender,
                 age=age,
                 city=city,
+                is_adult=is_adult,
             )
         )
         if balance:
@@ -166,6 +168,38 @@ async def test_summary_member_without_survey_has_null_survey_fields(
     assert (summary.gender, summary.age, summary.city) == (None, None, None)
 
 
+async def test_summary_echoes_is_adult_when_ticked(test_db: AsyncSession, maker) -> None:
+    """A member who confirmed 18+ → the summary echoes it, so the mini-app renders the box ticked.
+
+    Without this echo the checkbox would read as un-ticked after every reload for someone who has
+    already confirmed — and re-ticking is the one thing a legal self-confirmation must not invite.
+    """
+    await _seed_profile(maker, 70020, lifetime=1, is_adult=True)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70020)
+    assert summary.is_adult is True
+
+
+async def test_summary_member_without_confirmation_is_not_adult(
+    test_db: AsyncSession, maker
+) -> None:
+    """A member who never ticked the box → False (the column's server_default, not null)."""
+    await _seed_profile(maker, 70021, lifetime=1)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70021)
+    assert summary.is_member is True
+    assert summary.is_adult is False
+
+
+async def test_summary_non_member_is_not_adult(test_db: AsyncSession, maker) -> None:
+    """Both non-member states default to False — nobody is 18+-confirmed without a profile row."""
+    await _seed_user(maker, 70022)
+    async with maker() as s:
+        unknown = await get_loyalty_summary(s, 79998)
+        bare = await get_loyalty_summary(s, 70022)
+    assert (unknown.is_adult, bare.is_adult) == (False, False)
+
+
 async def test_summary_non_member_has_null_survey_fields(test_db: AsyncSession, maker) -> None:
     """Both non-member states (unknown user / bare user without profile) → survey fields None."""
     await _seed_user(maker, 70008)
@@ -246,6 +280,19 @@ async def test_me_happy_e2e_echoes_survey(client, maker, monkeypatch) -> None:
     assert body["gender"] == "female"  # StrEnum VALUE on the wire — what the mini-app types expect
     assert body["age"] == 30
     assert body["city"] == "Самарканд"
+
+
+async def test_me_echoes_is_adult_on_the_wire(client, maker, monkeypatch) -> None:
+    """HTTP: a member who confirmed 18+ → 200 body carries ``is_adult: true``."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    await _seed_profile(maker, 70023, lifetime=1, is_adult=True)
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70023, "first_name": "Adult"})
+    }
+    resp = await client.get("/api/v1/loyalty/me", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_adult"] is True
 
 
 async def test_me_echoes_out_of_range_stored_age_verbatim(client, maker, monkeypatch) -> None:
