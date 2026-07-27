@@ -233,6 +233,25 @@ describe('SurveyCard', () => {
     expect(await screen.findByText('Спасибо! Анкета сохранена.')).toBeInTheDocument();
   });
 
+  it('drops the previous confirmation when the form is re-opened', async () => {
+    // Re-entering the form must not carry the last call's "saved" line: in this visit nothing has
+    // been saved yet. Since PR-5.2 there are two confirmations, so a stale one can now assert the
+    // wrong thing — the same class of lie that PR fixed on the other side.
+    surveyMock.mockResolvedValue({ updatedFields: ['city'], surveyDone: false });
+    setup({ gender: 'male', age: 47, city: 'Ташкент' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }));
+    fireEvent.change(screen.getByLabelText('Город'), { target: { value: 'Самарканд' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+    // The save collapses the card (filled survey) — the confirmation is not visible here at all.
+    expect(await screen.findByRole('button', { name: 'Изменить' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }));
+
+    expect(screen.queryByText('Спасибо! Анкета сохранена.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Спасибо! Подтверждение сохранено.')).not.toBeInTheDocument();
+  });
+
   it('opens the edit form with the stored 18+ confirmation pre-ticked', () => {
     setup({ gender: 'male', age: 47, city: 'Ташкент', isAdult: true });
 
