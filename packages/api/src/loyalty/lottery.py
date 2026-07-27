@@ -36,8 +36,12 @@ TASHKENT = ZoneInfo("Asia/Tashkent")
 # against the same instant that froze it.
 ACTIVATION_WINDOW = timedelta(days=30)
 
+# The approved formula has exactly two sources — a filled survey (1) and "Друг" (+1) — so the
+# ceiling of 2 holds BY CONSTRUCTION. No `min(...)` guard here on purpose: it would be protection
+# against an unreachable state, and a mutation run proved it dead (raising the cap to 3 changed
+# nothing). When a third source appears (referrals, channel subscription — out of Stage 5), the
+# ceiling stops being implied and must be enforced explicitly, with a test that can fail.
 FRIEND_BONUS_TICKETS = 1
-MAX_TICKETS = 2
 
 
 def is_adult(profile: CustomerProfile) -> bool:
@@ -90,7 +94,7 @@ def compute_ticket_count(profile: CustomerProfile | None, *, as_of: datetime) ->
     tickets = 1
     if profile.status == LoyaltyStatus.BIOTACT_FRIEND:
         tickets += FRIEND_BONUS_TICKETS
-    return min(tickets, MAX_TICKETS)
+    return tickets
 
 
 def period_of(moment: datetime) -> str:
