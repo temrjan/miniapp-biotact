@@ -1,16 +1,25 @@
 """Boundary of the admin surface: only an ADMIN token opens it (PR-S).
 
-Every endpoint guarded by ``verify_admin_jwt`` is checked here at the real HTTP layer — through
-the app's routing, not by calling the dependency directly. A test that mocks the dependency
-verifies belief in the dependency, not the route: it stays green even if a route forgets to
-declare it.
+**Coverage is one endpoint per mounted router surface — 7 of the 18 endpoints** that declare
+``Depends(verify_admin_jwt)``. The sample is per-router on purpose: the dependency is shared, so a
+second endpoint on the same router would re-test the same code path, while a router missing from
+this list would be genuinely unguarded. Checked at the real HTTP layer, through the app's routing —
+a test that mocks the dependency verifies belief in the dependency, not the route, and stays green
+even if a route forgets to declare it.
 
-Two halves, and both are load-bearing:
+Three parts, each guarding a different failure:
 
-* **refusal** — a user token (``type="access"``, signed with ``jwt_secret``) must be rejected;
-* **positive control** — an admin token (``type="admin"``, signed with ``secret_key``) must NOT be
-  rejected. Without it, "deny everything" passes the refusal half and silently kills the admin
-  panel.
+* **refusal** — a non-admin token must be rejected (401);
+* **positive control** — an admin token must NOT be rejected. Without it, "deny everything" passes
+  the refusal half and silently kills the admin panel;
+* **config pinning + route absence** — the two that actually stand guard over the historical hole
+  (see :func:`test_removed_login_secrets_are_not_back_in_settings`).
+
+⚠️ **What the refusal half can and cannot prove.** The removed circuit signed its tokens with the
+deployed ``JWT_SECRET``; a test cannot know that value, so it cannot forge the exact historical
+token. Restoring the old branch alone would therefore NOT redden the refusal tests — measured, not
+assumed. Regression of the real hole is caught one step earlier, by the config pinning (the branch
+cannot come back without ``jwt_secret``) and by the route-absence test (no circuit to mint tokens).
 """
 
 from datetime import UTC, datetime, timedelta
@@ -19,7 +28,7 @@ import pytest
 from httpx import AsyncClient
 from jose import jwt
 
-from src.config import settings
+from src.config import Settings, settings
 
 # One endpoint per mounted router surface that declares ``Depends(verify_admin_jwt)``.
 # Paths carry the prefixes from ``main.py``; methods without a body are preferred so the response
@@ -105,10 +114,13 @@ REMOVED_AUTH_PATHS = [
 async def test_user_access_token_is_refused_on_admin_surface(
     client: AsyncClient, method: str, path: str
 ) -> None:
-    """A plain user token must not open an admin endpoint — 401, before any handler work.
+    """A non-admin token must not open an admin endpoint — 401, before any handler work.
 
-    Before PR-S every one of these answered 200/404/422 to this token: the surface admitted anyone
-    holding a token signed with ``jwt_secret``, regardless of role.
+    Scope of the claim, deliberately narrow: this proves the surface refuses a token that is not an
+    admin token. It does NOT reproduce the historical hole — that token was signed with the
+    deployed ``JWT_SECRET``, a value no test can know, so on pre-fix code these two forgeries were
+    already refused (measured on restored pre-fix code: 21 passed, hole not caught). The historical
+    regression is pinned by the config test and the route-absence test below.
     """
     refused = await _call(client, method, path, GARBAGE_TOKEN)
     assert refused.status_code == 401, (
@@ -128,6 +140,28 @@ async def test_user_access_token_is_refused_on_admin_surface(
             f"{method} {path} admitted a user token ({label}) with {resp.status_code}; "
             "the admin surface must answer only to an admin token"
         )
+
+
+def test_removed_login_secrets_are_not_back_in_settings() -> None:
+    """The deleted circuit's settings must stay deleted — the FIRST step of any regression.
+
+    Restoring the hole takes three steps: bring ``jwt_secret`` back into the config → re-accept
+    ``type="access"`` in ``verify_admin_jwt`` → re-mount the minting routes. Step three is caught
+    by :func:`test_removed_login_circuit_has_no_routes`, step two only partially (a variant signed
+    with ``secret_key``), and step one by nothing else — a forged token cannot stand in for one
+    signed with a secret the test does not know.
+
+    Asserting on ``model_fields`` rather than on ``settings`` instances: the class-level schema is
+    what a future edit would change, and it does not depend on which ``.env`` happens to be loaded.
+    """
+    assert "jwt_secret" not in Settings.model_fields, (
+        "jwt_secret is back in the config — the only reason to add it is to re-accept the tokens "
+        "PR-S stopped accepting"
+    )
+    assert "jwt_algorithm" not in Settings.model_fields, (
+        "jwt_algorithm is back — the admin token is decoded with `algorithm`, the field its issuer "
+        "signs with; a second algorithm setting exists only to serve the removed circuit"
+    )
 
 
 @pytest.mark.parametrize(("method", "path"), REMOVED_AUTH_PATHS)
