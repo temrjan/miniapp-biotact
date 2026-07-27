@@ -94,3 +94,41 @@ async def verify_admin_jwt(
 # Type aliases for cleaner code
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AdminUser = Annotated[User, Depends(get_current_admin)]
+
+
+async def require_admin(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    credentials: HTTPAuthorizationCredentials = Depends(_security),
+) -> User:
+    """Strong admin gate: an admin-typed token AND ``is_admin`` confirmed in the database.
+
+    Use this — not :func:`verify_admin_jwt` — for operations that change state irreversibly.
+    ``verify_admin_jwt`` is deliberately lightweight (no DB round-trip), so it cannot notice a
+    revoked account or a token whose subject no longer exists; freezing a lottery draw must not
+    hang on a check that weak.
+
+    This is the CANONICAL copy. Five functionally identical ones live in ``analytics/router.py``,
+    ``crm/router.py``, ``crm/admin_router.py``, ``broadcasts/admin_router.py`` and
+    ``users/admin_router.py``; they already differ cosmetically, which is how drift starts.
+    Collapsing them onto this one is a backlog item — deliberately NOT done here, so that PR-5.3
+    stays additive and no working router changes.
+    """
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.secret_key.get_secret_value(),
+            algorithms=[settings.algorithm],
+        )
+    except JWTError as exc:
+        raise UnauthorizedException("Invalid or expired token") from exc
+
+    if payload.get("type") != "admin":
+        raise ForbiddenException("Not an admin token")
+
+    sub = payload.get("sub")
+    if sub is None:
+        raise ForbiddenException("Admin access required")
+    user = await db.get(User, int(sub))
+    if user is None or not user.is_admin:
+        raise ForbiddenException("Admin access required")
+    return user
