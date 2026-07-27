@@ -17,7 +17,11 @@ from src.auth.schemas import TelegramUser
 from src.common.exceptions import NotFoundException
 from src.config import settings
 from src.loyalty.models import CustomerEvent, CustomerEventType, CustomerProfile, Gender
-from src.loyalty.schemas import SurveyRequest
+from src.loyalty.schemas import (
+    DEMOGRAPHIC_SURVEY_FIELDS,
+    NON_DEMOGRAPHIC_SURVEY_FIELDS,
+    SurveyRequest,
+)
 from src.loyalty.service import SurveyOutcome, submit_survey
 from src.users.models import User
 from tests.conftest import _make_init_data
@@ -294,6 +298,20 @@ def test_survey_request_rejects_all_empty_fields() -> None:
     """An all-None body is meaningless — the model validator rejects it (→ 422 at the endpoint)."""
     with pytest.raises(ValueError, match="At least one"):
         SurveyRequest()
+
+
+def test_survey_field_classification_is_exhaustive() -> None:
+    """Every field of ``SurveyRequest`` is classified as demographic or not — no field falls through.
+
+    The split drives ``survey_done`` (and with it the registration funnel), so it must never be
+    derived by subtraction: the planned «Правила акции» checkbox would then default into
+    "demographics" and a lone consent tick would spend the event again — the exact bug PR-5.2
+    closed. This test fails on the NEXT unclassified field, forcing a deliberate choice.
+    """
+    assert set(SurveyRequest.model_fields) == (
+        DEMOGRAPHIC_SURVEY_FIELDS | NON_DEMOGRAPHIC_SURVEY_FIELDS
+    )
+    assert DEMOGRAPHIC_SURVEY_FIELDS.isdisjoint(NON_DEMOGRAPHIC_SURVEY_FIELDS)
 
 
 def test_survey_request_accepts_is_adult_alone() -> None:

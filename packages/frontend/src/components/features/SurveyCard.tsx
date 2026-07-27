@@ -148,7 +148,17 @@ export function SurveyCard({
         {survey.isError && (
           <p className="text-sm text-[var(--error)]">{t('activation.error.generic')}</p>
         )}
-        {survey.isSuccess && <p className="text-sm text-[var(--primary)]">{t('survey.success')}</p>}
+        {/* The server answers what it actually wrote (`updated_fields`, wire keys), so a call that
+            carried only the 18+ box does not get told the survey was saved — it was not, and the
+            form below is still asking for it. Mirrors the server, which likewise does not mark
+            `survey_done` for that call. */}
+        {survey.isSuccess && (
+          <p className="text-sm text-[var(--primary)]">
+            {survey.data.updatedFields.some((field) => field !== 'is_adult')
+              ? t('survey.success')
+              : t('survey.adultSaved')}
+          </p>
+        )}
 
         {editing ? (
           <div className="flex gap-2">

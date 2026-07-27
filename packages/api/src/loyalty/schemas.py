@@ -147,6 +147,17 @@ class SurveyRequest(BaseModel):
         return self
 
 
+# Which fields of :class:`SurveyRequest` mean "the member told us about themselves". Lives here,
+# beside the model that owns the field list, and is written out BY HAND on purpose: deriving it by
+# subtraction (``set(model_fields) - {"is_adult"}``) would silently promote the next
+# non-demographic field — the planned «Правила акции» checkbox — into demographics, and a lone
+# consent tick would start spending ``survey_done`` again. A pinning test in
+# ``tests/test_loyalty_survey.py`` fails on any unclassified field, so whoever adds the next one
+# has to place it deliberately.
+DEMOGRAPHIC_SURVEY_FIELDS = frozenset({"gender", "age", "city"})
+NON_DEMOGRAPHIC_SURVEY_FIELDS = frozenset({"is_adult"})
+
+
 class SurveyResponse(BaseModel):
     """Result of a survey call — makes idempotency of the ``survey_done`` event observable."""
 

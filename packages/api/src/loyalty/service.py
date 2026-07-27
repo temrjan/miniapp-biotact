@@ -26,7 +26,12 @@ from src.loyalty.models import (
     QrCodeStatus,
 )
 from src.loyalty.pricing import compute_cashback, get_unit_price
-from src.loyalty.schemas import ActivationStatus, RegistrationSource, SurveyRequest
+from src.loyalty.schemas import (
+    DEMOGRAPHIC_SURVEY_FIELDS,
+    ActivationStatus,
+    RegistrationSource,
+    SurveyRequest,
+)
 from src.orders.models import Order
 
 logger = logging.getLogger(__name__)
@@ -514,14 +519,6 @@ class SurveyOutcome:
 
     updated_fields: list[str]  # payload keys written by this call (sorted, for a stable response)
     survey_done: bool  # True only if this call wrote the one-time survey_done event
-
-
-# The fields that make a call "the member told us about themselves". `is_adult` rides on the same
-# endpoint but is a legal 18+ self-confirmation for the lottery, not an answer about the member —
-# it is excluded on purpose. `survey_done` is the 4th step of the registration funnel rendered on
-# the admin dashboard (analytics.get_loyalty_stats → RegistrationFunnel), so counting a lone
-# checkbox as a completed survey would silently overstate how many members answered it.
-DEMOGRAPHIC_SURVEY_FIELDS = frozenset({"gender", "age", "city"})
 
 
 async def submit_survey(

@@ -209,6 +209,30 @@ describe('SurveyCard', () => {
     await waitFor(() => expect(surveyMock).toHaveBeenCalledWith({ isAdult: false }));
   });
 
+  it('confirms only what the server wrote when the call carried just the 18+ box', async () => {
+    // MINOR-1 (Gate-2): "Анкета сохранена" after a lone checkbox would promise more than the
+    // server did — it deliberately did NOT mark the survey done, and the form is still asking.
+    surveyMock.mockResolvedValue({ updatedFields: ['is_adult'], surveyDone: false });
+    setup();
+
+    fireEvent.click(screen.getByLabelText('Мне есть 18 лет'));
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    expect(await screen.findByText('Спасибо! Подтверждение сохранено.')).toBeInTheDocument();
+    expect(screen.queryByText('Спасибо! Анкета сохранена.')).not.toBeInTheDocument();
+  });
+
+  it('confirms the survey when the same call also carried a demographic field', async () => {
+    surveyMock.mockResolvedValue({ updatedFields: ['city', 'is_adult'], surveyDone: true });
+    setup();
+
+    fireEvent.change(screen.getByLabelText('Город'), { target: { value: 'Ташкент' } });
+    fireEvent.click(screen.getByLabelText('Мне есть 18 лет'));
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    expect(await screen.findByText('Спасибо! Анкета сохранена.')).toBeInTheDocument();
+  });
+
   it('opens the edit form with the stored 18+ confirmation pre-ticked', () => {
     setup({ gender: 'male', age: 47, city: 'Ташкент', isAdult: true });
 
