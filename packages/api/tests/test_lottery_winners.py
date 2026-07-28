@@ -16,7 +16,7 @@ from hashlib import sha256
 import pytest
 import pytest_asyncio
 from jose import jwt
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.common.exceptions import ConflictException
@@ -380,6 +380,37 @@ async def test_two_administrators_at_once_produce_one_result(
     assert len(successes) == 1, results
     assert len(conflicts) == 1, results
     assert await _winner_count(maker) == 1
+
+
+async def test_a_number_in_range_whose_row_vanished_is_refused(client, maker, monkeypatch) -> None:
+    """Number inside 1..total but with no row behind it → 409, not a 500.
+
+    Reachable exactly like the export guard's case: a snapshot row edited after the freeze. Renumber
+    ticket 1 away and number 1 is still "in range" (``total_tickets`` is not recomputed) while the
+    row is gone. Same threat as the export hash guard, different signal — absence instead of
+    mismatch. Technique borrowed from ``test_lottery_export.py`` (Reviewer's pointer at Gate-2).
+    """
+    _enable(monkeypatch)
+    admin_id = await _seed_admin(maker, 93130)
+    await _seed_member(maker, 93131)
+    draw_id = await _freeze(maker)
+
+    async with maker() as s, s.begin():
+        await s.execute(
+            update(LotteryTicket)
+            .where(LotteryTicket.ticket_number == 1)
+            .values(ticket_number=999999)
+        )
+
+    resp = await client.post(
+        _url(draw_id),
+        json={"winning_numbers": [1]},
+        headers={"Authorization": f"Bearer {_admin_token(admin_id)}"},
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert "повреждён" in resp.text, resp.text
+    assert await _winner_count(maker) == 0
 
 
 # --------------------------------------------------------------------------- #
