@@ -340,6 +340,12 @@ async def test_a_second_call_on_a_drawn_draw_changes_nothing(client, maker, monk
     second = await client.post(_url(draw_id), json={"winning_numbers": [b_number]}, headers=headers)
 
     assert second.status_code == 409, second.text
+    # The DIAGNOSIS matters, not only the code. The conditional UPDATE would refuse this call by
+    # itself, but with the "another administrator just closed it" message — false for a draw that
+    # was closed yesterday. On an irreversible operation a wrong explanation is its own defect, so
+    # the entry check that produces the right one has to be guarded by an assertion.
+    # (Without this line the mutation "remove the entry status check" survives — it did.)
+    assert "нельзя разыграть" in second.text, second.text
     assert await _winner_count(maker) == 1, "the original winner must stand"
 
 
