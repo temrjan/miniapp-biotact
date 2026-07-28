@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.exceptions import BadRequestException, ConflictException
+from src.common.exceptions import BadRequestException, ConflictException, NotFoundException
 from src.loyalty.models import (
     CustomerProfile,
     LotteryDraw,
@@ -161,6 +161,20 @@ class CommitOutcome:
     committed_at: datetime
 
 
+@dataclass(frozen=True)
+class ExportOutcome:
+    """A frozen draw ready to publish: the file's exact bytes, plus the label its filename carries.
+
+    Deliberately two fields. The hash and the ticket count are NOT carried here — nothing consumes
+    them (the body is the response, the period is the filename), and a field no caller reads is the
+    kind of dead weight a mutation run flags. Tests that need the count read the
+    ``lottery_draws.total_tickets`` column directly.
+    """
+
+    period: str
+    body: str
+
+
 # Two different races, two different serializers — see the spec §2.
 _ALREADY_COMMITTED = "Розыгрыш за период {period} уже заморожен"
 _NO_PARTICIPANTS = "За период {period} нет подходящих участников — замораживать нечего"
@@ -275,3 +289,56 @@ async def commit_draw(
         participant_hash=draw.participant_hash or "",
         committed_at=as_of,
     )
+
+
+_DRAW_NOT_FOUND = "Розыгрыш {draw_id} не найден"
+_SNAPSHOT_TAMPERED = (
+    "Снимок розыгрыша {period} не сходится с опубликованным хешем: строки билетов изменились "
+    "после заморозки. Выгрузка не отдана — публиковать список, который не сходится с нашим же "
+    "хешем, снаружи неотличимо от подлога."
+)
+
+
+async def export_draw(db: AsyncSession, *, draw_id: int) -> ExportOutcome:
+    """Serialize a frozen draw into exactly the bytes its published SHA-256 was taken over.
+
+    Read-only. The rows come from the frozen ``lottery_tickets``, never from a recount of
+    eligibility: profiles keep changing after the freeze while the published hash does not, so a
+    recount would drift away from the very value it is supposed to prove (see the module docstring).
+
+    Three columns are selected rather than whole entities — they are all the canonical line needs,
+    and selecting columns also sidesteps the session identity map, which could otherwise hand back a
+    stale ``LotteryTicket`` read earlier in the same session.
+
+    No ``ORDER BY`` here on purpose: :func:`canonical_snapshot` sorts by ticket number as part of
+    the published byte contract, so a SQL sort would be decoration — removing it would redden
+    nothing, which is how a dead construction is recognised.
+
+    Refuses (409) when the recomputed hash disagrees with the published one. The comparison is made
+    over the bytes about to be served, not over a parallel recomputation from the rows: the claim
+    this endpoint makes is about the FILE, so that is what must be verified. The only way into this
+    state is a snapshot row edited after the freeze; serving it would publish a list that fails our
+    own published hash, which from outside looks exactly like a faked draw.
+    """
+    draw = (
+        await db.execute(
+            select(LotteryDraw.period, LotteryDraw.participant_hash).where(
+                LotteryDraw.id == draw_id
+            )
+        )
+    ).one_or_none()
+    if draw is None:
+        raise NotFoundException(_DRAW_NOT_FOUND.format(draw_id=draw_id))
+
+    result = await db.execute(
+        select(LotteryTicket.ticket_number, LotteryTicket.user_id, LotteryTicket.source).where(
+            LotteryTicket.draw_id == draw_id
+        )
+    )
+    rows = [(r.ticket_number, r.user_id, r.source) for r in result]
+
+    body = canonical_snapshot(rows)
+    if sha256(body.encode("utf-8")).hexdigest() != draw.participant_hash:
+        raise ConflictException(_SNAPSHOT_TAMPERED.format(period=draw.period))
+
+    return ExportOutcome(period=draw.period, body=body)
