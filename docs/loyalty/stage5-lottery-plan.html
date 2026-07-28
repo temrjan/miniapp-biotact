@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Biotact Club — Ежемесячный розыгрыш · План Этапа 5</title>
+<style>
+  :root{
+    --green-900:#13402e; --green-700:#1c6a4a; --green-500:#2e8b63;
+    --green-100:#e7f3ec; --green-50:#f4faf6; --gold:#bd8f24; --gold-soft:#f6edd2;
+    --ink:#1b2a23; --muted:#5d6f66; --line:#d8e6dd; --white:#ffffff;
+    --red-soft:#fbeaea; --red:#b4463c; --red-line:#e6b9b3;
+    --shadow:0 6px 24px rgba(19,64,46,.08); --shadow-lg:0 12px 40px rgba(19,64,46,.14);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:var(--green-50);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 22px}
+  h1,h2,h3,h4{line-height:1.22;letter-spacing:-.01em}
+  .muted{color:var(--muted)}
+  .eyebrow{display:inline-block;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--green-700);background:var(--green-100);padding:5px 12px;border-radius:20px;margin-bottom:16px}
+
+  .hero{background:linear-gradient(160deg,var(--green-900),var(--green-700) 70%);color:#fff;
+    padding:56px 0 60px;position:relative;overflow:hidden}
+  .hero::after{content:"";position:absolute;right:-120px;top:-120px;width:380px;height:380px;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%)}
+  .hero h1{font-size:37px;font-weight:800;max-width:780px;margin-bottom:16px}
+  .hero .lead{font-size:17.5px;max-width:700px;color:#dff0e6;margin-bottom:10px}
+  .hero .eyebrow{background:rgba(255,255,255,.14);color:#eafff2}
+  .stats{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px}
+  .stat{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:14px 20px;min-width:150px}
+  .stat .n{font-size:23px;font-weight:800;color:#fff}
+  .stat .l{font-size:12.5px;color:#cfe7d8;margin-top:3px}
+  .status{display:inline-flex;align-items:center;gap:9px;background:var(--gold-soft);border:1px solid var(--gold);
+    border-radius:30px;padding:8px 16px;color:var(--gold);font-weight:700;font-size:13.5px;margin-top:26px}
+  .status .pulse{width:9px;height:9px;border-radius:50%;background:var(--gold)}
+
+  section{padding:48px 0}
+  section.alt{background:var(--white)}
+  .sec-head{max-width:760px;margin-bottom:28px}
+  .sec-head h2{font-size:26px;font-weight:800;color:var(--green-900);margin-bottom:10px}
+  .sec-head p{font-size:16px;color:var(--muted)}
+  .kicker{font-size:12.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--green-700);margin-bottom:8px}
+
+  .grid{display:grid;gap:16px}
+  .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:820px){.g3,.g2{grid-template-columns:1fr}}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:16px;padding:20px 22px;box-shadow:var(--shadow)}
+  section.alt .card{background:var(--green-50)}
+  .card .ico{font-size:23px;margin-bottom:9px}
+  .card h3{font-size:16.5px;color:var(--green-900);margin-bottom:6px}
+  .card p{font-size:14.5px;color:var(--muted)}
+
+  table.t{width:100%;border-collapse:collapse;background:var(--white);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:14.5px}
+  section.alt table.t{background:var(--green-50)}
+  table.t th{background:var(--green-100);color:var(--green-900);text-align:left;padding:11px 14px;font-weight:700;font-size:13.5px}
+  table.t td{padding:11px 14px;border-top:1px solid var(--line);vertical-align:top}
+  table.t td.hl{font-weight:700;color:var(--green-700)} table.t td.gold{font-weight:700;color:var(--gold)}
+  table.t tr.total td{background:var(--green-100);font-weight:800;color:var(--green-900)}
+
+  .steps{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;margin-top:4px}
+  .step{flex:1;min-width:210px;background:var(--white);border:1px solid var(--line);border-radius:15px;padding:20px 18px;box-shadow:var(--shadow)}
+  section.alt .step{background:var(--green-50)}
+  .step .badge{width:30px;height:30px;border-radius:50%;background:var(--green-700);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;margin-bottom:11px}
+  .step h4{font-size:15.5px;color:var(--green-900);margin-bottom:5px}
+  .step p{font-size:13.5px;color:var(--muted)}
+  .arrow{display:flex;align-items:center;justify-content:center;color:var(--green-500);font-size:22px;padding:0 6px;font-weight:700}
+  @media(max-width:820px){.arrow{transform:rotate(90deg);padding:8px 0;width:100%}}
+
+  .callout{background:var(--green-100);border:1px solid var(--green-500);border-left-width:5px;border-radius:14px;padding:18px 22px;margin-top:8px}
+  .callout.gold{background:var(--gold-soft);border-color:var(--gold)}
+  .callout h3{color:var(--green-900);font-size:16.5px;margin-bottom:6px} .callout p{color:var(--ink);font-size:14.5px}
+
+  /* decision blocks for leadership */
+  .decision{background:var(--white);border:1px solid var(--gold);border-left-width:5px;border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:16px}
+  .decision .dtag{display:inline-block;font-size:11.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--gold);background:var(--gold-soft);padding:4px 11px;border-radius:20px;margin-bottom:10px}
+  .decision h3{font-size:17px;color:var(--green-900);margin-bottom:12px}
+  .drow{display:grid;grid-template-columns:135px 1fr;gap:6px 14px;font-size:14.5px;margin-bottom:7px}
+  @media(max-width:600px){.drow{grid-template-columns:1fr;gap:2px}}
+  .drow .k{color:var(--muted);font-weight:700}
+  .drow .v{color:var(--ink)}
+  .drow .v.rec{color:var(--green-700);font-weight:700}
+
+  .lst{list-style:none}
+  .lst li{padding-left:26px;position:relative;margin-bottom:11px;font-size:14.5px;color:var(--muted)}
+  .lst li::before{content:"✓";position:absolute;left:0;top:0;color:var(--green-500);font-weight:800}
+  .lst li b{color:var(--ink)}
+  .lst.dot li::before{content:"•";color:var(--green-500);font-size:18px;top:-2px}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:820px){.split{grid-template-columns:1fr}}
+  .panel{border:1px solid var(--line);border-radius:14px;padding:18px 20px;background:var(--white)}
+  section.alt .panel{background:var(--green-50)}
+  .panel h4{font-size:15px;color:var(--green-900);margin-bottom:10px}
+  .panel.reuse{border-top:4px solid var(--green-500)}
+  .panel.build{border-top:4px solid var(--gold)}
+
+  footer{background:var(--green-900);color:#cfe7d8;padding:34px 0;font-size:14px;margin-top:8px}
+  footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;align-items:flex-start}
+  .legal{font-size:12.5px;color:#9cc2ab;max-width:600px;margin-top:10px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow">Biotact Club · Этап 5 — план на согласование</span>
+    <h1>Ежемесячный розыгрыш Аэрогриля — как мы предлагаем его устроить</h1>
+    <p class="lead">Программа лояльности уже работает на проде: покупатель сканирует QR, получает кэшбэк, копит статус «Друг». Следующий блок — ежемесячный розыгрыш. Ниже — как он устроен, как считаются билеты и как обеспечивается честность.</p>
+    <p class="lead">Документ собран по стратегии Biotact Club (v3.1). В нескольких местах мы предлагаем <b style="color:#fff">упростить</b> исходный замысел — чтобы переиспользовать уже готовое, а не строить лишнее. Эти места отдельно выделены и ждут вашего решения.</p>
+    <div class="stats">
+      <div class="stat"><div class="n">4</div><div class="l">победителя каждый месяц</div></div>
+      <div class="stat"><div class="n">850 000</div><div class="l">сум — главный приз</div></div>
+      <div class="stat"><div class="n">1 450 000</div><div class="l">сум — весь призовой фонд/мес</div></div>
+      <div class="stat"><div class="n">до 2</div><div class="l">билетов на участника</div></div>
+    </div>
+    <div class="status"><span class="pulse"></span> Ждём правок и решения руководителя — до этого к разработке не приступаем</div>
+  </div>
+</header>
+
+<!-- 1. О чём документ -->
+<section id="about">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">О чём этот документ</div>
+      <h2>Что решаем</h2>
+      <p>Розыгрыш — «приманка» программы: за сканирование QR и короткую анкету покупатель получает шанс выиграть технику. Этот документ фиксирует правила розыгрыша до того, как мы начнём его строить. Просим прочитать, внести правки и утвердить — особенно блок «Решения от руководителя» ближе к концу.</p>
+    </div>
+    <div class="grid g3">
+      <div class="card"><div class="ico">🎁</div><h3>Приз каждый месяц</h3><p>Весомая техника для кухни — повод сканировать QR и заполнить анкету прямо сейчас.</p></div>
+      <div class="card"><div class="ico">🎟️</div><h3>Билет за анкету</h3><p>Заполнил короткую анкету о себе — получил билет. Честный обмен: 30 секунд за шанс.</p></div>
+      <div class="card"><div class="ico">🔒</div><h3>Честность на виду</h3><p>Список участников фиксируется публично заранее, жребий — в прямом эфире. Никто не может подкрутить результат.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. Призовой фонд -->
+<section id="prize" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Призовой фонд</div>
+      <h2>Один главный приз и три утешительных — 4 победителя в месяц</h2>
+      <p>Главный приз может ротироваться внутри линейки техники Healthy Lifestyle — чтобы «весомый приз» держался в фокусе и не приедался.</p>
+    </div>
+    <table class="t">
+      <tr><th>Тип приза</th><th>Что разыгрываем</th><th>Стоимость</th><th>Победителей</th></tr>
+      <tr><td class="hl">Главный</td><td>Аэрогриль Healthy Lifestyle (или эквивалент из техники для кухни: соковыжималка, блендер, тостер, комбайн, чайник)</td><td>850 000 сум</td><td>1</td></tr>
+      <tr><td class="hl">Утешительные</td><td>Продуктовый сет BIOTACT, мелкая бытовая техника или аксессуары — состав формирует маркетинг под каждый месяц</td><td>до 200 000 сум каждый</td><td>3</td></tr>
+      <tr class="total"><td>Итого в месяц</td><td>—</td><td>1 450 000 сум</td><td>4</td></tr>
+    </table>
+    <div class="callout" style="margin-top:20px">
+      <h3>Налог с приза берёт на себя организатор</h3>
+      <p>НДФЛ на призы в Узбекистане (12%) закладывается в фонд от компании — победитель получает приз «чистым», без доплат.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Кто участвует -->
+<section id="who">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Условия участия</div>
+      <h2>Кто попадает в розыгрыш</h2>
+      <p>Участвует тот, кто реально пользуется программой и оставил о себе минимум данных.</p>
+    </div>
+    <ul class="lst">
+      <li><b>Участник Клуба</b> — вошёл через бота, поделился телефоном (номер подтверждён Telegram).</li>
+      <li><b>Активировал QR за последние 30 дней</b> — хотя бы один код. Это держит регулярность покупок.</li>
+      <li><b>Заполнил анкету</b> — пол, возраст, город (то, что уже собираем в мини-аппе).</li>
+      <li><b>Подтвердил, что ему 18+</b> — обязательное юридическое условие участия.</li>
+      <li><b>Резидент Республики Узбекистан.</b></li>
+    </ul>
+    <div class="callout" style="margin-top:8px">
+      <h3>Баллы — отдельно от розыгрыша</h3>
+      <p>Кэшбэк за активацию начисляется всегда. Но чтобы попасть в розыгрыш — нужна заполненная анкета. Не заполнил — баллы остаются, а в розыгрыш не проходишь. Это и создаёт мотивацию заполнить.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Билеты -->
+<section id="tickets" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Как получить билеты</div>
+      <h2>Максимум 2 билета на участника в месяц</h2>
+      <p>Чем полнее профиль клиента — тем выше шанс. Билеты не переносятся на следующий месяц: это поддерживает регулярность.</p>
+    </div>
+    <table class="t">
+      <tr><th>За что билет</th><th>Билетов</th><th>Как получается</th></tr>
+      <tr><td>Заполненная анкета (пол + возраст + город) и отметка «мне 18+»</td><td class="hl">1</td><td>Базовый билет</td></tr>
+      <tr><td>Статус «Друг BIOTACT» (после 10 активаций)</td><td class="gold">+1</td><td>Начисляется автоматически</td></tr>
+      <tr class="total"><td>Максимум (Друг + заполненная анкета)</td><td>2</td><td>Защита от накрутки</td></tr>
+    </table>
+    <p class="muted" style="font-size:13.5px;margin-top:12px">Один аккаунт — не больше 2 билетов в месяц. Телефон подтверждён Telegram, поэтому массово «нарисовать» фейковых участников нельзя.</p>
+  </div>
+</section>
+
+<!-- 5. Как проходит розыгрыш -->
+<section id="fairness">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Как проходит розыгрыш</div>
+      <h2>Честный и проверяемый — в три шага</h2>
+      <p>Главный принцип: список участников «запечатывается» публично <b>до</b> розыгрыша, а сам жребий проходит в прямом эфире. Результат нельзя подкрутить задним числом.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="badge">1</div><h4>Запечатываем список</h4><p>За 24 часа публикуем в канале «цифровой отпечаток» (SHA-256 хеш) списка участников и номеров билетов. Это как запечатанный конверт на виду у всех — список уже нельзя изменить.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="badge">2</div><h4>Тянем жребий в эфире</h4><p>В прямом эфире в Telegram-канале определяем победителей случайным образом через независимый сервис random.org. Всё происходит на глазах у аудитории.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="badge">3</div><h4>Публикуем и проверяем</h4><p>После эфира публикуем полный список билетов — любой сверяет его с ранее опубликованным отпечатком. Победителя поздравляем публично (с его согласия), вручение снимаем на видео.</p></div>
+    </div>
+    <div class="callout" style="margin-top:22px">
+      <h3>Почему жребий тянем внешним сервисом, а не «сами внутри программы»</h3>
+      <p>Если бы победителя выбирала наша собственная программа, всегда оставался бы вопрос «а вдруг подкрутили?». Когда случайность даёт независимый сервис в прямом эфире, а список зафиксирован заранее отпечатком — честность видна каждому. Наша программа только фиксирует список, публикует отпечаток и записывает результат.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 6. Переиспользуем / строим -->
+<section id="build" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Объём работ</div>
+      <h2>Максимум переиспользуем, строим только необходимое</h2>
+      <p>Большая часть нужного уже готова в программе. Новое — только то, без чего розыгрыша не провести.</p>
+    </div>
+    <div class="split">
+      <div class="panel reuse">
+        <h4>✅ Уже готово — берём как есть</h4>
+        <ul class="lst dot">
+          <li>Анкета о клиенте (пол, возраст, город) — работает на проде</li>
+          <li>Статус «Друг BIOTACT» — присваивается автоматически</li>
+          <li>История активаций (для условия «за 30 дней»)</li>
+          <li>Учёт участников Клуба и их профилей</li>
+        </ul>
+      </div>
+      <div class="panel build">
+        <h4>🔨 Нужно построить</h4>
+        <ul class="lst dot">
+          <li>Хранение розыгрышей и билетов</li>
+          <li>Отметка «мне 18+» в анкете</li>
+          <li>Кнопка в админке: «запечатать список» (отпечаток) и «записать победителя»</li>
+          <li>Экран «Мои билеты» с обратным отсчётом до розыгрыша</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. РЕШЕНИЯ ОТ РУКОВОДИТЕЛЯ -->
+<section id="decisions">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker" style="color:var(--gold)">Требуется ваше решение</div>
+      <h2>Где мы предлагаем отойти от исходной стратегии</h2>
+      <p>Стратегия v3.1 описывала розыгрыш чуть богаче. Ниже — что мы предлагаем упростить, почему, и на чём просим ваше «да» или правку. Это ключевой блок документа.</p>
+    </div>
+
+    <div class="decision">
+      <span class="dtag">Решение 1 · Билеты</span>
+      <h3>Упрощённая формула билетов — 2 источника вместо 4</h3>
+      <div class="drow"><span class="k">Стратегия</span><span class="v">4 билета: за анкету, за расширенную анкету, за подписку на канал, за статус «Друг».</span></div>
+      <div class="drow"><span class="k">Предлагаем</span><span class="v rec">2 билета: заполненная анкета = 1, статус «Друг» = +1.</span></div>
+      <div class="drow"><span class="k">Почему</span><span class="v">Часть исходных полей (причина покупки, для кого куплено) программа никогда не собирала — их пришлось бы строить заново. Проще дать билет за ту анкету, что уже работает. На честность розыгрыша это не влияет.</span></div>
+    </div>
+
+    <div class="decision">
+      <span class="dtag">Решение 2 · Подписка на канал</span>
+      <h3>Убираем «+1 билет за подписку на Telegram-канал»</h3>
+      <div class="drow"><span class="k">Стратегия</span><span class="v">Подписка на канал давала +1 билет.</span></div>
+      <div class="drow"><span class="k">Предлагаем</span><span class="v rec">Убрать этот источник билета полностью.</span></div>
+      <div class="drow"><span class="k">Почему</span><span class="v">Требует отдельной технической проверки подписки и усложняет правила. Решение убрать — уже согласовано на рабочем уровне; фиксируем его здесь для вашего утверждения.</span></div>
+    </div>
+
+    <div class="decision">
+      <span class="dtag">Решение 3 · Возраст 18+</span>
+      <h3>Отметку «мне 18+» добавляем в анкету</h3>
+      <div class="drow"><span class="k">Стратегия</span><span class="v">Подтверждение 18+ — обязательное юридическое условие участия.</span></div>
+      <div class="drow"><span class="k">Предлагаем</span><span class="v rec">Добавить чек-бокс «мне 18 лет или больше» в анкету. Тех, кто уже заполнил анкету и указал возраст 18+, засчитываем автоматически — не переспрашиваем.</span></div>
+      <div class="drow"><span class="k">Нужно от вас</span><span class="v">Подтвердить, что «зачёт по уже указанному возрасту» для действующих участников приемлем. Если нужно переспросить всех явно — скажите.</span></div>
+    </div>
+
+    <div class="decision">
+      <span class="dtag">Решение 4 · Как тянуть жребий</span>
+      <h3>Жребий — внешним сервисом в эфире, не нашей программой</h3>
+      <div class="drow"><span class="k">В стратегии</span><span class="v">Два разных описания: в одном месте — жребий вживую через random.org, в другом — программа выбирает победителя сама.</span></div>
+      <div class="drow"><span class="k">Предлагаем</span><span class="v rec">Жребий тянет независимый сервис (random.org) в прямом эфире; наша программа только фиксирует список, публикует отпечаток и записывает результат.</span></div>
+      <div class="drow"><span class="k">Почему</span><span class="v">Так честность максимально прозрачна: победителя выбирает не наш код. Это сильнее для доверия и проще в разработке.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 8. Юридическая упаковка -->
+<section id="legal" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Юридическая упаковка</div>
+      <h2>Что нужно оформить до запуска</h2>
+    </div>
+    <div class="grid g3">
+      <div class="card"><div class="ico">📜</div><h3>Правила акции</h3><p>Публикуем полные «Правила» с порядком определения победителя, призовым фондом и сроками. Позиционируем как стимулирующую маркетинговую акцию.</p></div>
+      <div class="card"><div class="ico">⚖️</div><h3>Заключение юриста</h3><p>Окончательная юридическая квалификация акции — после консультации с юристом Республики Узбекистан, до публичного запуска.</p></div>
+      <div class="card"><div class="ico">🔞</div><h3>Возраст 18+</h3><p>Участие только для совершеннолетних — отражаем и в анкете (Решение 3), и в правилах акции.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 9. Не в этом этапе -->
+<section id="scope">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Границы этапа</div>
+      <h2>Чего мы намеренно НЕ делаем сейчас</h2>
+      <p>Чтобы запустить розыгрыш быстро и надёжно, эти механики оставляем на потом — они не нужны для первого розыгрыша.</p>
+    </div>
+    <ul class="lst dot">
+      <li><b>Покупка дополнительных билетов за баллы</b> — отдельная механика, позже.</li>
+      <li><b>Реферальная программа</b> (билеты/баллы за приглашённых) — отдельный этап.</li>
+      <li><b>Расширенная анкета (Уровень 3)</b> — инструмент удержания, к розыгрышу не относится.</li>
+      <li><b>Подписка на канал как источник билета</b> — убрана (Решение 2).</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div style="display:inline-flex;align-items:center;gap:9px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.2);border-radius:30px;padding:8px 16px;color:#fff;font-weight:600">
+        <span style="width:9px;height:9px;border-radius:50%;background:var(--gold)"></span> План Этапа 5 · на согласовании у руководства
+      </div>
+      <p class="legal">Внутренний документ Biotact Deutschland. Составлен по стратегии Biotact Club v3.1; отмеченные упрощения требуют утверждения. Цифры призового фонда — из стратегии, калибруются по итогам пилота. Окончательная юридическая квалификация акции — после заключения юриста Республики Узбекистан. Участие 18+.</p>
+    </div>
+    <div style="text-align:right">
+      <div style="font-weight:800;color:#fff;font-size:16px">Biotact&nbsp;Club</div>
+      <div style="font-size:13px;margin-top:4px">Этап 5 — Ежемесячный розыгрыш</div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
