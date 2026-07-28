@@ -6,6 +6,7 @@ import type {
   Gender,
   LoyaltySummary,
   LoyaltyTier,
+  MyTickets,
   RegistrationSource,
   SurveyPayload,
   SurveyResult,
@@ -60,6 +61,22 @@ interface SurveyRequestDto {
   is_adult?: boolean;
 }
 
+interface DrawResultDto {
+  period: string;
+  tickets: number;
+  won: boolean;
+  prize_rank: number | null;
+  prize_label: string | null;
+}
+
+interface MyTicketsDto {
+  tickets: number;
+  is_frozen: boolean;
+  period: string | null;
+  prize_label: string | null;
+  result: DrawResultDto | null;
+}
+
 /** ISO timestamp → Date, or null when absent or unparseable (never an Invalid Date downstream). */
 function parseReservedUntil(raw: string | null | undefined): Date | null {
   if (!raw) return null;
@@ -92,6 +109,30 @@ export const loyaltyApi = {
       // it asks an already-confirmed member once more rather than showing a confirmation they
       // never gave.
       isAdult: dto.is_adult ?? false,
+    };
+  },
+
+  // GET /loyalty/my-tickets — the member's own lottery participation. 404 while the program is dark.
+  getMyTickets: async (): Promise<MyTickets> => {
+    const dto = await api.get<MyTicketsDto>('/loyalty/my-tickets');
+    return {
+      tickets: dto.tickets,
+      // Same deploy-window reasoning as `getMe` above: an older API omits the key. `false` is the
+      // safe default — it words the number as a live recount that may still change, which is true
+      // of a frozen count too. The opposite default would promise a fixed count we cannot back.
+      isFrozen: dto.is_frozen ?? false,
+      period: dto.period ?? null,
+      prizeLabel: dto.prize_label ?? null,
+      result:
+        dto.result == null
+          ? null
+          : {
+              period: dto.result.period,
+              tickets: dto.result.tickets,
+              won: dto.result.won,
+              prizeRank: dto.result.prize_rank ?? null,
+              prizeLabel: dto.result.prize_label ?? null,
+            },
     };
   },
 
