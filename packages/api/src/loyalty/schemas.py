@@ -195,6 +195,45 @@ class CommitDrawResponse(BaseModel):
     committed_at: datetime
 
 
+class RecordWinnersRequest(BaseModel):
+    """Body of ``POST /admin/lottery/{id}/winners`` — the numbers random.org produced, in order.
+
+    Order is meaningful: the first number takes the main prize, the rest follow as ranks 2, 3, …
+    No upper bound on the count — the prize fund is a marketing decision that changes month to
+    month, and a hardcoded ceiling would be a rule nobody ratified. The real ceiling is the number
+    of tickets in the draw, enforced against the snapshot.
+    """
+
+    winning_numbers: list[int] = Field(
+        min_length=1,
+        description="Ticket numbers drawn live, in prize order (first = main prize)",
+    )
+
+
+class WinnerRowResponse(BaseModel):
+    """One recorded winner.
+
+    Carries ``first_name`` and no phone (decision 2026-07-28): the admin panel's customer list
+    searches by name or phone and cannot search by internal id, so a name is the minimum that makes
+    a manual lookup possible — while no contact detail leaves this endpoint.
+    """
+
+    ticket_number: int
+    prize_rank: int = Field(ge=1, description="1 = main prize, then 2, 3, … by entry order")
+    user_id: int
+    first_name: str | None
+
+
+class RecordWinnersResponse(BaseModel):
+    """What was recorded — the draw is closed and cannot be replayed."""
+
+    draw_id: int
+    period: str
+    status: str
+    drawn_at: datetime
+    winners: list[WinnerRowResponse]
+
+
 class DrawResultResponse(BaseModel):
     """How the previous draw ended for this member (``GET /loyalty/my-tickets``)."""
 

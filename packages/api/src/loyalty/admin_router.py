@@ -11,7 +11,13 @@ from src.auth.dependencies import require_admin
 from src.database import get_db
 from src.loyalty import lottery
 from src.loyalty.router import require_loyalty_enabled
-from src.loyalty.schemas import CommitDrawRequest, CommitDrawResponse
+from src.loyalty.schemas import (
+    CommitDrawRequest,
+    CommitDrawResponse,
+    RecordWinnersRequest,
+    RecordWinnersResponse,
+    WinnerRowResponse,
+)
 
 router = APIRouter()
 
@@ -76,4 +82,53 @@ async def export_draw(
         content=outcome.body,
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="draw-{outcome.period}.txt"'},
+    )
+
+
+@router.post(
+    "/{draw_id}/winners",
+    response_model=RecordWinnersResponse,
+    dependencies=[Depends(require_loyalty_enabled), Depends(require_admin)],
+)
+async def record_winners(
+    draw_id: int,
+    payload: RecordWinnersRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> RecordWinnersResponse:
+    """Record the numbers drawn live on air and close the draw. **Irreversible.**
+
+    The winner is never chosen here: random.org produces the numbers in front of an audience and an
+    administrator types what was announced. This endpoint only refuses what would contradict the
+    ratified rule — one person takes at most one prize, and a winner leaves the later rounds as a
+    person, not merely as a ticket.
+
+    A number whose owner already won is refused with a message naming that number, so the host can
+    draw again in the open. It is not skipped silently: the room heard the number, and its quiet
+    disappearance from the published result could only be justified by "trust us".
+
+    **All or nothing.** Any rejected position cancels the whole call — nothing is written and the
+    draw stays frozen. Guarded by :func:`~src.auth.dependencies.require_admin`, like the freeze:
+    this writes a public, unrepeatable artifact.
+
+    404 — no such draw. 400 — a number outside 1..total, or repeated in the list. 409 — the draw is
+    not frozen, was already drawn, another administrator closed it first, or a number belongs to
+    someone who already won.
+    """
+    outcome = await lottery.record_winners(
+        db, draw_id=draw_id, winning_numbers=payload.winning_numbers
+    )
+    return RecordWinnersResponse(
+        draw_id=outcome.draw_id,
+        period=outcome.period,
+        status=outcome.status,
+        drawn_at=outcome.drawn_at,
+        winners=[
+            WinnerRowResponse(
+                ticket_number=w.ticket_number,
+                prize_rank=w.prize_rank,
+                user_id=w.user_id,
+                first_name=w.first_name,
+            )
+            for w in outcome.winners
+        ],
     )
