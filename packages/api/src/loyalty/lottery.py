@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,7 @@ from src.loyalty.models import (
     LotteryTicketSource,
     LoyaltyStatus,
 )
+from src.users.models import User
 
 # The audience is Uzbekistan and the draw airs on the 1st at 19:00 local time, so every calendar
 # boundary and every date shown to a human is computed in this zone. Stored values stay UTC.
@@ -455,7 +456,9 @@ async def get_my_tickets(
                 prize_label=latest.prize_label,
             )
 
-    # Everything that is not a committed draw falls through to the prospective count — including
+    # NOTE: `record_winners` lives at the end of this module; see it for the draw's terminal
+    # transition. Everything that is not a committed draw falls through to the prospective count —
+    # including
     # the `open` status, which nothing writes today (`commit_draw` creates rows already committed)
     # and which PR-5.7 will make real. Falling through is the right answer for it: a draw that has
     # not run yet has no outcome to report, so the member simply sees what they currently hold.
@@ -468,4 +471,172 @@ async def get_my_tickets(
         period=None,
         prize_label=None,
         result=result,
+    )
+
+
+@dataclass(frozen=True)
+class WinnerRow:
+    """One recorded winner. No phone: the administrator looks the contact up by name in "Клиенты"
+    (decision 2026-07-28) — this endpoint hands out no contact details."""
+
+    ticket_number: int
+    prize_rank: int
+    user_id: int
+    first_name: str | None
+
+
+@dataclass(frozen=True)
+class DrawOutcome:
+    """Result of closing a draw — primitives only, safe to read after the transaction closes."""
+
+    draw_id: int
+    period: str
+    status: str
+    drawn_at: datetime
+    winners: tuple[WinnerRow, ...]
+
+
+_NOT_COMMITTED = (
+    "Розыгрыш {period} нельзя разыграть: он в состоянии «{status}». Разыгрывается только "
+    "замороженный тираж, и только один раз."
+)
+_NUMBER_OUT_OF_RANGE = "Номер {number} вне диапазона 1..{total} — проверьте, что назвали."
+_DUPLICATE_NUMBER = "Номер {number} назван дважды."
+_ALREADY_WON = (
+    "Номер {number} принадлежит участнику, который уже выиграл в этом розыгрыше. По правилам один "
+    "человек забирает один приз — крутите барабан ещё раз. Ничего не записано."
+)
+_SNAPSHOT_INCOMPLETE = (
+    "В снимке розыгрыша {period} нет билетов с номерами {numbers}, хотя они в диапазоне. "
+    "Снимок повреждён — записывать победителей нельзя."
+)
+_LOST_RACE = "Розыгрыш {period} только что закрыл другой администратор. Ничего не записано."
+
+
+async def record_winners(
+    db: AsyncSession,
+    *,
+    draw_id: int,
+    winning_numbers: list[int],
+    as_of: datetime | None = None,
+) -> DrawOutcome:
+    """Record the numbers drawn live on air and close the draw. Irreversible.
+
+    This code does not pick anyone. It accepts what an external source produced and refuses what
+    would contradict the ratified rule: **one person takes at most one prize**, and a winner is
+    excluded from later rounds as a PERSON, not merely as a ticket — excluding only the ticket
+    would let a two-ticket holder take two prizes.
+
+    A number belonging to someone who already won is REFUSED rather than silently skipped. The
+    audience heard that number announced; had we dropped it quietly, its absence from the published
+    result could only be explained by "trust us". The refusal moves the discrepancy back into the
+    room, where it can be resolved in the open.
+
+    **All or nothing.** Any rejected position cancels the whole call: nothing is written, the draw
+    stays ``committed``, the administrator fixes the list and sends it again. "409 means nothing
+    changed" is literal here — facing an error on an irreversible operation, nobody should have to
+    wonder whether half of it went through.
+
+    **The serializer is the conditional UPDATE** (``WHERE status='committed'``), not a row lock:
+    zero rows affected means another administrator closed the draw first. Unlike the freeze — where
+    the row was terminal from birth and a lock proved dead under mutation — the transition here is
+    real, so the guard is load-bearing and reddens a race test when removed.
+    """
+    as_of = as_of or utc_now()
+
+    draw = (
+        await db.execute(
+            select(
+                LotteryDraw.id, LotteryDraw.period, LotteryDraw.status, LotteryDraw.total_tickets
+            ).where(LotteryDraw.id == draw_id)
+        )
+    ).one_or_none()
+    if draw is None:
+        await db.rollback()
+        raise NotFoundException(_DRAW_NOT_FOUND.format(draw_id=draw_id))
+    if draw.status != LotteryDrawStatus.COMMITTED.value:
+        await db.rollback()
+        raise ConflictException(_NOT_COMMITTED.format(period=draw.period, status=draw.status))
+
+    seen: set[int] = set()
+    for number in winning_numbers:
+        if not 1 <= number <= draw.total_tickets:
+            await db.rollback()
+            raise BadRequestException(
+                _NUMBER_OUT_OF_RANGE.format(number=number, total=draw.total_tickets)
+            )
+        if number in seen:
+            await db.rollback()
+            raise BadRequestException(_DUPLICATE_NUMBER.format(number=number))
+        seen.add(number)
+
+    rows = (
+        await db.execute(
+            select(LotteryTicket.ticket_number, LotteryTicket.user_id, User.first_name)
+            .join(User, User.id == LotteryTicket.user_id)
+            .where(
+                LotteryTicket.draw_id == draw_id,
+                LotteryTicket.ticket_number.in_(winning_numbers),
+            )
+        )
+    ).all()
+    by_number = {row.ticket_number: row for row in rows}
+    if len(by_number) != len(seen):
+        # In range yet absent: numbering is contiguous 1..total by construction, so this means the
+        # snapshot lost rows after the freeze. Same class of alarm as the export guard.
+        missing = sorted(seen - by_number.keys())
+        await db.rollback()
+        raise ConflictException(_SNAPSHOT_INCOMPLETE.format(period=draw.period, numbers=missing))
+
+    winners: list[WinnerRow] = []
+    owners: set[int] = set()
+    for rank, number in enumerate(winning_numbers, start=1):
+        row = by_number[number]
+        if row.user_id in owners:
+            await db.rollback()
+            raise ConflictException(_ALREADY_WON.format(number=number))
+        owners.add(row.user_id)
+        winners.append(
+            WinnerRow(
+                ticket_number=number,
+                prize_rank=rank,
+                user_id=row.user_id,
+                first_name=row.first_name,
+            )
+        )
+
+    for winner in winners:
+        await db.execute(
+            update(LotteryTicket)
+            .where(
+                LotteryTicket.draw_id == draw_id,
+                LotteryTicket.ticket_number == winner.ticket_number,
+            )
+            .values(is_winner=True, prize_rank=winner.prize_rank)
+        )
+
+    # `RETURNING` rather than `rowcount`: it says "did this row match" in a form the type checker
+    # can see, and it keeps the check in the statement instead of in driver metadata.
+    transition = (
+        await db.execute(
+            update(LotteryDraw)
+            .where(
+                LotteryDraw.id == draw_id,
+                LotteryDraw.status == LotteryDrawStatus.COMMITTED.value,
+            )
+            .values(status=LotteryDrawStatus.DRAWN.value, drawn_at=as_of)
+            .returning(LotteryDraw.id)
+        )
+    ).one_or_none()
+    if transition is None:
+        await db.rollback()
+        raise ConflictException(_LOST_RACE.format(period=draw.period))
+
+    await db.commit()
+    return DrawOutcome(
+        draw_id=draw_id,
+        period=draw.period,
+        status=LotteryDrawStatus.DRAWN.value,
+        drawn_at=as_of,
+        winners=tuple(winners),
     )
