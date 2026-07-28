@@ -96,9 +96,33 @@ describe('TicketsCard', () => {
     });
     renderCard(<TicketsCard />);
 
-    expect(await screen.findByTestId('tickets-result')).toHaveTextContent(/выиграли/);
+    const block = await screen.findByTestId('tickets-result');
+    expect(block).toHaveTextContent(/выиграли/);
+    // What they won, not just that they won — the rank and the prize are already on the wire,
+    // withholding them makes the card announce a victory and then refuse to name it.
+    expect(block).toHaveTextContent('Аэрогриль');
+    expect(block).toHaveTextContent('№1');
     // the prospective block for the NEXT draw must survive beside the result
     expect(screen.getByTestId('tickets-count').textContent).toContain('1');
+  });
+
+  it('names no prize when the member did not win', async () => {
+    getMyTicketsMock.mockResolvedValue({
+      ...prospective,
+      result: {
+        period: '2026-07',
+        tickets: 2,
+        won: false,
+        prizeRank: null,
+        prizeLabel: 'Аэрогриль',
+      },
+    });
+    renderCard(<TicketsCard />);
+
+    const block = await screen.findByTestId('tickets-result');
+    // The draw had a prize; this member did not get it. Showing the prize label beside a loss
+    // would read as if they had won it.
+    expect(block).not.toHaveTextContent('Аэрогриль');
   });
 
   it('reports a loss as an outcome, not as an absence', async () => {

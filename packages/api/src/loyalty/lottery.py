@@ -441,14 +441,19 @@ async def get_my_tickets(
                 )
             )
         ).all()
-        ranks = [r.prize_rank for r in rows if r.is_winner and r.prize_rank is not None]
-        result = DrawResult(
-            period=latest.period,
-            tickets=len(rows),
-            won=any(r.is_winner for r in rows),
-            prize_rank=min(ranks, default=None),
-            prize_label=latest.prize_label,
-        )
+        # No rows means this member held no tickets in that draw — they joined after the freeze.
+        # Reporting `won=False` here would turn "did not take part" into "lost", which is a
+        # different statement about a person, and the wrong one. Absence of an outcome is the
+        # honest answer. (Caught by the Reviewer at Gate-2.)
+        if rows:
+            ranks = [r.prize_rank for r in rows if r.is_winner and r.prize_rank is not None]
+            result = DrawResult(
+                period=latest.period,
+                tickets=len(rows),
+                won=any(r.is_winner for r in rows),
+                prize_rank=min(ranks, default=None),
+                prize_label=latest.prize_label,
+            )
 
     # Everything that is not a committed draw falls through to the prospective count — including
     # the `open` status, which nothing writes today (`commit_draw` creates rows already committed)

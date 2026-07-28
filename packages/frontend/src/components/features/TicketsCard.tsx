@@ -74,6 +74,14 @@ export function TicketsCard() {
               {result.won && <Trophy size={14} className="text-[var(--primary)]" />}
               {result.won ? t('profile.tickets.won') : t('profile.tickets.lost')}
             </p>
+            {/* What they won, and only when they won. The draw's prize belongs beside a victory;
+                printing it under a loss would read as if this member had received it. */}
+            {result.won && result.prizeRank !== null && (
+              <p className="text-sm font-medium text-[var(--primary)]">
+                {t('profile.tickets.rank', { rank: result.prizeRank })}
+                {result.prizeLabel ? ` · ${result.prizeLabel}` : ''}
+              </p>
+            )}
             <p className="text-xs text-[var(--text-muted)]">
               {t('profile.tickets.resultPeriod', { period: result.period })}
             </p>

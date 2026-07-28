@@ -147,6 +147,7 @@
       "frozen": "Siz {period} o'yinida qatnashyapsiz — ro'yxat qat'iylashtirildi",
       "howTo": "So'rovnomani to'ldiring va qadoqdagi kodni faollashtiring — chipta olasiz",
       "prize": "Sovrin: {prize}",
+      "rank": "№{rank} sovrin",
       "won": "Siz yutdingiz!",
       "lost": "Bu safar omad kulib boqmadi",
       "resultPeriod": "{period} o'yini"

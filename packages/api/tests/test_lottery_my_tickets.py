@@ -118,10 +118,15 @@ def _enable(monkeypatch) -> None:
 
 
 def _assert_invariants(body: dict) -> None:
-    """Shape invariants I1, I2, I4 from the spec - asserted rather than described.
+    """Shape invariants I1, I2 and I4 from the spec - asserted rather than described.
 
     Kept in one helper and called from every state test on purpose: an invariant checked only in
     the state that happens to satisfy it is not an invariant.
+
+    I3 ("result is present exactly when the latest draw has been drawn") is deliberately NOT here
+    and its absence is not an oversight: it relates the response to the draw's stored status, which
+    this helper cannot see - it only receives the body. Each state test asserts it directly instead,
+    by knowing which state it seeded.
     """
     assert (body["period"] is not None) == body["is_frozen"], "I1: period <=> is_frozen"
     if body["prize_label"] is not None:
@@ -199,6 +204,29 @@ async def test_drawn_carries_both_the_result_and_a_fresh_prospective_count(
     assert result["won"] is True
     assert result["prize_rank"] == 1
     assert result["prize_label"] == "Аэрогриль"
+    _assert_invariants(body)
+
+
+async def test_someone_who_was_not_in_the_draw_is_not_told_they_lost(
+    client, maker, monkeypatch
+) -> None:
+    """A member who joined AFTER the freeze held no tickets in that draw - so there is no outcome.
+
+    Reporting ``won=False`` here would turn "did not take part" into "lost", which is a different
+    statement about a person and the wrong one. Caught by the Reviewer at Gate-2.
+    """
+    _enable(monkeypatch)
+    await _seed_member(maker, 92071)  # was in the snapshot
+    await _freeze(maker)
+    await _mark_drawn(maker, winner_number=1)
+    await _seed_member(maker, 92072)  # joined after the freeze - never in that draw
+
+    resp = await client.get(URL, headers=_headers(92072))
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["result"] is None, "no tickets in that draw means no outcome, not a loss"
+    assert body["tickets"] == 1, "and they still accumulate towards the next one"
     _assert_invariants(body)
 
 
