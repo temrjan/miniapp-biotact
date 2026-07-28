@@ -136,6 +136,30 @@ export interface LoyaltySummary {
   isAdult: boolean;
 }
 
+// How a finished draw ended for this member.
+export interface DrawResult {
+  period: string; // YYYY-MM that was drawn
+  tickets: number; // how many tickets they held in THAT draw
+  won: boolean;
+  prizeRank: number | null; // best rank taken (1 = main prize); null when they did not win
+  prizeLabel: string | null;
+}
+
+// The member's own lottery participation (GET /loyalty/my-tickets).
+export interface MyTickets {
+  tickets: number;
+  // TRUE  — the number comes from a frozen snapshot and can no longer change.
+  // FALSE — it is a live recount that may still change on its own (an activation ageing out of
+  //         the 30-day window). The wording shown to the member MUST differ between the two:
+  //         "2 tickets" quietly becoming "1" without that distinction reads as tickets taken away.
+  isFrozen: boolean;
+  period: string | null; // non-null exactly when isFrozen
+  prizeLabel: string | null; // non-null only for a frozen draw that declares a prize
+  // How the PREVIOUS draw ended. Describes a different draw than the fields above: once a draw is
+  // over, the top block already counts towards the next one.
+  result: DrawResult | null;
+}
+
 // How the customer entered the program (sent to POST /loyalty/consent).
 export type RegistrationSource = 'qr' | 'direct';
 

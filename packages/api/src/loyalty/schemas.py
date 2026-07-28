@@ -193,3 +193,42 @@ class CommitDrawResponse(BaseModel):
         description="SHA-256 (lowercase hex) of the canonical ticket list"
     )
     committed_at: datetime
+
+
+class DrawResultResponse(BaseModel):
+    """How the previous draw ended for this member (``GET /loyalty/my-tickets``)."""
+
+    period: str = Field(description="Calendar month that was drawn, YYYY-MM")
+    tickets: int = Field(ge=0, description="Tickets this member held in that draw")
+    won: bool = Field(description="Whether any of their tickets was drawn")
+    prize_rank: int | None = Field(
+        description="Best rank taken (1 = main prize); null when they did not win"
+    )
+    prize_label: str | None = Field(description="Prize of that draw; null when it was not set")
+
+
+class MyTicketsResponse(BaseModel):
+    """The member's own participation (``GET /loyalty/my-tickets``).
+
+    The top-level fields describe what the member holds NOW; ``result`` describes how the PREVIOUS
+    draw ended. They refer to different draws and are deliberately not merged — after a finished
+    draw the top block already counts towards the next one.
+    """
+
+    tickets: int = Field(ge=0, description="Tickets shown to the member right now")
+    is_frozen: bool = Field(
+        description=(
+            "True when the number comes from a frozen snapshot and can no longer change; "
+            "False when it is a live recount that may still change on its own. The wording shown "
+            "to the member MUST differ between the two — that distinction is the point."
+        )
+    )
+    period: str | None = Field(
+        description="Period the frozen count belongs to; null exactly when is_frozen is false"
+    )
+    prize_label: str | None = Field(
+        description="Prize of the frozen draw; null unless a frozen draw declares one"
+    )
+    result: DrawResultResponse | None = Field(
+        description="Present only once the latest draw has been drawn"
+    )

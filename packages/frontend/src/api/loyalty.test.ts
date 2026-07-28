@@ -193,3 +193,75 @@ describe('loyaltyApi.survey', () => {
     expect(postMock).toHaveBeenCalledWith('/loyalty/survey', { city: 'Tashkent' });
   });
 });
+
+describe('loyaltyApi.getMyTickets', () => {
+  beforeEach(() => {
+    getMock.mockReset();
+  });
+
+  it('maps the snake_case DTO to the camelCase domain shape (no crossed fields)', async () => {
+    getMock.mockResolvedValue({
+      tickets: 1,
+      is_frozen: false,
+      period: null,
+      prize_label: null,
+      // Distinct numbers (1 vs 2, rank 3) catch a crossed mapping that would still typecheck.
+      result: {
+        period: '2026-07',
+        tickets: 2,
+        won: true,
+        prize_rank: 3,
+        prize_label: 'Аэрогриль',
+      },
+    });
+
+    const result = await loyaltyApi.getMyTickets();
+
+    expect(result).toEqual({
+      tickets: 1,
+      isFrozen: false,
+      period: null,
+      prizeLabel: null,
+      result: {
+        period: '2026-07',
+        tickets: 2,
+        won: true,
+        prizeRank: 3,
+        prizeLabel: 'Аэрогриль',
+      },
+    });
+  });
+
+  it('maps a frozen draw without a result block', async () => {
+    getMock.mockResolvedValue({
+      tickets: 2,
+      is_frozen: true,
+      period: '2026-07',
+      prize_label: 'Аэрогриль',
+      result: null,
+    });
+
+    expect(await loyaltyApi.getMyTickets()).toEqual({
+      tickets: 2,
+      isFrozen: true,
+      period: '2026-07',
+      prizeLabel: 'Аэрогриль',
+      result: null,
+    });
+  });
+
+  it('never leaks undefined when an older API omits the optional keys', async () => {
+    // Deploy window: the frontend ships before the API. The domain type promises `| null`, so an
+    // absent key must arrive as null — `undefined` would slip past every `=== null` check
+    // downstream and render as a missing field instead of an empty one.
+    getMock.mockResolvedValue({ tickets: 0 });
+
+    const result = await loyaltyApi.getMyTickets();
+
+    expect(result.isFrozen).toBe(false); // safest default: a live recount, never a fixed promise
+    expect(result.period).toBeNull();
+    expect(result.prizeLabel).toBeNull();
+    expect(result.result).toBeNull();
+    expect(Object.values(result)).not.toContain(undefined);
+  });
+});

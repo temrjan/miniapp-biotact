@@ -17,14 +17,16 @@ from src.auth.telegram import InitDataValidationError, validate_init_data
 from src.common.exceptions import NotFoundException, UnauthorizedException
 from src.config import settings
 from src.database import get_db
-from src.loyalty import service
+from src.loyalty import lottery, service
 from src.loyalty.pricing import PricingError
 from src.loyalty.schemas import (
     ActivateRequest,
     ActivateResponse,
     ConsentRequest,
     ConsentResponse,
+    DrawResultResponse,
     LoyaltySummaryResponse,
+    MyTicketsResponse,
     SurveyRequest,
     SurveyResponse,
 )
@@ -183,4 +185,42 @@ async def submit_survey(
     return SurveyResponse(
         updated_fields=outcome.updated_fields,
         survey_done=outcome.survey_done,
+    )
+
+
+@summary_router.get(
+    "/my-tickets",
+    response_model=MyTicketsResponse,
+    dependencies=[Depends(require_loyalty_enabled)],
+)
+async def get_my_tickets(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    telegram_user: Annotated[TelegramUser, Depends(get_init_data_user)],
+) -> MyTicketsResponse:
+    """The member's own lottery participation: how many tickets, and how the last draw ended.
+
+    Same dark gate (404 while ``loyalty_enabled`` is off) and initData HMAC auth as the rest of the
+    mini-app surface. Self-scoped by construction: the user is derived from the signature, never
+    from a query parameter, so another member's tickets are unreachable rather than merely
+    forbidden.
+
+    Pure read — a member who never joined gets zeroes, not a 404 and not a freshly created row.
+    """
+    outcome = await lottery.get_my_tickets(db, telegram_id=telegram_user.id)
+    return MyTicketsResponse(
+        tickets=outcome.tickets,
+        is_frozen=outcome.is_frozen,
+        period=outcome.period,
+        prize_label=outcome.prize_label,
+        result=(
+            None
+            if outcome.result is None
+            else DrawResultResponse(
+                period=outcome.result.period,
+                tickets=outcome.result.tickets,
+                won=outcome.result.won,
+                prize_rank=outcome.result.prize_rank,
+                prize_label=outcome.result.prize_label,
+            )
+        ),
     )

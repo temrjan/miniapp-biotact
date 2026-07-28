@@ -16,6 +16,7 @@ vi.mock('./SurveyCard', () => ({
     <div>SURVEY_CARD {JSON.stringify(props)}</div>
   ),
 }));
+vi.mock('./TicketsCard', () => ({ TicketsCard: () => <div>TICKETS_CARD</div> }));
 
 const getMeMock = vi.mocked(loyaltyApi.getMe);
 
@@ -46,12 +47,15 @@ describe('LoyaltySection', () => {
     getMeMock.mockReset();
   });
 
-  it('renders the loyalty card + survey for a member', async () => {
+  it('renders the loyalty card + survey + tickets for a member', async () => {
     getMeMock.mockResolvedValue({ ...base, isMember: true });
     renderSection();
 
     expect(await screen.findByText('LOYALTY_CARD')).toBeInTheDocument();
     expect(screen.getByText(/SURVEY_CARD/)).toBeInTheDocument();
+    // Without this the wiring is untested: TicketsCard hides itself when its own query has no
+    // data, so an unmounted card and a mounted-but-empty one look identical from the outside.
+    expect(screen.getByText('TICKETS_CARD')).toBeInTheDocument();
     expect(screen.queryByText('JOIN_CARD')).not.toBeInTheDocument();
   });
 
@@ -78,6 +82,8 @@ describe('LoyaltySection', () => {
     expect(await screen.findByText('JOIN_CARD')).toBeInTheDocument();
     expect(screen.queryByText('LOYALTY_CARD')).not.toBeInTheDocument();
     expect(screen.queryByText(/SURVEY_CARD/)).not.toBeInTheDocument();
+    // No tickets to count before someone has joined — same member-only rule as the survey.
+    expect(screen.queryByText('TICKETS_CARD')).not.toBeInTheDocument();
   });
 
   it('renders nothing while the program is dark (endpoint 404)', async () => {
@@ -88,5 +94,6 @@ describe('LoyaltySection', () => {
     expect(screen.queryByText('LOYALTY_CARD')).not.toBeInTheDocument();
     expect(screen.queryByText('JOIN_CARD')).not.toBeInTheDocument();
     expect(screen.queryByText(/SURVEY_CARD/)).not.toBeInTheDocument();
+    expect(screen.queryByText('TICKETS_CARD')).not.toBeInTheDocument();
   });
 });

@@ -13,10 +13,11 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.service import get_user_by_telegram_id
 from src.common.exceptions import BadRequestException, ConflictException, NotFoundException
 from src.loyalty.models import (
     CustomerProfile,
@@ -342,3 +343,129 @@ async def export_draw(db: AsyncSession, *, draw_id: int) -> ExportOutcome:
         raise ConflictException(_SNAPSHOT_TAMPERED.format(period=draw.period))
 
     return ExportOutcome(period=draw.period, body=body)
+
+
+@dataclass(frozen=True)
+class DrawResult:
+    """How a finished draw ended for one member."""
+
+    period: str
+    tickets: int  # how many tickets this member held in THAT draw
+    won: bool
+    # The best rank the member took (1 = main prize). Singular even though a member can hold
+    # several winning tickets: whether multiple prizes go to one person is Open Q5, still
+    # unanswered, and this field neither decides it nor blocks either answer.
+    prize_rank: int | None
+    prize_label: str | None
+
+
+@dataclass(frozen=True)
+class MyTicketsOutcome:
+    """What the member sees about their own participation.
+
+    The top block is "what I have now", ``result`` is "how the previous draw ended" — they describe
+    different draws and are deliberately not merged. Invariants held by construction here and
+    asserted in the tests: ``period is not None`` exactly when ``is_frozen``; ``prize_label`` is
+    non-null only when frozen; after a finished draw the top block is always prospective.
+    """
+
+    tickets: int
+    is_frozen: bool
+    period: str | None
+    prize_label: str | None
+    result: DrawResult | None
+
+
+_NO_TICKETS = MyTicketsOutcome(
+    tickets=0, is_frozen=False, period=None, prize_label=None, result=None
+)
+
+
+async def get_my_tickets(
+    db: AsyncSession, *, telegram_id: int, as_of: datetime | None = None
+) -> MyTicketsOutcome:
+    """One member's participation: frozen tickets if a draw is committed, prospective otherwise.
+
+    Read-only. Never creates a ``users`` or ``customer_profile`` row — merely opening the card must
+    cost nothing, the same rule :func:`~src.loyalty.service.get_loyalty_summary` follows. A user who
+    never joined is not an error: they get zero tickets and the card explains how to earn one.
+
+    **Prospective and frozen counts are never conflated.** Before the freeze no ``lottery_tickets``
+    rows exist, so the number is recomputed from the profile and can still change on its own (an
+    activation ages out of the 30-day window). After the freeze it is fixed. The caller is told
+    which one it holds via ``is_frozen``, because "2 tickets" quietly becoming "1" without that
+    distinction reads to a member as tickets being taken away.
+
+    After a draw is drawn the member gets BOTH its outcome and a prospective count for the next
+    period: showing a bare zero to someone who is already accumulating again would say they are out.
+
+    ``as_of`` is injectable exactly as in :func:`commit_draw`, so the count never depends on the
+    machine clock in tests.
+    """
+    as_of = as_of or utc_now()
+
+    user = await get_user_by_telegram_id(db, telegram_id)
+    if user is None:
+        return _NO_TICKETS
+
+    latest = (
+        await db.execute(
+            select(LotteryDraw.id, LotteryDraw.period, LotteryDraw.status, LotteryDraw.prize_label)
+            .order_by(LotteryDraw.period.desc())
+            .limit(1)
+        )
+    ).one_or_none()
+
+    if latest is not None and latest.status == LotteryDrawStatus.COMMITTED.value:
+        frozen = (
+            await db.execute(
+                select(func.count())
+                .select_from(LotteryTicket)
+                .where(LotteryTicket.draw_id == latest.id, LotteryTicket.user_id == user.id)
+            )
+        ).scalar_one()
+        return MyTicketsOutcome(
+            tickets=int(frozen),
+            is_frozen=True,
+            period=latest.period,
+            prize_label=latest.prize_label,
+            result=None,
+        )
+
+    result: DrawResult | None = None
+    if latest is not None and latest.status == LotteryDrawStatus.DRAWN.value:
+        rows = (
+            await db.execute(
+                select(LotteryTicket.is_winner, LotteryTicket.prize_rank).where(
+                    LotteryTicket.draw_id == latest.id, LotteryTicket.user_id == user.id
+                )
+            )
+        ).all()
+        # No rows means this member held no tickets in that draw — they joined after the freeze.
+        # Reporting `won=False` here would turn "did not take part" into "lost", which is a
+        # different statement about a person, and the wrong one. Absence of an outcome is the
+        # honest answer. (Caught by the Reviewer at Gate-2.)
+        if rows:
+            ranks = [r.prize_rank for r in rows if r.is_winner and r.prize_rank is not None]
+            result = DrawResult(
+                period=latest.period,
+                tickets=len(rows),
+                won=any(r.is_winner for r in rows),
+                prize_rank=min(ranks, default=None),
+                prize_label=latest.prize_label,
+            )
+
+    # Everything that is not a committed draw falls through to the prospective count — including
+    # the `open` status, which nothing writes today (`commit_draw` creates rows already committed)
+    # and which PR-5.7 will make real. Falling through is the right answer for it: a draw that has
+    # not run yet has no outcome to report, so the member simply sees what they currently hold.
+    profile = (
+        await db.execute(select(CustomerProfile).where(CustomerProfile.user_id == user.id))
+    ).scalar_one_or_none()
+    return MyTicketsOutcome(
+        tickets=compute_ticket_count(profile, as_of=as_of),
+        is_frozen=False,
+        period=None,
+        prize_label=None,
+        result=result,
+    )
