@@ -352,12 +352,17 @@ class LotteryDrawStatus(enum.StrEnum):
 
 
 class LotteryTicketSource(enum.StrEnum):
-    """Why a ticket exists in the snapshot (String, not PG enum). ``survey`` = base ticket for a
-    filled survey; ``friend`` = the automatic +1 for ``biotact_friend`` status.
+    """Why a ticket exists (String, not PG enum).
+
+    ``survey`` and ``friend`` are earned once in a lifetime, for reaching a state: a filled survey,
+    and the ``biotact_friend`` status that takes ten activations. ``activation`` is the renewable
+    one — a purchase — and only one of them may be unplayed at a time, so buying twice before a draw
+    does not quietly outweigh a status that costs ten purchases to reach.
     """
 
     SURVEY = "survey"
     FRIEND = "friend"
+    ACTIVATION = "activation"
 
 
 class LotteryDraw(Base):
