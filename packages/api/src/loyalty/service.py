@@ -67,6 +67,7 @@ async def _issue_tickets_safely(
             "ticket issuance failed for user_id=%s — the accrual is kept", user_id, exc_info=True
         )
 
+
 # Cashback rate by tier (basis points): newbie 5%, friend 8%.
 NEWBIE_RATE_BPS = 500
 FRIEND_RATE_BPS = 800

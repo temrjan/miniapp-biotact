@@ -437,9 +437,7 @@ async def get_loyalty_stats(db: AsyncSession, days: int = 30) -> LoyaltyStats:
     # --- Block 3b: lottery tickets, with a detector for silently skipped issuance ---
     tickets_total = await db.scalar(select(func.count(LotteryTicket.id))) or 0
     tickets_clean = (
-        await db.scalar(
-            select(func.count(LotteryTicket.id)).where(LotteryTicket.draw_id.is_(None))
-        )
+        await db.scalar(select(func.count(LotteryTicket.id)).where(LotteryTicket.draw_id.is_(None)))
         or 0
     )
     # The eligibility predicates of `loyalty.lottery` expressed in SQL, because an aggregate cannot
