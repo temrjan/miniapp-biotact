@@ -45,6 +45,11 @@ ACTIVATION_WINDOW = timedelta(days=30)
 # ceiling stops being implied and must be enforced explicitly, with a test that can fail.
 FRIEND_BONUS_TICKETS = 1
 
+# The legal floor for taking part, named because it is now asserted in two languages: here, and as
+# SQL in the dashboard detector that counts members owed a ticket. A bare 18 in both places is two
+# numbers that only look like one.
+ADULT_AGE = 18
+
 
 def is_adult(profile: CustomerProfile) -> bool:
     """18+ decision: a stored age decides; the checkbox speaks only when no age is stored.
@@ -56,7 +61,7 @@ def is_adult(profile: CustomerProfile) -> bool:
     what gives it teeth (see the epic spec §Assumptions).
     """
     if profile.age is not None:
-        return profile.age >= 18
+        return profile.age >= ADULT_AGE
     return bool(profile.is_adult)
 
 

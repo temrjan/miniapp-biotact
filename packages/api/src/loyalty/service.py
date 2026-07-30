@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -20,6 +21,7 @@ from src.loyalty.models import (
     CustomerProfile,
     Gender,
     LedgerReason,
+    LotteryTicketSource,
     LoyaltyStatus,
     PointLedger,
     QrCode,
@@ -32,9 +34,39 @@ from src.loyalty.schemas import (
     RegistrationSource,
     SurveyRequest,
 )
+from src.loyalty.tickets import ACTIVATION_SOURCES, sync_tickets
 from src.orders.models import Order
 
 logger = logging.getLogger(__name__)
+
+
+async def _issue_tickets_safely(
+    db: AsyncSession, *, user_id: int, sources: frozenset[LotteryTicketSource] | None = None
+) -> None:
+    """Issue owed tickets without letting the lottery subsystem undo what already happened.
+
+    **The SAVEPOINT is the mechanism, and a bare ``try/except`` would not be one.** In PostgreSQL a
+    failed statement aborts the whole transaction: afterwards only ``ROLLBACK`` is accepted, so
+    catching the exception in Python would still lose the cashback at ``COMMIT``. ``begin_nested``
+    rolls back the issuance alone and leaves the enclosing transaction healthy.
+
+    Ordered LAST at both call sites for the same reason: money and the survey answer are already
+    written when this runs, so the worst case is a member missing a ticket — never a member missing
+    their cashback because a lottery row could not be written.
+
+    Failure is loud in two places: ``CRITICAL`` here, and the ``eligible_without_survey_ticket``
+    counter on the loyalty dashboard, which turns a silent skip into a visible number.
+    ``SQLAlchemyError`` and not ``Exception``: a bug in our own predicates must surface, not be
+    swallowed on the way to a green log.
+    """
+    try:
+        async with db.begin_nested():
+            await sync_tickets(db, user_id=user_id, sources=sources)
+    except SQLAlchemyError:
+        logger.critical(
+            "ticket issuance failed for user_id=%s — the accrual is kept", user_id, exc_info=True
+        )
+
 
 # Cashback rate by tier (basis points): newbie 5%, friend 8%.
 NEWBIE_RATE_BPS = 500
@@ -600,6 +632,11 @@ async def submit_survey(
         )
 
         await db.flush()
+        # Last in the transaction, after the answers are stored: the predicates must read the
+        # values this call just wrote, or a member who completes their survey right now would be
+        # judged by the profile they had a moment ago and leave without the ticket they earned.
+        await _issue_tickets_safely(db, user_id=user.id)
+
         return SurveyOutcome(updated_fields=updated_fields, survey_done=survey_done)
 
 
@@ -809,6 +846,14 @@ async def _accrue(
     )
 
     await db.flush()  # autoflush is off — write the rows; the partial UNIQUE backstops a dup here
+
+    # One call covers BOTH triggers this activation can fire — the purchase itself and, on the 10th,
+    # the crossing into "Друг" — because the flip is decided a few lines above, in this same
+    # transaction under this same lock. There is no separate moment to hook the friend ticket onto.
+    # A replay of one's own code never reaches here (`_resolve_unclaimed` grants nothing), which is
+    # correct: re-scanning is not a purchase.
+    await _issue_tickets_safely(db, user_id=user_id, sources=ACTIVATION_SOURCES)
+
     return ActivationOutcome(
         status=ActivationStatus.ACTIVATED,
         tier=tier,

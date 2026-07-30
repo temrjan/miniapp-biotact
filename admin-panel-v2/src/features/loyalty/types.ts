@@ -57,6 +57,11 @@ export interface LoyaltyStats {
   funnel: FunnelStep[]
   consents_ever_granted: number
 
+  // Block 3b — lottery tickets. `eligible_without_survey_ticket` is a detector: it must read 0.
+  tickets_total: number
+  tickets_clean: number
+  eligible_without_survey_ticket: number
+
   // Block 4 — Points economy
   points_earned: number
   points_spent: number // shown positive
