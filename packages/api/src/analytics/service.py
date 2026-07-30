@@ -21,12 +21,15 @@ from src.analytics.schemas import (
     RevenueDataPoint,
     TopProductItem,
 )
+from src.loyalty.lottery import ADULT_AGE
 from src.loyalty.models import (
     CodeBatch,
     Consent,
     CustomerEvent,
     CustomerEventType,
     CustomerProfile,
+    LotteryTicket,
+    LotteryTicketSource,
     LoyaltyStatus,
     PointLedger,
     QrCode,
@@ -431,6 +434,39 @@ async def get_loyalty_stats(db: AsyncSession, days: int = 30) -> LoyaltyStats:
         round(profiles_with_survey / profiles_total * 100, 1) if profiles_total else 0.0
     )
 
+    # --- Block 3b: lottery tickets, with a detector for silently skipped issuance ---
+    tickets_total = await db.scalar(select(func.count(LotteryTicket.id))) or 0
+    tickets_clean = (
+        await db.scalar(
+            select(func.count(LotteryTicket.id)).where(LotteryTicket.draw_id.is_(None))
+        )
+        or 0
+    )
+    # The eligibility predicates of `loyalty.lottery` expressed in SQL, because an aggregate cannot
+    # call them row by row. The duplication is real and is bound by a test that seeds the full
+    # matrix and asserts this count agrees with the Python predicates — without it the two would
+    # drift the first time the rules change, and the detector would start lying.
+    adult_sql = case(
+        (CustomerProfile.age.is_not(None), CustomerProfile.age >= ADULT_AGE),
+        else_=CustomerProfile.is_adult,
+    )
+    eligible_without_survey_ticket = (
+        await db.scalar(
+            select(func.count(CustomerProfile.id)).where(
+                CustomerProfile.gender.is_not(None),
+                CustomerProfile.city.is_not(None),
+                adult_sql,
+                ~select(LotteryTicket.id)
+                .where(
+                    LotteryTicket.user_id == CustomerProfile.user_id,
+                    LotteryTicket.source == LotteryTicketSource.SURVEY.value,
+                )
+                .exists(),
+            )
+        )
+        or 0
+    )
+
     return LoyaltyStats(
         qr_generated=qr_generated,
         qr_activated=qr_activated,
@@ -444,6 +480,9 @@ async def get_loyalty_stats(db: AsyncSession, days: int = 30) -> LoyaltyStats:
         friends=friends,
         funnel=funnel,
         consents_ever_granted=consents_ever_granted,
+        tickets_total=tickets_total,
+        tickets_clean=tickets_clean,
+        eligible_without_survey_ticket=eligible_without_survey_ticket,
         points_earned=points_earned,
         points_spent=points_spent,
         points_outstanding=points_outstanding,

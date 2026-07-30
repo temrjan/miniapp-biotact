@@ -21,6 +21,7 @@ from src.loyalty.models import (
     CustomerProfile,
     Gender,
     LedgerReason,
+    LotteryTicketSource,
     LoyaltyStatus,
     PointLedger,
     QrCode,
@@ -33,13 +34,15 @@ from src.loyalty.schemas import (
     RegistrationSource,
     SurveyRequest,
 )
-from src.loyalty.tickets import sync_tickets
+from src.loyalty.tickets import ACTIVATION_SOURCES, sync_tickets
 from src.orders.models import Order
 
 logger = logging.getLogger(__name__)
 
 
-async def _issue_tickets_safely(db: AsyncSession, *, user_id: int) -> None:
+async def _issue_tickets_safely(
+    db: AsyncSession, *, user_id: int, sources: frozenset[LotteryTicketSource] | None = None
+) -> None:
     """Issue owed tickets without letting the lottery subsystem undo what already happened.
 
     **The SAVEPOINT is the mechanism, and a bare ``try/except`` would not be one.** In PostgreSQL a
@@ -58,7 +61,7 @@ async def _issue_tickets_safely(db: AsyncSession, *, user_id: int) -> None:
     """
     try:
         async with db.begin_nested():
-            await sync_tickets(db, user_id=user_id)
+            await sync_tickets(db, user_id=user_id, sources=sources)
     except SQLAlchemyError:
         logger.critical(
             "ticket issuance failed for user_id=%s — the accrual is kept", user_id, exc_info=True
@@ -848,7 +851,7 @@ async def _accrue(
     # transaction under this same lock. There is no separate moment to hook the friend ticket onto.
     # A replay of one's own code never reaches here (`_resolve_unclaimed` grants nothing), which is
     # correct: re-scanning is not a purchase.
-    await _issue_tickets_safely(db, user_id=user_id)
+    await _issue_tickets_safely(db, user_id=user_id, sources=ACTIVATION_SOURCES)
 
     return ActivationOutcome(
         status=ActivationStatus.ACTIVATED,

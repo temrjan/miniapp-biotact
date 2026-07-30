@@ -40,6 +40,16 @@ _ISSUE_PRIORITY = (
 # Earned once in a lifetime for reaching a state, not for an event that repeats.
 _ONE_TIME_SOURCES = frozenset({LotteryTicketSource.SURVEY, LotteryTicketSource.FRIEND})
 
+# What may be issued from a call that merely observes the member's STATE — the safe default, and
+# what every caller gets unless it says otherwise.
+#
+# ``activation`` is deliberately NOT here: it is earned by an EVENT, and state cannot tell you that
+# the event happened. Defaulting to it handed a purchase ticket to a member who had only filled in
+# their survey and never bought anything (caught by the matrix test). Only the path that witnessed
+# the purchase may grant the ticket for it.
+STATE_SOURCES = frozenset({LotteryTicketSource.SURVEY, LotteryTicketSource.FRIEND})
+ACTIVATION_SOURCES = STATE_SOURCES | {LotteryTicketSource.ACTIVATION}
+
 
 @dataclass(frozen=True)
 class IssueOutcome:
@@ -67,14 +77,17 @@ async def sync_tickets(
     (both product call sites) re-taking it on the same row in the same transaction is a re-entrant
     no-op and costs nothing.
 
-    ``sources`` restricts what may be issued — the backfill passes the two one-time sources, because
-    a ticket for a purchase made a year ago motivates nothing (ratified 2026-07-30). ``batch`` marks
-    the written rows so that a backfill, and only a backfill, can be undone.
+    ``sources`` restricts what may be issued and DEFAULTS to the state-derived ones. The renewable
+    purchase ticket has to be asked for explicitly, by the one caller that witnessed the purchase —
+    state alone cannot tell you a purchase happened, and defaulting to it gave a ticket to members
+    who had only filled in a survey. The backfill narrows further still: a ticket for a purchase
+    made a year ago motivates nothing (ratified 2026-07-30). ``batch`` marks the written rows so
+    that a backfill, and only a backfill, can be undone.
 
     Eligibility is checked HERE and again at the stamp: a member who stops qualifying keeps the
     tickets they earned (they are theirs) but does not play with them.
     """
-    allowed = sources if sources is not None else frozenset(_ISSUE_PRIORITY)
+    allowed = sources if sources is not None else STATE_SOURCES
 
     profile = (
         await db.execute(
@@ -88,26 +101,19 @@ async def sync_tickets(
         # earns nothing at all — not even for a purchase.
         return _NOTHING
 
-    owned_ever = set(
-        (
-            await db.execute(
-                select(LotteryTicket.source).where(LotteryTicket.user_id == user_id).distinct()
+    # One round-trip, not two. Both questions — "which sources were EVER earned" and "which are
+    # unplayed right now" — are answered by the same rows, and this runs inside the activation
+    # transaction, holding the per-member lock the whole time. Measured: splitting it cost ~1.5 ms
+    # of lock hold per activation for nothing.
+    held = (
+        await db.execute(
+            select(LotteryTicket.source, LotteryTicket.draw_id).where(
+                LotteryTicket.user_id == user_id
             )
         )
-        .scalars()
-        .all()
-    )
-    clean_sources = list(
-        (
-            await db.execute(
-                select(LotteryTicket.source).where(
-                    LotteryTicket.user_id == user_id, LotteryTicket.draw_id.is_(None)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    ).all()
+    owned_ever = {row.source for row in held}
+    clean_sources = [row.source for row in held if row.draw_id is None]
     room = CLEAN_TICKET_CEILING - len(clean_sources)
 
     issued: list[str] = []

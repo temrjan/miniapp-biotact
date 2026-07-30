@@ -11,6 +11,7 @@ import {
   ActivationStats,
   ActivationTrendChart,
   MembersStats,
+  TicketsStats,
   RegistrationFunnel,
   PointsEconomy,
   DemographicsBreakdown,
@@ -84,6 +85,9 @@ export const LoyaltyPage = () => {
 
       {/* Block 3 — Registration funnel */}
       <RegistrationFunnel funnel={data.funnel} consentsEverGranted={data.consents_ever_granted} />
+
+      {/* Block 3b — Lottery tickets */}
+      <TicketsStats stats={data} />
 
       {/* Block 4 — Points economy */}
       <PointsEconomy stats={data} />
