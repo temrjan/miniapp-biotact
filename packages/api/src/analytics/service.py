@@ -443,9 +443,13 @@ async def get_loyalty_stats(db: AsyncSession, days: int = 30) -> LoyaltyStats:
         or 0
     )
     # The eligibility predicates of `loyalty.lottery` expressed in SQL, because an aggregate cannot
-    # call them row by row. The duplication is real and is bound by a test that seeds the full
-    # matrix and asserts this count agrees with the Python predicates — without it the two would
-    # drift the first time the rules change, and the detector would start lying.
+    # call them row by row.
+    #
+    # ⚠️ The duplication is real and NOTHING binds the two halves yet: the test that seeds the full
+    # matrix and asserts this count agrees with the Python predicates DOES NOT EXIST. Until it does,
+    # editing the rules in `lottery.py` silently makes this detector lie — and a lying detector is
+    # worse than no detector, because it keeps reading 0 while members go without their tickets.
+    # Debt owned by step 3 (plan §7), where these predicates are touched anyway.
     adult_sql = case(
         (CustomerProfile.age.is_not(None), CustomerProfile.age >= ADULT_AGE),
         else_=CustomerProfile.is_adult,
