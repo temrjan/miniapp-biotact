@@ -337,7 +337,16 @@ async def export_draw(db: AsyncSession, *, draw_id: int) -> ExportOutcome:
             LotteryTicket.draw_id == draw_id
         )
     )
-    rows = [(r.ticket_number, r.user_id, r.source) for r in result]
+    rows: list[tuple[int, int, str]] = []
+    for r in result:
+        if r.ticket_number is None:
+            # Stamped into this draw yet unnumbered. Unreachable while only ``commit_draw`` writes
+            # tickets, and load-bearing from the step where clean (unnumbered) tickets start to
+            # exist: it means the snapshot lost the very identifier the published hash is taken
+            # over. Same alarm as the hash mismatch below, and the same refusal — a list we cannot
+            # number is, from outside, indistinguishable from a faked one.
+            raise ConflictException(_SNAPSHOT_TAMPERED.format(period=draw.period))
+        rows.append((r.ticket_number, r.user_id, r.source))
 
     body = canonical_snapshot(rows)
     if sha256(body.encode("utf-8")).hexdigest() != draw.participant_hash:
