@@ -166,6 +166,15 @@ class LoyaltyStats(BaseModel):
     funnel: list[FunnelStep]
     consents_ever_granted: int
 
+    # Block 3b — Lottery tickets (Stage 5). The third field is a DETECTOR, not a statistic:
+    # a missed issuance does not raise anything and does not stop `tickets_total` from growing, so
+    # the only way to see it is to count the members who are owed a survey ticket and do not have
+    # one. It is expected to read exactly 0; any other value means issuance silently skipped
+    # someone, and it says so without anybody reading logs.
+    tickets_total: int
+    tickets_clean: int
+    eligible_without_survey_ticket: int
+
     # Block 4 — Points economy
     points_earned: int
     points_spent: int  # shown positive
