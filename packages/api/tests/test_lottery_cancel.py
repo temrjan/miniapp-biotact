@@ -213,12 +213,6 @@ async def test_cancel_and_winners_at_the_same_moment_leave_one_consistent_state(
     """
     draw_id, _ = await _frozen_draw(maker)
 
-    blocker = maker()
-    await blocker.begin()
-    await blocker.execute(
-        text("SELECT id FROM lottery_tickets WHERE draw_id = :d FOR UPDATE"), {"d": draw_id}
-    )
-
     async def run(coro_factory) -> Exception | None:
         async with maker() as s:
             try:
@@ -227,16 +221,28 @@ async def test_cancel_and_winners_at_the_same_moment_leave_one_consistent_state(
                 return exc
         return None
 
-    cancelling = asyncio.create_task(run(lambda s: cancel_draw(s, draw_id=draw_id)))
-    recording = asyncio.create_task(
-        run(lambda s: record_winners(s, draw_id=draw_id, winning_numbers=[1]))
-    )
-    await asyncio.sleep(0.2)
-    assert not cancelling.done(), "the cancel must be waiting on the locked rows"
-    assert not recording.done(), "the winners call must be waiting on the same rows"
+    blocker = maker()
+    cancelling: asyncio.Task[Exception | None] | None = None
+    recording: asyncio.Task[Exception | None] | None = None
+    try:
+        await blocker.begin()
+        await blocker.execute(
+            text("SELECT id FROM lottery_tickets WHERE draw_id = :d FOR UPDATE"), {"d": draw_id}
+        )
 
-    await blocker.rollback()
-    await blocker.close()
+        cancelling = asyncio.create_task(run(lambda s: cancel_draw(s, draw_id=draw_id)))
+        recording = asyncio.create_task(
+            run(lambda s: record_winners(s, draw_id=draw_id, winning_numbers=[1]))
+        )
+        await asyncio.sleep(0.2)
+        both_waiting = not cancelling.done() and not recording.done()
+    finally:
+        # Always release the blocker: it holds row locks, and leaking them turns a failing
+        # assertion into a hung suite — the fixture's ``drop_all`` would wait forever.
+        await blocker.rollback()
+        await blocker.close()
+
+    assert both_waiting, "both calls must be waiting on the same locked rows"
 
     failures = [
         result

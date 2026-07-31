@@ -336,13 +336,6 @@ async def test_the_loser_of_a_concurrent_freeze_is_told_which_draw_is_live(
     """
     await _member_with_tickets(maker, 8_410_001)
 
-    winner_session = maker()
-    await winner_session.begin()
-    winner_session.add(
-        LotteryDraw(period=None, status=LotteryDrawStatus.COMMITTED.value, total_tickets=0)
-    )
-    await winner_session.flush()
-
     async def loser() -> ConflictException | None:
         async with maker() as s:
             try:
@@ -351,14 +344,31 @@ async def test_the_loser_of_a_concurrent_freeze_is_told_which_draw_is_live(
                 return exc
         return None
 
-    task = asyncio.create_task(loser())
-    await asyncio.sleep(0.2)  # let the loser reach its INSERT and block there
-    assert not task.done(), "the loser must be waiting on the unique index, not racing past it"
+    winner_session = maker()
+    task: asyncio.Task[ConflictException | None] | None = None
+    try:
+        await winner_session.begin()
+        winner_session.add(
+            LotteryDraw(period=None, status=LotteryDrawStatus.COMMITTED.value, total_tickets=0)
+        )
+        await winner_session.flush()
 
-    await winner_session.commit()
-    await winner_session.close()
+        task = asyncio.create_task(loser())
+        await asyncio.sleep(0.2)  # let the loser reach its INSERT and block there
+        blocked = not task.done()
+        await winner_session.commit()
+        failure = await asyncio.wait_for(task, timeout=5)
+    finally:
+        # The winner's transaction MUST be released even when an assertion above fails: it holds an
+        # index entry, and a leaked one turns a failing test into a hung suite — the fixture's
+        # ``drop_all`` waits for a lock nobody will free. Learned the hard way during the mutation
+        # run: M1 did not redden, it hanged.
+        await winner_session.rollback()
+        await winner_session.close()
+        if task is not None and not task.done():
+            task.cancel()
 
-    failure = await asyncio.wait_for(task, timeout=5)
+    assert blocked, "the loser must wait on the unique index, not race past it"
     assert failure is not None
     assert "№1" in str(failure.detail)
 
