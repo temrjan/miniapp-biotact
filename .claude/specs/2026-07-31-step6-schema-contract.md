@@ -21,7 +21,13 @@
 | `draw_label()` | строил ярлык «№3» для поля `period` в ответе |
 | поле `period` в ответе мини-аппа (2 места) | держалось ради незагрузившихся бандлов |
 
-Добавляется ровно одно: `draw_number` → `NOT NULL`, и `draw_number` в ответе мини-аппа вместо ярлыка.
+Добавляется ровно одно: `draw_number` в ответе мини-аппа вместо ярлыка.
+
+🔴 **`draw_number` → `NOT NULL` из плана §6.2 исполнять НЕЧЕГО — колонка уже NOT NULL.** Проверено на
+parity-БД: `pg_attribute.attnotnull` для `draw_number` = `t`. Шаг 1 добавил её `nullable=False`
+вместе с `Identity` (Ревьюер ратифицировал это на его Гейте-1), отклонившись от §6.2 плана,
+написанного раньше. Пункт вычеркнут, а не «выполнен»: миграция с операцией, ничего не меняющей, —
+это ложь в истории ревизий.
 
 ## 2. Решения — на ратификацию
 
@@ -65,41 +71,58 @@
 
 ```python
 op.drop_column("lottery_draws", "period")          # UNIQUE уезжает вместе с колонкой
-op.alter_column("lottery_draws", "draw_number", existing_type=sa.Integer(), nullable=False)
 op.alter_column("lottery_draws", "status", existing_type=sa.String(16), server_default=None)
 ```
 
-`downgrade` — обратные три. ⚠️ **Значения `period` не восстанавливаются**: на проде они уже `NULL`
+Две операции, не три: `draw_number` трогать нечего (см. выше).
+
+`downgrade` — обратные две. ⚠️ **Значения `period` не восстанавливаются**: на проде они уже `NULL`
 у всех тиражей новой модели, а у старых их не существовало никогда (таблица была пуста). Колонка
 возвращается nullable и пустой; это записывается в докстринг миграции, а не подразумевается.
 
 ⚠️ `DROP COLUMN` — каталоговая операция, но `ACCESS EXCLUSIVE`: на таблице из единиц строк
 мгновенна.
 
+⚠️ **Откат глубже одной ревизии на непустой таблице не пройдёт.** CI гоняет не `downgrade -1`, а
+`alembic downgrade base` → `upgrade head` (джоба `Migration parity`). Мой `downgrade` вернёт `period`
+**nullable**, а следующая вниз ревизия `a3c7d15e9b42` ставит ему `SET NOT NULL` — на пустой БД (CI)
+это проходит, на проде с тиражами упадёт. Ограничение записывается в докстринг миграции.
+
 ## 4. Релиз-чек-лист (перед мержем, на проде)
 
 ```sql
-SELECT count(*) FROM lottery_draws WHERE draw_number IS NULL;  -- ожидание: 0
 SELECT count(*) FROM lottery_draws WHERE status = 'open';      -- ожидание: 0
 SELECT count(*) FROM lottery_draws;                            -- для протокола
+SELECT count(*) FROM lottery_tickets WHERE draw_id IS NOT NULL; -- для протокола
 ```
 
-Первый — условие `SET NOT NULL`: между шагом 1 и шагом 3 старая кнопка могла создать розыгрыш без
-номера. **Любой ненулевой ответ в первых двух строках = стоп**, миграция пересматривается
-(бэкфилл значений из последовательности до установки `NOT NULL`).
+Строки про `draw_number IS NULL` здесь НЕТ, хотя план её требовал: колонка уже `NOT NULL`, и такой
+запрос вернёт 0 при любом состоянии данных. Гейт, который не может сработать, хуже отсутствующего —
+он создаёт ощущение проверки.
+
+**Ненулевой ответ в первой строке = стоп:** статус `open` не пишет ни один живой путь, и его
+появление означает, что в базу писал кто-то помимо кода.
 
 ## 5. Файлы
 
 ```
 packages/api/alembic/versions/<new>.py            новая ревизия
-packages/api/src/loyalty/models.py                колонка, статус OPEN, умолчания, докстринги
+packages/api/src/loyalty/models.py                колонка, статус OPEN, умолчания, докстринги,
+                                                  __repr__ (печатает period — после DROP это
+                                                  AttributeError в логе и отладчике)
 packages/api/src/loyalty/lottery.py               period_of, committable_periods, draw_label,
                                                   MyTicketsOutcome.period → draw_number,
                                                   DrawResult.period → draw_number
 packages/api/src/loyalty/schemas.py               DrawPeriod, period в двух ответах
 packages/api/src/loyalty/router.py                проброс
 packages/api/tests/test_lottery_legacy_period.py  удаляется целиком вместе с функциями
-packages/api/tests/*                              period → draw_number в фикстурах и ассертах
+packages/api/tests/test_lottery_my_tickets.py     инвариант I1 переносится на draw_number ДОСЛОВНО
+                                                  (строки 156, 179, 197) — не ослабляя связь
+packages/api/tests/test_lottery_freeze.py         фикстуры
+packages/api/tests/test_lottery_schema_expand.py  фикстуры
+packages/api/tests/test_detector_agreement.py     фикстуры
+packages/api/tests/test_ticket_issuance.py        фикстуры
+packages/api/tests/test_ticket_backfill.py        фикстуры
 packages/frontend/src/api/loyalty.ts              DTO + маппинг
 packages/frontend/src/types/index.ts              period → drawNumber
 packages/frontend/src/components/features/TicketsCard.tsx   две подстановки
