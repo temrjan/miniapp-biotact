@@ -213,6 +213,9 @@ describe('loyaltyApi.getMyTickets', () => {
         prize_rank: 3,
         prize_label: 'Аэрогриль',
       },
+      numbers: [7, 12],
+      clean_tickets: 1,
+      not_playing_reason: 'survey',
     });
 
     const result = await loyaltyApi.getMyTickets();
@@ -229,6 +232,9 @@ describe('loyaltyApi.getMyTickets', () => {
         prizeRank: 3,
         prizeLabel: 'Аэрогриль',
       },
+      numbers: [7, 12],
+      cleanTickets: 1,
+      notPlayingReason: 'survey',
     });
   });
 
@@ -236,17 +242,23 @@ describe('loyaltyApi.getMyTickets', () => {
     getMock.mockResolvedValue({
       tickets: 2,
       is_frozen: true,
-      period: '2026-07',
+      period: '№3',
       prize_label: 'Аэрогриль',
       result: null,
+      numbers: [7, 12],
+      clean_tickets: 0,
+      not_playing_reason: null,
     });
 
     expect(await loyaltyApi.getMyTickets()).toEqual({
       tickets: 2,
       isFrozen: true,
-      period: '2026-07',
+      period: '№3',
       prizeLabel: 'Аэрогриль',
       result: null,
+      numbers: [7, 12],
+      cleanTickets: 0,
+      notPlayingReason: null,
     });
   });
 
@@ -262,6 +274,11 @@ describe('loyaltyApi.getMyTickets', () => {
     expect(result.period).toBeNull();
     expect(result.prizeLabel).toBeNull();
     expect(result.result).toBeNull();
+    // The step-5 fields follow the same rule, and their defaults show LESS than the member has
+    // rather than something untrue: no numbers to check yet, nothing in hand, no reason to explain.
+    expect(result.numbers).toEqual([]);
+    expect(result.cleanTickets).toBe(0);
+    expect(result.notPlayingReason).toBeNull();
     expect(Object.values(result)).not.toContain(undefined);
   });
 });

@@ -791,11 +791,71 @@ class MyTicketsOutcome:
     period: str | None  # the draw label, see :func:`draw_label`
     prize_label: str | None
     result: DrawResult | None
+    # The member's own ticket numbers in the draw the card is showing — ascending, and present for a
+    # DRAWN draw too. The published list arrives after the draw, and finding yourself in it is the
+    # entire reason these numbers are shown at all.
+    numbers: tuple[int, ...]
+    # Tickets held right now and in no draw: what was earned after a freeze lands here too.
+    clean_tickets: int
+    # Why those held tickets will not play: "survey" | "age" | None. A code, not a sentence — the
+    # mini-app is bilingual and the language lives on the client.
+    not_playing_reason: str | None
+
+
+# Checked in this order: the survey is needed either way, so pointing at the 18+ box first would
+# send a member to fix the second thing while the first still blocks them.
+REASON_SURVEY = "survey"
+REASON_AGE = "age"
 
 
 _NO_TICKETS = MyTicketsOutcome(
-    tickets=0, is_frozen=False, period=None, prize_label=None, result=None
+    tickets=0,
+    is_frozen=False,
+    period=None,
+    prize_label=None,
+    result=None,
+    numbers=(),
+    clean_tickets=0,
+    not_playing_reason=None,
 )
+
+
+async def _own_numbers(db: AsyncSession, *, draw_id: int, user_id: int) -> tuple[int, ...]:
+    """This member's ticket numbers inside one draw, ascending.
+
+    Ascending because the member reads them against the published list, which is sorted that way;
+    any other order turns a check into a search. Scoped by ``user_id`` — the caller derives it from
+    the signed initData, so another member's numbers are unreachable rather than merely forbidden.
+    """
+    rows = (
+        await db.execute(
+            select(LotteryTicket.ticket_number)
+            .where(LotteryTicket.draw_id == draw_id, LotteryTicket.user_id == user_id)
+            .order_by(LotteryTicket.ticket_number)
+        )
+    ).scalars()
+    # ``ticket_number`` is nullable in the schema (a clean ticket has none), and a stamped row always
+    # carries one — the same UPDATE writes both. The guard is here for the type checker, not for a
+    # reachable state: unlike the export, a member's card has no artifact to defend, so a row that
+    # somehow lost its number is skipped rather than turned into an error on their screen.
+    return tuple(number for number in rows if number is not None)
+
+
+async def _not_playing_reason(db: AsyncSession, *, user_id: int) -> str | None:
+    """Which predicate keeps this member's held tickets out of the next draw, if any.
+
+    The same two functions issuance and the stamp call — a third formulation of the rules is what
+    this stage refuses to grow (step 3, P-3). Asked only when the member actually holds tickets:
+    "you have none" is a different conversation, and the card already has a line for it.
+    """
+    profile = (
+        await db.execute(select(CustomerProfile).where(CustomerProfile.user_id == user_id))
+    ).scalar_one_or_none()
+    if profile is None or not has_survey(profile):
+        return REASON_SURVEY
+    if not is_adult(profile):
+        return REASON_AGE
+    return None
 
 
 async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutcome:
@@ -839,24 +899,36 @@ async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutc
         )
     ).one_or_none()
 
-    if latest is not None and latest.status == LotteryDrawStatus.COMMITTED.value:
-        frozen = (
+    # Held right now and in no draw. Needed in every branch below, including the frozen one: a ticket
+    # earned a second after the freeze is real, clean, and until this step was invisible.
+    clean = int(
+        (
             await db.execute(
                 select(func.count())
                 .select_from(LotteryTicket)
-                .where(LotteryTicket.draw_id == latest.id, LotteryTicket.user_id == user.id)
+                .where(LotteryTicket.user_id == user.id, LotteryTicket.draw_id.is_(None))
             )
         ).scalar_one()
+    )
+    reason = await _not_playing_reason(db, user_id=user.id) if clean else None
+
+    if latest is not None and latest.status == LotteryDrawStatus.COMMITTED.value:
+        numbers = await _own_numbers(db, draw_id=latest.id, user_id=user.id)
         return MyTicketsOutcome(
-            tickets=int(frozen),
+            tickets=len(numbers),
             is_frozen=True,
             period=draw_label(latest.draw_number),
             prize_label=latest.prize_label,
             result=None,
+            numbers=numbers,
+            clean_tickets=clean,
+            not_playing_reason=reason,
         )
 
     result: DrawResult | None = None
+    numbers = ()
     if latest is not None and latest.status == LotteryDrawStatus.DRAWN.value:
+        numbers = await _own_numbers(db, draw_id=latest.id, user_id=user.id)
         rows = (
             await db.execute(
                 select(LotteryTicket.is_winner, LotteryTicket.prize_rank).where(
@@ -878,19 +950,15 @@ async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutc
                 prize_label=latest.prize_label,
             )
 
-    clean = (
-        await db.execute(
-            select(func.count())
-            .select_from(LotteryTicket)
-            .where(LotteryTicket.user_id == user.id, LotteryTicket.draw_id.is_(None))
-        )
-    ).scalar_one()
     return MyTicketsOutcome(
-        tickets=int(clean),
+        tickets=clean,
         is_frozen=False,
         period=None,
         prize_label=None,
         result=result,
+        numbers=numbers,
+        clean_tickets=clean,
+        not_playing_reason=reason,
     )
 
 

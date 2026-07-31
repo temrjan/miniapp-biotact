@@ -75,6 +75,9 @@ interface MyTicketsDto {
   period: string | null;
   prize_label: string | null;
   result: DrawResultDto | null;
+  numbers?: number[];
+  clean_tickets?: number;
+  not_playing_reason?: string | null;
 }
 
 /** ISO timestamp → Date, or null when absent or unparseable (never an Invalid Date downstream). */
@@ -123,6 +126,13 @@ export const loyaltyApi = {
       isFrozen: dto.is_frozen ?? false,
       period: dto.period ?? null,
       prizeLabel: dto.prize_label ?? null,
+      // Optional for the same deploy-window reason as the fields above: during a rollout the API
+      // may still be the previous one. The defaults show LESS than the member has, never something
+      // untrue — an empty list of numbers and a zero count read as "nothing to show yet", while a
+      // missing reason simply stays silent.
+      numbers: dto.numbers ?? [],
+      cleanTickets: dto.clean_tickets ?? 0,
+      notPlayingReason: dto.not_playing_reason ?? null,
       result:
         dto.result == null
           ? null
