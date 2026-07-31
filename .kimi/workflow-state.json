@@ -1,0 +1,20 @@
+{
+  "state": "coding",
+  "task": "Этап 5, шаг 4 — админка: страница проведения розыгрыша (miniapp-biotact)",
+  "fast": false,
+  "history": [
+    {
+      "from": "idle",
+      "to": "planning",
+      "at": "2026-07-31T12:00:00+05:00",
+      "gate": "спека шага 4 написана (.claude/specs/2026-07-31-step4-draw-admin-page.md, 1213ef7)"
+    },
+    {
+      "from": "planning",
+      "to": "coding",
+      "at": "2026-07-31T12:30:00+05:00",
+      "gate": "Гейт-1: Ревьюер APPROVED (Р-1..Р-6 ратифицированы) + 4 уточнения /check + go Капитана"
+    }
+  ],
+  "updated": "2026-07-31T12:30:00+05:00"
+}

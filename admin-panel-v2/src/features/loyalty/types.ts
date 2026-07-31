@@ -71,3 +71,85 @@ export interface LoyaltyStats {
   // Block 5 — Demographics
   demographics: Demographics
 }
+
+// --- Step 4: draw admin page (mirror of backend step-3/step-4 schemas) ---
+
+export type DrawStatus = 'open' | 'committed' | 'drawn' | 'cancelled'
+
+export interface DrawWinner {
+  ticket_number: number
+  prize_rank: number
+  user_id: number
+  first_name: string | null
+}
+
+/** Latest draw of ANY status — cancelled included (P-2). */
+export interface CurrentDraw {
+  draw_id: number
+  draw_number: number
+  status: DrawStatus
+  total_tickets: number
+  participant_hash: string | null
+  conducted_on: string | null
+  prize_label: string | null
+  committed_at: string | null
+  drawn_at: string | null
+  cancelled_at: string | null
+  winners: DrawWinner[]
+}
+
+/** GET /admin/lottery/current. `eligible_tickets` is the POST-FILTER count —
+ * the same number the freeze takes; `clean_tickets` counts every clean ticket. */
+export interface CurrentDrawResponse {
+  eligible_tickets: number
+  clean_tickets: number
+  draw: CurrentDraw | null
+}
+
+export interface PrintRow {
+  ticket_number: number
+  telegram_last4: string
+}
+
+/** GET /admin/lottery/{id}/print — 409 on a cancelled draw (its list is the export journal). */
+export interface PrintListResponse {
+  draw_number: number
+  conducted_on: string | null
+  total_tickets: number
+  rows: PrintRow[]
+}
+
+export interface CommitDrawRequest {
+  expected_tickets: number
+  prize_label?: string
+  conducted_on?: string
+}
+
+export interface CommitDrawResponse {
+  draw_id: number
+  draw_number: number
+  total_tickets: number
+  participant_hash: string
+  committed_at: string
+  conducted_on: string | null
+}
+
+export interface RecordWinnersResponse {
+  draw_id: number
+  draw_number: number
+  status: string
+  drawn_at: string
+  winners: DrawWinner[]
+}
+
+export interface CancelDrawResponse {
+  draw_id: number
+  draw_number: number
+  cancelled_at: string
+  released_tickets: number
+}
+
+export interface UpdateDrawResponse {
+  draw_number: number
+  conducted_on: string | null
+}

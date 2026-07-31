@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/shared/components/ui/button'
+import { Input } from '@/shared/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -19,6 +21,10 @@ interface ConfirmDialogProps {
   variant?: 'default' | 'destructive'
   onConfirm: () => void
   isLoading?: boolean
+  /** When set, the confirm button stays disabled until this exact value is typed.
+   * The standard guard for irreversible actions ("type the number to confirm") —
+   * without it the dialog behaves exactly as before. */
+  confirmValue?: string
 }
 
 export const ConfirmDialog = ({
@@ -31,7 +37,20 @@ export const ConfirmDialog = ({
   variant = 'default',
   onConfirm,
   isLoading = false,
+  confirmValue,
 }: ConfirmDialogProps) => {
+  const [typed, setTyped] = useState('')
+
+  // A stale half-typed value must not survive into the next opening of the dialog:
+  // the guard works only if the administrator reads the number every single time.
+  useEffect(() => {
+    if (!open) {
+      setTyped('')
+    }
+  }, [open])
+
+  const confirmBlocked = confirmValue !== undefined && typed.trim() !== confirmValue
+
   const handleConfirm = () => {
     onConfirm()
   }
@@ -48,6 +67,15 @@ export const ConfirmDialog = ({
           </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+        {confirmValue !== undefined && (
+          <Input
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            placeholder={confirmValue}
+            autoFocus
+            disabled={isLoading}
+          />
+        )}
         <DialogFooter>
           <Button
             variant="outline"
@@ -59,7 +87,7 @@ export const ConfirmDialog = ({
           <Button
             variant={variant}
             onClick={handleConfirm}
-            disabled={isLoading}
+            disabled={isLoading || confirmBlocked}
           >
             {isLoading ? 'Загрузка...' : confirmText}
           </Button>

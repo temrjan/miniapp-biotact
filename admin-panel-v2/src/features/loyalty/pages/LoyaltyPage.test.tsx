@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { LoyaltyPage } from './LoyaltyPage'
 import { loyaltyApi } from '../api/loyaltyApi'
@@ -35,7 +36,12 @@ const zeroStats: LoyaltyStats = {
 
 function renderWithClient(ui: ReactNode) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {/* The page links to /loyalty/draw since step 4 — Link requires a Router context. */}
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>
+  )
 }
 
 describe('LoyaltyPage', () => {
