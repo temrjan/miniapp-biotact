@@ -35,7 +35,8 @@ export function TicketsCard() {
 
   // `tickets` is deliberately NOT destructured: the legacy field still ships for bundles that have
   // not updated yet, but this card reads the two numbers it actually means — stamped and in hand.
-  const { isFrozen, period, prizeLabel, result, numbers, cleanTickets, notPlayingReason } = data;
+  const { isFrozen, drawNumber, prizeLabel, result, numbers, cleanTickets, notPlayingReason } =
+    data;
 
   const unit = (count: number) => t(`profile.tickets.unit.${pluralKey(count)}`);
 
@@ -51,7 +52,7 @@ export function TicketsCard() {
   // number that might shrink.
   const state =
     stamped > 0 && isFrozen
-      ? t('profile.tickets.frozen', { period: period ?? '' })
+      ? t('profile.tickets.frozen', { number: drawNumber ?? '' })
       : t('profile.tickets.prospective');
 
   return (
@@ -141,7 +142,7 @@ export function TicketsCard() {
               </p>
             )}
             <p className="text-xs text-[var(--text-muted)]">
-              {t('profile.tickets.resultPeriod', { period: result.period })}
+              {t('profile.tickets.resultDraw', { number: result.drawNumber })}
             </p>
           </div>
         )}

@@ -138,7 +138,7 @@ export interface LoyaltySummary {
 
 // How a finished draw ended for this member.
 export interface DrawResult {
-  period: string; // YYYY-MM that was drawn
+  drawNumber: number; // which draw ended — the «№» is the card's to write
   tickets: number; // how many tickets they held in THAT draw
   won: boolean;
   prizeRank: number | null; // best rank taken (1 = main prize); null when they did not win
@@ -153,7 +153,7 @@ export interface MyTickets {
   //         the 30-day activation window was removed with the old model, and a ticket now lives
   //         until a draw takes it.
   isFrozen: boolean;
-  period: string | null; // non-null exactly when isFrozen — the draw's label, "№3"
+  drawNumber: number | null; // non-null exactly when isFrozen
   prizeLabel: string | null; // non-null only for a frozen draw that declares a prize
   // How the PREVIOUS draw ended. Describes a different draw than the fields above: once a draw is
   // over, the top block already counts towards the next one.

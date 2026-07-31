@@ -24,7 +24,7 @@ const prospective: MyTickets = {
   ...base,
   tickets: 2,
   isFrozen: false,
-  period: null,
+  drawNumber: null,
   prizeLabel: null,
   result: null,
   cleanTickets: 2,
@@ -34,7 +34,7 @@ const frozen: MyTickets = {
   ...base,
   tickets: 2,
   isFrozen: true,
-  period: '№3',
+  drawNumber: 3,
   prizeLabel: 'Аэрогриль',
   result: null,
   numbers: [7, 12],
@@ -92,13 +92,13 @@ describe('TicketsCard', () => {
     expect(screen.queryByTestId('tickets-count')).not.toBeInTheDocument();
   });
 
-  it('reports a win from the finished draw alongside the next-period count', async () => {
+  it('reports a win from the finished draw alongside what is held for the next one', async () => {
     getMyTicketsMock.mockResolvedValue({
       ...prospective,
       tickets: 1,
       cleanTickets: 1,
       result: {
-        period: '2026-07',
+        drawNumber: 1,
         tickets: 2,
         won: true,
         prizeRank: 1,
@@ -121,7 +121,7 @@ describe('TicketsCard', () => {
     getMyTicketsMock.mockResolvedValue({
       ...prospective,
       result: {
-        period: '2026-07',
+        drawNumber: 1,
         tickets: 2,
         won: false,
         prizeRank: null,
@@ -140,7 +140,7 @@ describe('TicketsCard', () => {
     getMyTicketsMock.mockResolvedValue({
       ...prospective,
       result: {
-        period: '2026-07',
+        drawNumber: 1,
         tickets: 2,
         won: false,
         prizeRank: null,
@@ -183,10 +183,10 @@ describe('TicketsCard — step 5: numbers, tickets in hand, and why they will no
       ...base,
       tickets: 0,
       isFrozen: false,
-      period: null,
+      drawNumber: null,
       prizeLabel: null,
       numbers: [7, 12],
-      result: { period: '№3', tickets: 2, won: false, prizeRank: null, prizeLabel: null },
+      result: { drawNumber: 3, tickets: 2, won: false, prizeRank: null, prizeLabel: null },
     });
     renderCard(<TicketsCard />);
 
@@ -268,7 +268,7 @@ describe('TicketsCard — holding tickets while someone else’s draw is running
       ...base,
       tickets: 0,
       isFrozen: true,
-      period: '№3',
+      drawNumber: 3,
       prizeLabel: null,
       result: null,
       numbers: [],
@@ -289,7 +289,7 @@ describe('TicketsCard — holding tickets while someone else’s draw is running
       ...base,
       tickets: 0,
       isFrozen: true,
-      period: '№3',
+      drawNumber: 3,
       prizeLabel: null,
       result: null,
       numbers: [],

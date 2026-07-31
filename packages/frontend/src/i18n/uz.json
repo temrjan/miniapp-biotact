@@ -148,18 +148,18 @@
         "many": "chipta"
       },
       "prospective": "Eng yaqin o'yinda qatnashadi",
-      "frozen": "Siz {period} o'yinida qatnashyapsiz — ro'yxat qat'iylashtirildi",
+      "frozen": "Siz №{number} o'yinida qatnashyapsiz — ro'yxat qat'iylashtirildi",
       "howTo": "So'rovnomani to'ldiring va qadoqdagi kodni faollashtiring — chipta olasiz",
       "prize": "Sovrin: {prize}",
       "rank": "№{rank} sovrin",
       "won": "Siz yutdingiz!",
       "lost": "Bu safar omad kulib boqmadi",
-      "resultPeriod": "{period} o'yini",
       "numbers": "Sizning raqamlaringiz: {numbers}",
       "waiting": "Keyingi o'yinni kutmoqda: {count} {unit}",
       "blockedSurvey": "Chipta o'ynashi uchun so'rovnomani to'ldiring",
       "blockedAge": "Chipta o'ynashi uchun 18 yoshga to'lganingizni tasdiqlang",
-      "blockedOther": "Chipta hozircha o'yinda qatnashmaydi"
+      "blockedOther": "Chipta hozircha o'yinda qatnashmaydi",
+      "resultDraw": "№{number} o'yini"
     }
   },
   "activation": {
