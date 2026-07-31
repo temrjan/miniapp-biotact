@@ -13,6 +13,7 @@ transaction) - a second sessionmaker is used, as in ``test_lottery_commit.py``.
 
 from datetime import UTC, datetime
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -69,16 +70,10 @@ async def _seed_member(
         s.add(user)
         await s.flush()
         s.add(
-            CustomerProfile(
-                user_id=user.id, gender=gender, age=age, city=city, is_adult=is_adult
-            )
+            CustomerProfile(user_id=user.id, gender=gender, age=age, city=city, is_adult=is_adult)
         )
         for source in sources[:tickets]:
-            s.add(
-                LotteryTicket(
-                    user_id=user.id, draw_id=None, ticket_number=None, source=source
-                )
-            )
+            s.add(LotteryTicket(user_id=user.id, draw_id=None, ticket_number=None, source=source))
         return user.id
 
 
@@ -134,9 +129,7 @@ async def _give_clean_ticket(sm: async_sessionmaker[AsyncSession], user_id: int)
 async def _user_id(sm: async_sessionmaker[AsyncSession], telegram_id: int) -> int:
     async with sm() as s:
         return int(
-            (
-                await s.execute(select(User.id).where(User.telegram_id == telegram_id))
-            ).scalar_one()
+            (await s.execute(select(User.id).where(User.telegram_id == telegram_id))).scalar_one()
         )
 
 
@@ -410,8 +403,9 @@ async def test_a_cancelled_draw_is_skipped_in_favour_of_the_last_real_one(
     async with maker() as s:
         second = (
             await s.execute(
-                select(LotteryDraw.id)
-                .where(LotteryDraw.status == LotteryDrawStatus.COMMITTED.value)
+                select(LotteryDraw.id).where(
+                    LotteryDraw.status == LotteryDrawStatus.COMMITTED.value
+                )
             )
         ).scalar_one()
     async with maker() as s:
@@ -442,3 +436,152 @@ async def test_endpoint_requires_init_data(client, monkeypatch) -> None:
     _enable(monkeypatch)
     resp = await client.get(URL)
     assert resp.status_code == 401
+
+
+# --------------------------------------------------------------------------- #
+# Step 5: own numbers, tickets in hand, and the reason they will not play
+# --------------------------------------------------------------------------- #
+
+
+async def test_numbers_are_shown_while_the_draw_is_frozen(client, maker, monkeypatch) -> None:
+    """The member sees WHICH tickets are theirs, not only how many."""
+    _enable(monkeypatch)
+    await _seed_member(maker, 93001, tickets=2)
+    await _freeze(maker, expected=2)
+
+    body = (await client.get(URL, headers=_headers(93001))).json()
+
+    assert body["numbers"] == [1, 2]
+    assert body["tickets"] == 2, "the legacy field keeps meaning the stake in a frozen draw"
+    _assert_invariants(body)
+
+
+async def test_numbers_survive_the_draw_being_drawn(client, maker, monkeypatch) -> None:
+    """The whole point of showing numbers: the list is published AFTER the draw.
+
+    An earlier draft of this contract emptied `numbers` as soon as the draw was no longer frozen —
+    which is exactly when the member needs them to find themselves in the published list.
+    """
+    _enable(monkeypatch)
+    await _seed_member(maker, 93011, tickets=2)
+    await _freeze(maker, expected=2)
+    await _mark_drawn(maker, winner_number=1)
+
+    body = (await client.get(URL, headers=_headers(93011))).json()
+
+    assert body["is_frozen"] is False
+    assert body["numbers"] == [1, 2], "numbers must outlive the freeze"
+    assert body["result"] is not None
+
+
+async def test_a_member_never_sees_the_numbers_of_another(client, maker, monkeypatch) -> None:
+    """Self-scoped by the signed initData: the neighbour's numbers are unreachable, not forbidden."""
+    _enable(monkeypatch)
+    await _seed_member(maker, 93021, tickets=1)
+    await _seed_member(maker, 93022, tickets=1)
+    await _freeze(maker, expected=2)
+
+    first = (await client.get(URL, headers=_headers(93021))).json()
+    second = (await client.get(URL, headers=_headers(93022))).json()
+
+    assert first["numbers"] == [1]
+    assert second["numbers"] == [2]
+
+
+async def test_without_a_draw_there_are_no_numbers_but_there_are_tickets(
+    client, maker, monkeypatch
+) -> None:
+    """A clean ticket has no number — it is stamped at the freeze, and inventing one would promise
+    a number that the freeze will not honour."""
+    _enable(monkeypatch)
+    await _seed_member(maker, 93031, tickets=2)
+
+    body = (await client.get(URL, headers=_headers(93031))).json()
+
+    assert body["numbers"] == []
+    assert body["clean_tickets"] == 2
+    assert body["tickets"] == 2, "outside a frozen draw the legacy field counts what is in hand"
+
+
+async def test_a_ticket_earned_after_the_freeze_is_visible_at_last(
+    client, maker, monkeypatch
+) -> None:
+    """The gap step 3 left open on purpose: it existed, it was clean, and nothing rendered it."""
+    _enable(monkeypatch)
+    member = await _seed_member(maker, 93041, tickets=1)
+    await _freeze(maker, expected=1)
+    await _give_clean_ticket(maker, member)
+
+    body = (await client.get(URL, headers=_headers(93041))).json()
+
+    assert body["numbers"] == [1]
+    assert body["clean_tickets"] == 1, "the one earned after the freeze"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"city": None}, "survey"),
+        ({"gender": None}, "survey"),
+        ({"age": 15, "is_adult": True}, "age"),
+        ({"age": None, "is_adult": False}, "age"),
+        ({}, None),
+    ],
+)
+async def test_the_reason_names_the_predicate_that_blocks(
+    client, maker, monkeypatch, kwargs: dict, expected: str | None
+) -> None:
+    """The ratified condition: a ticket that will not play says WHY, by the failing predicate."""
+    _enable(monkeypatch)
+    await _seed_member(maker, 93051, tickets=1, **kwargs)
+
+    body = (await client.get(URL, headers=_headers(93051))).json()
+
+    assert body["not_playing_reason"] == expected
+
+
+async def test_the_survey_is_named_before_the_age(client, maker, monkeypatch) -> None:
+    """Both predicates fail → point at the survey: it is needed either way.
+
+    Naming 18+ first would send the member to tick a box while the survey still blocks them.
+    """
+    _enable(monkeypatch)
+    await _seed_member(maker, 93061, tickets=1, city=None, age=15, is_adult=True)
+
+    body = (await client.get(URL, headers=_headers(93061))).json()
+
+    assert body["not_playing_reason"] == "survey"
+
+
+async def test_no_tickets_means_no_reason(client, maker, monkeypatch) -> None:
+    """ "You have none" is a different conversation, and the card already has a line for it."""
+    _enable(monkeypatch)
+    await _seed_member(maker, 93071, tickets=0, city=None)
+
+    body = (await client.get(URL, headers=_headers(93071))).json()
+
+    assert body["clean_tickets"] == 0
+    assert body["not_playing_reason"] is None
+
+
+async def test_the_reason_is_reported_while_a_draw_is_frozen_too(
+    client, maker, monkeypatch
+) -> None:
+    """A member who stopped qualifying after the freeze must not read "+1 waits for the next draw".
+
+    It would be a lie: without the survey that ticket will not play in the next one either.
+    """
+    _enable(monkeypatch)
+    member = await _seed_member(maker, 93081, tickets=1)
+    await _freeze(maker, expected=1)
+    await _give_clean_ticket(maker, member)
+    async with maker() as s, s.begin():
+        await s.execute(
+            update(CustomerProfile).where(CustomerProfile.user_id == member).values(city=None)
+        )
+
+    body = (await client.get(URL, headers=_headers(93081))).json()
+
+    assert body["numbers"] == [1], "what is already stamped still plays"
+    assert body["clean_tickets"] == 1
+    assert body["not_playing_reason"] == "survey"

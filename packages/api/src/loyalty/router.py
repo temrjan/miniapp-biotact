@@ -212,6 +212,9 @@ async def get_my_tickets(
         is_frozen=outcome.is_frozen,
         period=outcome.period,
         prize_label=outcome.prize_label,
+        numbers=list(outcome.numbers),
+        clean_tickets=outcome.clean_tickets,
+        not_playing_reason=outcome.not_playing_reason,
         result=(
             None
             if outcome.result is None

@@ -380,3 +380,29 @@ class MyTicketsResponse(BaseModel):
     result: DrawResultResponse | None = Field(
         description="Present only once the latest draw has been drawn"
     )
+    numbers: list[int] = Field(
+        default_factory=list,
+        description=(
+            "The member's own ticket numbers in the draw this response describes, ascending. "
+            "Present for a DRAWN draw too: the published list arrives after the draw, and these "
+            "numbers are how a member finds themselves in it. Empty when there is no draw, or when "
+            "they held no ticket in it."
+        ),
+    )
+    clean_tickets: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Tickets held right now and in no draw — including any earned after the freeze. "
+            "`tickets` above stays what it always was: the stake in a frozen draw, this number "
+            "otherwise."
+        ),
+    )
+    not_playing_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why the held tickets will not play: 'survey' | 'age'; null when they will. A CODE, "
+            "not a sentence — the mini-app is bilingual and the language lives on the client. Null "
+            "when the member holds no tickets at all: that is a different conversation."
+        ),
+    )
