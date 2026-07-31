@@ -15,6 +15,10 @@ from src.loyalty.schemas import (
     CancelDrawResponse,
     CommitDrawRequest,
     CommitDrawResponse,
+    CurrentDrawInfo,
+    CurrentDrawResponse,
+    PrintListResponse,
+    PrintRowResponse,
     RecordWinnersRequest,
     RecordWinnersResponse,
     UpdateDrawRequest,
@@ -23,6 +27,93 @@ from src.loyalty.schemas import (
 )
 
 router = APIRouter()
+
+
+@router.get(
+    "/current",
+    response_model=CurrentDrawResponse,
+    dependencies=[Depends(require_loyalty_enabled), Depends(require_admin)],
+)
+async def get_current_draw(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CurrentDrawResponse:
+    """The draw page's single read: the post-filter number to confirm, plus the latest draw.
+
+    ``eligible_tickets`` is computed by the very function the freeze stamps — so the number the
+    administrator types and the number the freeze takes are the same number by construction, not by
+    discipline. ``clean_tickets`` counts every clean ticket, including owners who would fail the
+    re-check; the page shows both so the difference is visible rather than mysterious.
+
+    The draw is the latest BY NUMBER, of ANY status — cancelled included. The member card skips
+    cancelled draws; the administrator must publish the cancellation and needs its object for that
+    post.
+
+    Guarded by :func:`~src.auth.dependencies.require_admin`, like the rest of this router.
+    """
+    outcome = await lottery.get_current_draw(db)
+    return CurrentDrawResponse(
+        eligible_tickets=outcome.eligible_tickets,
+        clean_tickets=outcome.clean_tickets,
+        draw=_draw_info_response(outcome.draw),
+        last_drawn=_draw_info_response(outcome.last_drawn),
+    )
+
+
+def _draw_info_response(draw: lottery.CurrentDrawInfo | None) -> CurrentDrawInfo | None:
+    """Map a service-level draw info to its response model; None passes through."""
+    if draw is None:
+        return None
+    return CurrentDrawInfo(
+        draw_id=draw.draw_id,
+        draw_number=draw.draw_number,
+        status=draw.status,
+        total_tickets=draw.total_tickets,
+        participant_hash=draw.participant_hash,
+        conducted_on=draw.conducted_on,
+        prize_label=draw.prize_label,
+        committed_at=draw.committed_at,
+        drawn_at=draw.drawn_at,
+        cancelled_at=draw.cancelled_at,
+        winners=[
+            WinnerRowResponse(
+                ticket_number=w.ticket_number,
+                prize_rank=w.prize_rank,
+                user_id=w.user_id,
+                first_name=w.first_name,
+            )
+            for w in draw.winners
+        ],
+    )
+
+
+@router.get(
+    "/{draw_id}/print",
+    response_model=PrintListResponse,
+    dependencies=[Depends(require_loyalty_enabled), Depends(require_admin)],
+)
+async def get_print_list(
+    draw_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PrintListResponse:
+    """The printed list of a draw: numbers ascending, each with the owner's last four digits.
+
+    The four digits are computed on the server, zero-padded — ``0042`` and ``42`` are the same
+    column a member finds themselves by, and the padding is what keeps them looking like one. The
+    full ``telegram_id`` never leaves this endpoint.
+
+    404 — no such draw. 409 — the draw is cancelled: its stamps are released and the list would
+    print empty, which reads as tampering; the journal on the export endpoint is its list.
+    """
+    outcome = await lottery.get_print_list(db, draw_id=draw_id)
+    return PrintListResponse(
+        draw_number=outcome.draw_number,
+        conducted_on=outcome.conducted_on,
+        total_tickets=outcome.total_tickets,
+        rows=[
+            PrintRowResponse(ticket_number=r.ticket_number, telegram_last4=r.telegram_last4)
+            for r in outcome.rows
+        ],
+    )
 
 
 @router.post(

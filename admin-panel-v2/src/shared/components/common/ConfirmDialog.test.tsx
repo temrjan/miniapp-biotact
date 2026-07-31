@@ -64,4 +64,51 @@ describe('ConfirmDialog', () => {
     render(<ConfirmDialog {...defaultProps} open={false} />);
     expect(screen.queryByText('Удалить товар?')).not.toBeInTheDocument();
   });
+
+  // Гейт-1, уточнение 2: поведение БЕЗ confirmValue закреплено тестом — поля нет, кнопка активна.
+  it('without confirmValue renders no input and an enabled confirm button', () => {
+    render(<ConfirmDialog {...defaultProps} />);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Подтвердить' })).toBeEnabled();
+  });
+
+  it('with confirmValue keeps confirm disabled until the exact value is typed', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(<ConfirmDialog {...defaultProps} confirmValue="7" onConfirm={onConfirm} />);
+
+    const confirm = screen.getByRole('button', { name: 'Подтвердить' });
+    expect(confirm).toBeDisabled();
+
+    await user.type(screen.getByRole('textbox'), '3');
+    expect(confirm).toBeDisabled();
+
+    await user.clear(screen.getByRole('textbox'));
+    await user.type(screen.getByRole('textbox'), '7');
+    expect(confirm).toBeEnabled();
+
+    await user.click(confirm);
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
+  it('with confirmValue accepts the value with surrounding whitespace', async () => {
+    const user = userEvent.setup();
+    render(<ConfirmDialog {...defaultProps} confirmValue="7" />);
+
+    await user.type(screen.getByRole('textbox'), '  7 ');
+    expect(screen.getByRole('button', { name: 'Подтвердить' })).toBeEnabled();
+  });
+
+  it('with confirmValue resets the input when reopened', async () => {
+    const { rerender } = render(<ConfirmDialog {...defaultProps} confirmValue="7" open={false} />);
+    rerender(<ConfirmDialog {...defaultProps} confirmValue="7" open />);
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('textbox'), '7');
+    rerender(<ConfirmDialog {...defaultProps} confirmValue="7" open={false} />);
+    rerender(<ConfirmDialog {...defaultProps} confirmValue="7" open />);
+
+    expect(screen.getByRole('textbox')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Подтвердить' })).toBeDisabled();
+  });
 });

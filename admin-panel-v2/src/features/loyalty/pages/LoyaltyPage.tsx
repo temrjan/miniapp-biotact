@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Select,
   SelectContent,
@@ -6,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/shared/components/ui/select'
+import { Button } from '@/shared/components/ui/button'
 import { useLoyaltyStats } from '../hooks/useLoyalty'
 import {
   ActivationStats,
@@ -62,18 +64,23 @@ export const LoyaltyPage = () => {
           <h1 className="text-3xl font-bold">Biotact Club</h1>
           <p className="text-muted-foreground mt-1">Мониторинг программы лояльности</p>
         </div>
-        <Select value={days.toString()} onValueChange={(value) => setDays(Number(value))}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PERIOD_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" asChild>
+            <Link to="/loyalty/draw">Провести розыгрыш</Link>
+          </Button>
+          <Select value={days.toString()} onValueChange={(value) => setDays(Number(value))}>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PERIOD_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Block 1 — QR activations (hero) */}

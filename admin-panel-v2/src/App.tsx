@@ -25,6 +25,8 @@ const SettingsPage = lazy(() => import('./features/settings/pages/SettingsPage')
 const CustomersPage = lazy(() => import('./features/customers/pages/CustomersPage').then(m => ({ default: m.CustomersPage })))
 const BroadcastsPage = lazy(() => import('./features/broadcasts/pages/BroadcastsPage').then(m => ({ default: m.BroadcastsPage })))
 const LoyaltyPage = lazy(() => import('./features/loyalty/pages/LoyaltyPage').then(m => ({ default: m.LoyaltyPage })))
+const DrawPage = lazy(() => import('./features/loyalty/pages/DrawPage').then(m => ({ default: m.DrawPage })))
+const DrawPrintPage = lazy(() => import('./features/loyalty/pages/DrawPrintPage').then(m => ({ default: m.DrawPrintPage })))
 
 function App() {
   return (
@@ -197,6 +199,26 @@ function App() {
                       <MainLayout>
                         <LoyaltyPage />
                       </MainLayout>
+                    </PrivateRoute>
+                  }
+                />
+
+                <Route
+                  path='/loyalty/draw'
+                  element={
+                    <PrivateRoute>
+                      <MainLayout>
+                        <DrawPage />
+                      </MainLayout>
+                    </PrivateRoute>
+                  }
+                />
+
+                <Route
+                  path='/loyalty/draw/print/:drawId'
+                  element={
+                    <PrivateRoute>
+                      <DrawPrintPage />
                     </PrivateRoute>
                   }
                 />
