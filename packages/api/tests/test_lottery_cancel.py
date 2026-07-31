@@ -10,7 +10,7 @@ from hashlib import sha256
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.common.exceptions import ConflictException, NotFoundException
@@ -267,6 +267,67 @@ async def test_cancel_and_winners_at_the_same_moment_leave_one_consistent_state(
         assert all(t.draw_id == draw_id and t.ticket_number is not None for t in tickets)
         assert sum(1 for t in tickets if t.is_winner) == 1
         assert draw.cancelled_snapshot is None
+
+
+async def test_a_draw_that_became_drawn_mid_cancel_is_not_cancelled_anyway(
+    test_db: AsyncSession, maker
+) -> None:
+    """The pre-check is a diagnosis; THIS is the serializer, and it is proven deterministically.
+
+    The interleaving is constructed rather than raced for: the cancel is let past its pre-check —
+    the draw is committed at that moment — and then held on the ticket rows while a third session
+    marks the draw ``drawn``. When the cancel wakes up, only the condition on its final UPDATE can
+    still stop it. Without that condition the draw ends up cancelled after being drawn, and the
+    tickets of a finished draw are released.
+
+    Written this way because the honest race test beside it passes whenever the cancel happens to
+    win, which is most of the time — a guard that is only exercised on the unlucky ordering is a
+    guard nothing proves.
+    """
+    draw_id, _ = await _frozen_draw(maker)
+
+    blocker = maker()
+    task: asyncio.Task[Exception | None] | None = None
+    try:
+        await blocker.begin()
+        await blocker.execute(
+            text("SELECT id FROM lottery_tickets WHERE draw_id = :d FOR UPDATE"), {"d": draw_id}
+        )
+
+        async def cancelling() -> Exception | None:
+            async with maker() as s:
+                try:
+                    await cancel_draw(s, draw_id=draw_id)
+                except Exception as exc:  # the type is asserted below
+                    return exc
+            return None
+
+        task = asyncio.create_task(cancelling())
+        await asyncio.sleep(0.2)  # past the pre-check, now waiting on the tickets
+        started_and_waiting = not task.done()
+
+        async with maker() as s, s.begin():
+            await s.execute(
+                update(LotteryDraw)
+                .where(LotteryDraw.id == draw_id)
+                .values(status=LotteryDrawStatus.DRAWN.value)
+            )
+
+        await blocker.rollback()
+        failure = await asyncio.wait_for(task, timeout=5)
+    finally:
+        await blocker.rollback()
+        await blocker.close()
+        if task is not None and not task.done():
+            task.cancel()
+
+    assert started_and_waiting, "the cancel must reach the tickets and wait there"
+    assert isinstance(failure, ConflictException), f"expected a refusal, got {failure!r}"
+
+    draw = await _draw_row(maker, draw_id)
+    assert draw.status == LotteryDrawStatus.DRAWN.value, "a drawn draw must not end up cancelled"
+    assert draw.cancelled_snapshot is None
+    assert await _clean_count(maker) == 0, "the stamps of a drawn draw must not be released"
 
 
 # --------------------------------------------------------------------------- #
