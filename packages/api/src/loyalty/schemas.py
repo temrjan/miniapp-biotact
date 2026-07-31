@@ -276,6 +276,57 @@ class RecordWinnersResponse(BaseModel):
     winners: list[WinnerRowResponse]
 
 
+class CurrentDrawInfo(BaseModel):
+    """The latest draw as the admin page shows it, of ANY status — cancelled included (P-2)."""
+
+    draw_id: int
+    draw_number: int
+    status: str
+    total_tickets: int
+    participant_hash: str | None
+    conducted_on: date | None
+    prize_label: str | None
+    committed_at: datetime | None
+    drawn_at: datetime | None
+    cancelled_at: datetime | None
+    winners: list[WinnerRowResponse]
+
+
+class CurrentDrawResponse(BaseModel):
+    """Body of ``GET /admin/lottery/current`` — the draw page's single read.
+
+    ``eligible_tickets`` is the POST-FILTER count — the same function the freeze stamps, so the
+    number the administrator confirms and the number the freeze takes cannot disagree by
+    construction. ``clean_tickets`` counts every clean ticket, including owners who no longer
+    qualify; the page shows both so the difference is visible.
+    """
+
+    eligible_tickets: int
+    clean_tickets: int
+    draw: CurrentDrawInfo | None
+
+
+class PrintRowResponse(BaseModel):
+    """One line of the printed list. ``telegram_last4`` is zero-padded — ``0042``, not ``42``."""
+
+    ticket_number: int
+    telegram_last4: str = Field(min_length=4, max_length=4)
+
+
+class PrintListResponse(BaseModel):
+    """Body of ``GET /admin/lottery/{draw_id}/print`` — the printed list, numbers ascending.
+
+    The full ``telegram_id`` never appears here: the four digits are a projection computed on the
+    server. ``total_tickets`` is repeated outside the rows because it sets the range of the draw
+    itself — the reason the list exists.
+    """
+
+    draw_number: int
+    conducted_on: date | None
+    total_tickets: int
+    rows: list[PrintRowResponse]
+
+
 class DrawResultResponse(BaseModel):
     """How the previous draw ended for this member (``GET /loyalty/my-tickets``)."""
 

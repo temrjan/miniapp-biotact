@@ -551,6 +551,175 @@ async def export_draw(db: AsyncSession, *, draw_id: int) -> ExportOutcome:
 
 
 @dataclass(frozen=True)
+class CurrentDrawInfo:
+    """The latest draw as the admin page shows it — primitives only, safe after the session ends."""
+
+    draw_id: int
+    draw_number: int
+    status: str
+    total_tickets: int
+    participant_hash: str | None
+    conducted_on: date | None
+    prize_label: str | None
+    committed_at: datetime | None
+    drawn_at: datetime | None
+    cancelled_at: datetime | None
+    winners: tuple["WinnerRow", ...]  # WinnerRow is defined further down this module
+
+
+@dataclass(frozen=True)
+class CurrentOutcome:
+    """What the draw page stands on: the number to confirm, and the draw to act on."""
+
+    eligible_tickets: int
+    clean_tickets: int
+    draw: CurrentDrawInfo | None
+
+
+async def get_current_draw(db: AsyncSession) -> CurrentOutcome:
+    """The draw page's single read: the post-filter count plus the LATEST draw of any status.
+
+    ``eligible_tickets`` comes from :func:`eligible_clean_tickets` itself — the very function the
+    freeze stamps — so the number the administrator types and the number the freeze takes cannot
+    disagree by construction. ``clean_tickets`` is every clean ticket including the ones whose owner
+    no longer qualifies; shown next to the eligible count so the difference is visible rather than
+    mysterious (P-3).
+
+    The draw is the latest BY NUMBER, of ANY status — including cancelled (P-2). The member card
+    skips cancelled draws because it has nothing to say about them; the administrator, on the
+    contrary, must publish the cancellation the moment it happens, and needs the cancelled draw's
+    number and hash for exactly that post. Winners are read from the ticket rows, not remembered
+    from a mutation response: the page must survive a reload.
+    """
+    eligible = await eligible_clean_tickets(db)
+    clean = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(LotteryTicket)
+                .where(LotteryTicket.draw_id.is_(None))
+            )
+        ).scalar_one()
+    )
+
+    latest = (
+        await db.execute(select(LotteryDraw).order_by(LotteryDraw.draw_number.desc()).limit(1))
+    ).scalar_one_or_none()
+
+    info: CurrentDrawInfo | None = None
+    if latest is not None:
+        winners: tuple[WinnerRow, ...] = ()
+        if latest.status == LotteryDrawStatus.DRAWN.value:
+            rows = (
+                await db.execute(
+                    select(
+                        LotteryTicket.ticket_number,
+                        LotteryTicket.prize_rank,
+                        User.id,
+                        User.first_name,
+                    )
+                    .join(User, User.id == LotteryTicket.user_id)
+                    .where(LotteryTicket.draw_id == latest.id, LotteryTicket.is_winner.is_(True))
+                    .order_by(LotteryTicket.prize_rank)
+                )
+            ).all()
+            winners = tuple(
+                WinnerRow(
+                    ticket_number=r.ticket_number,
+                    prize_rank=r.prize_rank,
+                    user_id=r.id,
+                    first_name=r.first_name,
+                )
+                for r in rows
+            )
+        info = CurrentDrawInfo(
+            draw_id=latest.id,
+            draw_number=latest.draw_number,
+            status=latest.status,
+            total_tickets=latest.total_tickets,
+            participant_hash=latest.participant_hash,
+            conducted_on=latest.conducted_on,
+            prize_label=latest.prize_label,
+            committed_at=latest.committed_at,
+            drawn_at=latest.drawn_at,
+            cancelled_at=latest.cancelled_at,
+            winners=winners,
+        )
+
+    return CurrentOutcome(eligible_tickets=len(eligible), clean_tickets=clean, draw=info)
+
+
+@dataclass(frozen=True)
+class PrintRow:
+    """One line of the printed list: the number a member reads, the four digits they find themselves by."""
+
+    ticket_number: int
+    telegram_last4: str
+
+
+@dataclass(frozen=True)
+class PrintListOutcome:
+    """The print page's data — primitives only, safe after the session ends."""
+
+    draw_number: int
+    conducted_on: date | None
+    total_tickets: int
+    rows: tuple[PrintRow, ...]
+
+
+_PRINT_OF_CANCELLED = (
+    "Розыгрыш №{draw_number} отменён — печатный список недоступен. Состав этого тиража — "
+    "в журнале выгрузки (draw-{draw_number}-cancelled.txt)."
+)
+
+
+async def get_print_list(db: AsyncSession, *, draw_id: int) -> PrintListOutcome:
+    """The printed list of a draw: ticket numbers ascending, each with the owner's last four digits.
+
+    The four digits are computed HERE, zero-padded — ``42`` and ``0042`` are the same column a member
+    scans with their eyes, and without the padding they print as two different numbers. The full
+    ``telegram_id`` never leaves the server: the digits are a projection, and they are all the
+    public column needs.
+
+    A cancelled draw REFUSES (409). Cancelling releases the stamps, so the rows would come back
+    empty — and an empty printed list reads from outside as a corrupted one, not as a cancelled
+    draw. The journal served by the export endpoint is the list of a cancelled draw; the canonical
+    text there carries no last-4, by the ratified hash contract.
+    """
+    draw = (
+        await db.execute(
+            select(
+                LotteryDraw.draw_number,
+                LotteryDraw.status,
+                LotteryDraw.conducted_on,
+                LotteryDraw.total_tickets,
+            ).where(LotteryDraw.id == draw_id)
+        )
+    ).one_or_none()
+    if draw is None:
+        raise NotFoundException(_DRAW_NOT_FOUND.format(draw_id=draw_id))
+    if draw.status == LotteryDrawStatus.CANCELLED.value:
+        raise ConflictException(_PRINT_OF_CANCELLED.format(draw_number=draw.draw_number))
+
+    result = await db.execute(
+        select(LotteryTicket.ticket_number, User.telegram_id)
+        .join(User, User.id == LotteryTicket.user_id)
+        .where(LotteryTicket.draw_id == draw_id)
+        .order_by(LotteryTicket.ticket_number)
+    )
+    rows = tuple(
+        PrintRow(ticket_number=r.ticket_number, telegram_last4=f"{r.telegram_id % 10000:04d}")
+        for r in result
+    )
+    return PrintListOutcome(
+        draw_number=draw.draw_number,
+        conducted_on=draw.conducted_on,
+        total_tickets=draw.total_tickets,
+        rows=rows,
+    )
+
+
+@dataclass(frozen=True)
 class DrawResult:
     """How a finished draw ended for one member."""
 
