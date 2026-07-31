@@ -313,3 +313,48 @@ async def test_print_of_a_drawn_draw_still_works(client, maker, monkeypatch) -> 
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["total_tickets"] == 1
+
+
+async def test_current_keeps_the_previous_drawn_draw_reachable_after_the_next_freeze(
+    client, maker, monkeypatch
+) -> None:
+    """A8 (Гейт-2, БЛОКЕР-1): draw №1 drawn, draw №2 frozen — the winners of №1 must still be
+    visible: prizes are handed out for days after the next freeze, and "не видно нигде" is not
+    an answer to a winner asking who won."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    admin_id = await _seed_admin(maker, 95111)
+    await _seed_member(maker, 95112)
+    async with maker() as s:
+        first = await commit_draw(s, expected_tickets=1)
+        await record_winners(s, draw_id=first.draw_id, winning_numbers=[1])
+    await _seed_member(maker, 95113)
+    async with maker() as s:
+        await commit_draw(s, expected_tickets=1)
+
+    resp = await client.get(CURRENT_URL, headers={"Authorization": f"Bearer {_admin_token(admin_id)}"})
+
+    body = resp.json()
+    assert body["draw"]["draw_number"] == 2
+    assert body["draw"]["status"] == "committed"
+    last_drawn = body["last_drawn"]
+    assert last_drawn["draw_number"] == 1
+    assert last_drawn["status"] == "drawn"
+    assert len(last_drawn["winners"]) == 1
+    assert last_drawn["winners"][0]["first_name"] == "Member"
+
+
+async def test_current_on_a_drawn_latest_draw_does_not_duplicate_it_into_last_drawn(
+    client, maker, monkeypatch
+) -> None:
+    """When the latest draw IS the drawn one, it is the page — `last_drawn` stays null."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    admin_id = await _seed_admin(maker, 95121)
+    draw_id = await _frozen(maker, 95122)
+    async with maker() as s:
+        await record_winners(s, draw_id=draw_id, winning_numbers=[1])
+
+    resp = await client.get(CURRENT_URL, headers={"Authorization": f"Bearer {_admin_token(admin_id)}"})
+
+    body = resp.json()
+    assert body["draw"]["status"] == "drawn"
+    assert body["last_drawn"] is None

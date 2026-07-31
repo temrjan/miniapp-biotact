@@ -574,6 +574,51 @@ class CurrentOutcome:
     eligible_tickets: int
     clean_tickets: int
     draw: CurrentDrawInfo | None
+    # Filled whenever the latest draw is not itself drawn: the winners of the previous draw must
+    # stay reachable after the next freeze (Gate-2 БЛОКЕР-1).
+    last_drawn: CurrentDrawInfo | None
+
+
+async def _current_draw_info(db: AsyncSession, draw: LotteryDraw) -> CurrentDrawInfo:
+    """One draw as the admin page shows it; winners are read from the ticket rows, not remembered
+    from a mutation response — the page must survive a reload."""
+    winners: tuple[WinnerRow, ...] = ()
+    if draw.status == LotteryDrawStatus.DRAWN.value:
+        rows = (
+            await db.execute(
+                select(
+                    LotteryTicket.ticket_number,
+                    LotteryTicket.prize_rank,
+                    User.id,
+                    User.first_name,
+                )
+                .join(User, User.id == LotteryTicket.user_id)
+                .where(LotteryTicket.draw_id == draw.id, LotteryTicket.is_winner.is_(True))
+                .order_by(LotteryTicket.prize_rank)
+            )
+        ).all()
+        winners = tuple(
+            WinnerRow(
+                ticket_number=r.ticket_number,
+                prize_rank=r.prize_rank,
+                user_id=r.id,
+                first_name=r.first_name,
+            )
+            for r in rows
+        )
+    return CurrentDrawInfo(
+        draw_id=draw.id,
+        draw_number=draw.draw_number,
+        status=draw.status,
+        total_tickets=draw.total_tickets,
+        participant_hash=draw.participant_hash,
+        conducted_on=draw.conducted_on,
+        prize_label=draw.prize_label,
+        committed_at=draw.committed_at,
+        drawn_at=draw.drawn_at,
+        cancelled_at=draw.cancelled_at,
+        winners=winners,
+    )
 
 
 async def get_current_draw(db: AsyncSession) -> CurrentOutcome:
@@ -590,6 +635,11 @@ async def get_current_draw(db: AsyncSession) -> CurrentOutcome:
     contrary, must publish the cancellation the moment it happens, and needs the cancelled draw's
     number and hash for exactly that post. Winners are read from the ticket rows, not remembered
     from a mutation response: the page must survive a reload.
+
+    ⚠️ Known cost: ``eligible_tickets`` materializes the full candidate list to count it (the same
+    price the freeze pays — measured at 576 ms on 20 000 tickets), and React Query refetches on
+    window focus. Irrelevant at the current base (7 tickets); when it stops being irrelevant, the
+    answer is a cheaper way to ask the SAME predicates — never an SQL copy of them (P-3).
     """
     eligible = await eligible_clean_tickets(db)
     clean = int(
@@ -606,47 +656,27 @@ async def get_current_draw(db: AsyncSession) -> CurrentOutcome:
         await db.execute(select(LotteryDraw).order_by(LotteryDraw.draw_number.desc()).limit(1))
     ).scalar_one_or_none()
 
-    info: CurrentDrawInfo | None = None
-    if latest is not None:
-        winners: tuple[WinnerRow, ...] = ()
-        if latest.status == LotteryDrawStatus.DRAWN.value:
-            rows = (
-                await db.execute(
-                    select(
-                        LotteryTicket.ticket_number,
-                        LotteryTicket.prize_rank,
-                        User.id,
-                        User.first_name,
-                    )
-                    .join(User, User.id == LotteryTicket.user_id)
-                    .where(LotteryTicket.draw_id == latest.id, LotteryTicket.is_winner.is_(True))
-                    .order_by(LotteryTicket.prize_rank)
-                )
-            ).all()
-            winners = tuple(
-                WinnerRow(
-                    ticket_number=r.ticket_number,
-                    prize_rank=r.prize_rank,
-                    user_id=r.id,
-                    first_name=r.first_name,
-                )
-                for r in rows
-            )
-        info = CurrentDrawInfo(
-            draw_id=latest.id,
-            draw_number=latest.draw_number,
-            status=latest.status,
-            total_tickets=latest.total_tickets,
-            participant_hash=latest.participant_hash,
-            conducted_on=latest.conducted_on,
-            prize_label=latest.prize_label,
-            committed_at=latest.committed_at,
-            drawn_at=latest.drawn_at,
-            cancelled_at=latest.cancelled_at,
-            winners=winners,
-        )
+    info = await _current_draw_info(db, latest) if latest is not None else None
 
-    return CurrentOutcome(eligible_tickets=len(eligible), clean_tickets=clean, draw=info)
+    # The last DRAWN draw travels alongside whenever it is not the latest one: freezing draw №2
+    # must not make the winners of draw №1 unreachable anywhere in the admin — prizes are handed
+    # out for days after the next freeze (Gate-2 БЛОКЕР-1).
+    last_drawn: CurrentDrawInfo | None = None
+    if latest is None or latest.status != LotteryDrawStatus.DRAWN.value:
+        drawn = (
+            await db.execute(
+                select(LotteryDraw)
+                .where(LotteryDraw.status == LotteryDrawStatus.DRAWN.value)
+                .order_by(LotteryDraw.draw_number.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if drawn is not None:
+            last_drawn = await _current_draw_info(db, drawn)
+
+    return CurrentOutcome(
+        eligible_tickets=len(eligible), clean_tickets=clean, draw=info, last_drawn=last_drawn
+    )
 
 
 @dataclass(frozen=True)

@@ -104,6 +104,9 @@ export interface CurrentDrawResponse {
   eligible_tickets: number
   clean_tickets: number
   draw: CurrentDraw | null
+  /** The last drawn draw, whenever the latest is not itself drawn — winners of the previous
+   * draw stay reachable after the next freeze (Гейт-2, БЛОКЕР-1). */
+  last_drawn: CurrentDraw | null
 }
 
 export interface PrintRow {

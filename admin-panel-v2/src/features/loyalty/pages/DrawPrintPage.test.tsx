@@ -30,7 +30,7 @@ describe('DrawPrintPage', () => {
   it('renders the list with numbers, padded last-4, and the total count as text', async () => {
     vi.mocked(loyaltyApi.getPrintList).mockResolvedValue({
       draw_number: 3,
-      conducted_on: null,
+      conducted_on: '2026-09-01',
       total_tickets: 2,
       rows: [
         { ticket_number: 1, telegram_last4: '0042' },
@@ -44,8 +44,8 @@ describe('DrawPrintPage', () => {
     expect(screen.getByText('7731')).toBeInTheDocument()
     // the range of the draw itself, as text — the point of the list
     expect(screen.getByText('Всего билетов: 2')).toBeInTheDocument()
-    // no date yet → honest placeholder, not a blank
-    expect(screen.getByText('Дата уточняется')).toBeInTheDocument()
+    // ratified stamp format (01.09.2026), not the wire ISO (2026-09-01)
+    expect(screen.getByText('Дата проведения: 01.09.2026')).toBeInTheDocument()
     expect(loyaltyApi.getPrintList).toHaveBeenCalledWith(5)
   })
 })

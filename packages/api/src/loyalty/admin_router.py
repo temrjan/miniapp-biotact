@@ -51,36 +51,40 @@ async def get_current_draw(
     Guarded by :func:`~src.auth.dependencies.require_admin`, like the rest of this router.
     """
     outcome = await lottery.get_current_draw(db)
-    draw = outcome.draw
     return CurrentDrawResponse(
         eligible_tickets=outcome.eligible_tickets,
         clean_tickets=outcome.clean_tickets,
-        draw=(
-            None
-            if draw is None
-            else CurrentDrawInfo(
-                draw_id=draw.draw_id,
-                draw_number=draw.draw_number,
-                status=draw.status,
-                total_tickets=draw.total_tickets,
-                participant_hash=draw.participant_hash,
-                conducted_on=draw.conducted_on,
-                prize_label=draw.prize_label,
-                committed_at=draw.committed_at,
-                drawn_at=draw.drawn_at,
-                cancelled_at=draw.cancelled_at,
-                winners=[
-                    WinnerRowResponse(
-                        ticket_number=w.ticket_number,
-                        prize_rank=w.prize_rank,
-                        user_id=w.user_id,
-                        first_name=w.first_name,
-                    )
-                    for w in draw.winners
-                ],
-            )
-        ),
+        draw=_draw_info_response(outcome.draw),
+        last_drawn=_draw_info_response(outcome.last_drawn),
     )
+
+
+def _draw_info_response(draw: lottery.CurrentDrawInfo | None) -> CurrentDrawInfo | None:
+    """Map a service-level draw info to its response model; None passes through."""
+    if draw is None:
+        return None
+    return CurrentDrawInfo(
+        draw_id=draw.draw_id,
+        draw_number=draw.draw_number,
+        status=draw.status,
+        total_tickets=draw.total_tickets,
+        participant_hash=draw.participant_hash,
+        conducted_on=draw.conducted_on,
+        prize_label=draw.prize_label,
+        committed_at=draw.committed_at,
+        drawn_at=draw.drawn_at,
+        cancelled_at=draw.cancelled_at,
+        winners=[
+            WinnerRowResponse(
+                ticket_number=w.ticket_number,
+                prize_rank=w.prize_rank,
+                user_id=w.user_id,
+                first_name=w.first_name,
+            )
+            for w in draw.winners
+        ],
+    )
+
 
 
 @router.get(

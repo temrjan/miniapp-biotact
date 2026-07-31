@@ -6,6 +6,13 @@ import { usePrintList } from '../hooks/useLoyalty'
  * No PDF is generated anywhere (ratified): printing a web page is what browsers do.
  * The total count N is repeated as text, not only implied by the table: without it
  * the range for the external draw cannot be set, and that is the point of the list. */
+/** The printed list is the artifact people READ — the date follows the ratified stamp format
+ * (plan §5.3: 01.09.2026), not the wire format (2026-09-01). */
+const formatDateRu = (iso: string): string => {
+  const [year, month, day] = iso.split('-')
+  return `${day}.${month}.${year}`
+}
+
 export const DrawPrintPage = () => {
   const { drawId } = useParams<{ drawId: string }>()
   const id = drawId === undefined ? undefined : Number(drawId)
@@ -30,7 +37,7 @@ export const DrawPrintPage = () => {
         <div>
           <h1 className="text-2xl font-bold">Розыгрыш №{data.draw_number} — список билетов</h1>
           <p className="text-muted-foreground">
-            {data.conducted_on ? `Дата проведения: ${data.conducted_on}` : 'Дата уточняется'}
+            {data.conducted_on ? `Дата проведения: ${formatDateRu(data.conducted_on)}` : 'Дата уточняется'}
           </p>
         </div>
         <Button className="no-print" onClick={() => window.print()}>

@@ -304,6 +304,13 @@ class CurrentDrawResponse(BaseModel):
     eligible_tickets: int
     clean_tickets: int
     draw: CurrentDrawInfo | None
+    last_drawn: CurrentDrawInfo | None = Field(
+        default=None,
+        description=(
+            "The last drawn draw, whenever the latest is not itself drawn — the winners of the "
+            "previous draw stay reachable after the next freeze"
+        ),
+    )
 
 
 class PrintRowResponse(BaseModel):

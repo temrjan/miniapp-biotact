@@ -80,6 +80,9 @@ export const DrawPage = () => {
           />
         </>
       )}
+
+      {/* The winners of the previous draw stay reachable after the next freeze (БЛОКЕР-1). */}
+      {data.last_drawn && <DrawResultCard draw={data.last_drawn} />}
     </div>
   )
 }

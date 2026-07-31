@@ -25,10 +25,14 @@ const committedDraw: CurrentDraw = {
   winners: [],
 }
 
-const response = (draw: CurrentDraw | null): CurrentDrawResponse => ({
+const response = (
+  draw: CurrentDraw | null,
+  lastDrawn: CurrentDraw | null = null
+): CurrentDrawResponse => ({
   eligible_tickets: 7,
   clean_tickets: 9,
   draw,
+  last_drawn: lastDrawn,
 })
 
 function renderWithClient(ui: ReactNode) {
@@ -84,6 +88,25 @@ describe('DrawPage — four states by draw status', () => {
     expect(screen.getByText('№17')).toBeInTheDocument()
     expect(screen.getByText('Азиза')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Заморозить следующий' })).toBeInTheDocument()
+  })
+
+  it('committed with a previous drawn draw: its winners stay visible (Гейт-2, БЛОКЕР-1)', async () => {
+    vi.mocked(loyaltyApi.getCurrentDraw).mockResolvedValue(
+      response(committedDraw, {
+        ...committedDraw,
+        draw_id: 4,
+        draw_number: 2,
+        status: 'drawn',
+        winners: [{ ticket_number: 7, prize_rank: 1, user_id: 21, first_name: 'Дилноза' }],
+      })
+    )
+    renderWithClient(<DrawPage />)
+
+    // the live draw is the page…
+    expect(await screen.findByText('Розыгрыш №3 заморожен')).toBeInTheDocument()
+    // …and the previous result is still reachable
+    expect(screen.getByText('Розыгрыш №2 разыгран')).toBeInTheDocument()
+    expect(screen.getByText('Дилноза')).toBeInTheDocument()
   })
 
   it('cancelled: the cancellation text is shown, not hidden (Р-2)', async () => {
