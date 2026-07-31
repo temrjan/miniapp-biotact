@@ -18,20 +18,26 @@ function renderCard(ui: ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
+const base = { numbers: [] as number[], cleanTickets: 0, notPlayingReason: null };
+
 const prospective: MyTickets = {
+  ...base,
   tickets: 2,
   isFrozen: false,
   period: null,
   prizeLabel: null,
   result: null,
+  cleanTickets: 2,
 };
 
 const frozen: MyTickets = {
+  ...base,
   tickets: 2,
   isFrozen: true,
-  period: '2026-07',
+  period: '№3',
   prizeLabel: 'Аэрогриль',
   result: null,
+  numbers: [7, 12],
 };
 
 describe('TicketsCard', () => {
@@ -45,7 +51,9 @@ describe('TicketsCard', () => {
 
     const count = await screen.findByTestId('tickets-count');
     expect(count.textContent).toContain('2');
-    expect(screen.getByTestId('tickets-state').textContent).toMatch(/Сейчас/);
+    // The wording changed with the model: nothing expires on its own any more, so the line no
+    // longer warns that the number may shrink — it says what these tickets are waiting for.
+    expect(screen.getByTestId('tickets-state').textContent).toMatch(/ближайшем розыгрыше/);
   });
 
   it('shows a fixed count once the snapshot is frozen', async () => {
@@ -149,5 +157,97 @@ describe('TicketsCard', () => {
       expect(getMyTicketsMock).toHaveBeenCalled();
     });
     expect(screen.queryByTestId('tickets-state')).not.toBeInTheDocument();
+  });
+});
+
+describe('TicketsCard — step 5: numbers, tickets in hand, and why they will not play', () => {
+  beforeEach(() => {
+    getMyTicketsMock.mockReset();
+  });
+
+  it('shows the member their own ticket numbers once a draw has stamped them', async () => {
+    getMyTicketsMock.mockResolvedValue(frozen);
+    renderCard(<TicketsCard />);
+
+    const numbers = await screen.findByTestId('tickets-numbers');
+    expect(numbers.textContent).toContain('7, 12');
+  });
+
+  it('keeps showing the numbers after the draw has been drawn', async () => {
+    // This is when the published list appears. A member without their numbers cannot find
+    // themselves in it, which is the entire reason the numbers are shown at all.
+    getMyTicketsMock.mockResolvedValue({
+      ...base,
+      tickets: 0,
+      isFrozen: false,
+      period: null,
+      prizeLabel: null,
+      numbers: [7, 12],
+      result: { period: '№3', tickets: 2, won: false, prizeRank: null, prizeLabel: null },
+    });
+    renderCard(<TicketsCard />);
+
+    const numbers = await screen.findByTestId('tickets-numbers');
+    expect(numbers.textContent).toContain('7, 12');
+    expect(screen.getByTestId('tickets-result')).toBeInTheDocument();
+  });
+
+  it('names the reason instead of promising the next draw when a ticket will not play', async () => {
+    // The ratified condition. "One more waits for the next draw" would be a lie to someone whose
+    // survey is incomplete: without it the ticket will not play then either.
+    getMyTicketsMock.mockResolvedValue({
+      ...frozen,
+      cleanTickets: 1,
+      notPlayingReason: 'survey',
+    });
+    renderCard(<TicketsCard />);
+
+    const waiting = await screen.findByTestId('tickets-waiting');
+    expect(waiting.textContent).toMatch(/анкету/);
+    expect(waiting.textContent).not.toMatch(/ждёт следующего/);
+  });
+
+  it('promises the next draw when the held ticket will actually play', async () => {
+    getMyTicketsMock.mockResolvedValue({ ...frozen, cleanTickets: 1, notPlayingReason: null });
+    renderCard(<TicketsCard />);
+
+    const waiting = await screen.findByTestId('tickets-waiting');
+    expect(waiting.textContent).toMatch(/ждёт следующего розыгрыша/);
+    expect(waiting.textContent).toContain('1 билет');
+  });
+
+  it('explains the 18+ block by its own sentence, not the survey one', async () => {
+    getMyTicketsMock.mockResolvedValue({ ...prospective, notPlayingReason: 'age' });
+    renderCard(<TicketsCard />);
+
+    const blocked = await screen.findByTestId('tickets-blocked');
+    expect(blocked.textContent).toMatch(/18/);
+  });
+
+  it('degrades an unknown reason code to the general sentence', async () => {
+    // The server may grow a third predicate before this bundle is updated. Printing the raw code
+    // or nothing at all would both be worse than a general, true sentence.
+    getMyTicketsMock.mockResolvedValue({ ...prospective, notPlayingReason: 'something_new' });
+    renderCard(<TicketsCard />);
+
+    const blocked = await screen.findByTestId('tickets-blocked');
+    expect(blocked.textContent).toMatch(/пока не участвует/);
+  });
+
+  it('agrees the noun with the number', async () => {
+    // "1 билетов" is what the card said before this step, for every value the ceiling allows.
+    getMyTicketsMock.mockResolvedValue({ ...prospective, tickets: 1, cleanTickets: 1 });
+    const { unmount } = renderCard(<TicketsCard />);
+    expect((await screen.findByTestId('tickets-unit')).textContent).toBe('билет');
+    unmount();
+
+    getMyTicketsMock.mockResolvedValue({ ...prospective, tickets: 2, cleanTickets: 2 });
+    const second = renderCard(<TicketsCard />);
+    expect((await screen.findByTestId('tickets-unit')).textContent).toBe('билета');
+    second.unmount();
+
+    getMyTicketsMock.mockResolvedValue({ ...prospective, tickets: 5, cleanTickets: 5 });
+    renderCard(<TicketsCard />);
+    expect((await screen.findByTestId('tickets-unit')).textContent).toBe('билетов');
   });
 });

@@ -148,16 +148,24 @@ export interface DrawResult {
 // The member's own lottery participation (GET /loyalty/my-tickets).
 export interface MyTickets {
   tickets: number;
-  // TRUE  — the number comes from a frozen snapshot and can no longer change.
-  // FALSE — it is a live recount that may still change on its own (an activation ageing out of
-  //         the 30-day window). The wording shown to the member MUST differ between the two:
-  //         "2 tickets" quietly becoming "1" without that distinction reads as tickets taken away.
+  // TRUE  — the tickets are stamped into a frozen draw and their fate is decided there.
+  // FALSE — they are in hand, waiting for the next freeze. Nothing expires on its own any more:
+  //         the 30-day activation window was removed with the old model, and a ticket now lives
+  //         until a draw takes it.
   isFrozen: boolean;
-  period: string | null; // non-null exactly when isFrozen
+  period: string | null; // non-null exactly when isFrozen — the draw's label, "№3"
   prizeLabel: string | null; // non-null only for a frozen draw that declares a prize
   // How the PREVIOUS draw ended. Describes a different draw than the fields above: once a draw is
   // over, the top block already counts towards the next one.
   result: DrawResult | null;
+  // The member's own numbers in the draw described above, ascending — and present after it has been
+  // drawn, because that is when the list is published and finding yourself in it is the point.
+  numbers: number[];
+  // Tickets in hand, in no draw: what was earned after a freeze shows up here.
+  cleanTickets: number;
+  // Why those held tickets will not play. A code from the server ("survey" | "age"), translated
+  // here: the server has no idea which language this member reads.
+  notPlayingReason: string | null;
 }
 
 // How the customer entered the program (sent to POST /loyalty/consent).
