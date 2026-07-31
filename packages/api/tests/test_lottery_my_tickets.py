@@ -101,7 +101,11 @@ async def _freeze(
 
 
 async def _mark_drawn(sm: async_sessionmaker[AsyncSession], *, winner_number: int | None) -> None:
-    """Finish the draw by hand - ``record_winners`` belongs to PR-5.4b and does not exist yet."""
+    """Finish the draw by hand: these tests are about the CARD, not about recording winners.
+
+    ``record_winners`` exists and is covered in ``test_lottery_winners.py``; going through it here
+    would drag its own refusals into every reading of the card.
+    """
     async with sm() as s, s.begin():
         await s.execute(
             update(LotteryDraw).values(status=LotteryDrawStatus.DRAWN.value, drawn_at=_now())

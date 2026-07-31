@@ -245,7 +245,9 @@ async def test_a_confirmation_that_does_not_match_freezes_nothing(
         with pytest.raises(ConflictException) as excinfo:
             await commit_draw(s, expected_tickets=5)
 
-    assert "2" in str(excinfo.value.detail)
+    # The whole phrase, not the bare digit: "2" also matches "12", and the number in this message is
+    # the one the administrator retypes.
+    assert "готово 2 билетов" in str(excinfo.value.detail)
     assert await _draw_count(maker) == 0
     assert await _stamps(maker, member) == [None, None]
 

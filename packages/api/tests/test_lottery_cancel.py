@@ -69,6 +69,21 @@ async def _draw_row(sm: async_sessionmaker[AsyncSession], draw_id: int) -> Lotte
         ).scalar_one()
 
 
+async def _sessions_waiting_on_locks(sm: async_sessionmaker[AsyncSession]) -> int:
+    """How many backends on this database are currently parked waiting for a lock."""
+    async with sm() as s:
+        return int(
+            (
+                await s.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                    )
+                )
+            ).scalar_one()
+        )
+
+
 async def _clean_count(sm: async_sessionmaker[AsyncSession]) -> int:
     async with sm() as s:
         return int(
@@ -244,13 +259,13 @@ async def test_cancel_and_winners_at_the_same_moment_leave_one_consistent_state(
 
     assert both_waiting, "both calls must be waiting on the same locked rows"
 
-    failures = [
-        result
-        for result in await asyncio.wait_for(
-            asyncio.gather(cancelling, recording), timeout=10
-        )
-        if result is not None
-    ]
+    try:
+        results = await asyncio.wait_for(asyncio.gather(cancelling, recording), timeout=10)
+    finally:
+        for task in (cancelling, recording):
+            if not task.done():
+                task.cancel()
+    failures = [result for result in results if result is not None]
     assert len(failures) == 1, f"exactly one call must fail, got {failures}"
     assert isinstance(failures[0], ConflictException)
 
@@ -304,7 +319,10 @@ async def test_a_draw_that_became_drawn_mid_cancel_is_not_cancelled_anyway(
 
         task = asyncio.create_task(cancelling())
         await asyncio.sleep(0.2)  # past the pre-check, now waiting on the tickets
-        started_and_waiting = not task.done()
+        # "not done" alone does not prove WHERE it is waiting — an unscheduled task is also not
+        # done. The database is asked instead: the cancel must be parked on a lock, which it can
+        # only be after its pre-check saw a committed draw.
+        waiting_on_a_lock = await _sessions_waiting_on_locks(maker)
 
         async with maker() as s, s.begin():
             await s.execute(
@@ -321,8 +339,14 @@ async def test_a_draw_that_became_drawn_mid_cancel_is_not_cancelled_anyway(
         if task is not None and not task.done():
             task.cancel()
 
-    assert started_and_waiting, "the cancel must reach the tickets and wait there"
+    assert waiting_on_a_lock, "the cancel must be parked on the ticket rows, past its pre-check"
     assert isinstance(failure, ConflictException), f"expected a refusal, got {failure!r}"
+    # Both refusals of this function raise the SAME exception type, so the type proves nothing about
+    # WHICH one fired. The serializer's wording is what says the conditional UPDATE stopped it; the
+    # pre-check's wording would mean the test measured a scheduling accident instead.
+    assert "закрыл или отменил" in str(failure.detail), (
+        f"expected the serializer to refuse, got the pre-check: {failure.detail!r}"
+    )
 
     draw = await _draw_row(maker, draw_id)
     assert draw.status == LotteryDrawStatus.DRAWN.value, "a drawn draw must not end up cancelled"

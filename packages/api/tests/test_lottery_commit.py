@@ -215,4 +215,4 @@ async def test_endpoint_reports_the_actual_count_when_the_confirmation_is_wrong(
     resp = await client.post(COMMIT_URL, json={"expected_tickets": 7}, headers=headers)
 
     assert resp.status_code == 409, resp.text
-    assert "1" in resp.json()["detail"]
+    assert "готово 1 билетов" in resp.json()["detail"]  # the phrase, not the bare digit
