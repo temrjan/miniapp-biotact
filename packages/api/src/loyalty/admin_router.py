@@ -86,7 +86,6 @@ def _draw_info_response(draw: lottery.CurrentDrawInfo | None) -> CurrentDrawInfo
     )
 
 
-
 @router.get(
     "/{draw_id}/print",
     response_model=PrintListResponse,
