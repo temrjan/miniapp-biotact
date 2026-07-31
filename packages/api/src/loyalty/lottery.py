@@ -1,19 +1,30 @@
-"""Monthly draw (Stage 5): ticket formula and the canonical snapshot serialization.
+"""The draw (Stage 5): freezing tickets into it, cancelling it, and the canonical snapshot.
 
-Fairness is commit-reveal, and the load-bearing half of it lives here: at commit the eligible
-participants are frozen into ``lottery_tickets`` rows and a SHA-256 of the canonical list is
-published. Nothing downstream recomputes eligibility — reads look at the frozen rows, because a
-recount depends on profiles that keep changing while the published hash may not.
+Fairness is commit-reveal, and the load-bearing half of it lives here. A ticket belongs to its owner
+from the moment it is earned; the freeze STAMPS the clean ones into a draw — sequential numbers, one
+published SHA-256 over the canonical list — and nothing downstream ever recomputes who took part.
+Reads look at the stamped rows, because a recount depends on profiles that keep changing while the
+published hash does not.
 
-The winner is never chosen by this code: the draw is pulled live via random.org (strategy §10.3).
+Eligibility is decided by :func:`has_survey` and :func:`is_adult` — the SAME two functions the
+issuance path calls (:mod:`src.loyalty.tickets`). The freeze filters its candidates with them in
+Python instead of re-expressing them as SQL inside one clever UPDATE: a second formulation of the
+rules would sit exactly where drift is most expensive — deciding who takes part in a draw whose 18+
+condition is a legal one. The price is one extra statement per freeze, paid once a month by an
+administrator.
+
+The winner is never chosen by this code: the numbers are drawn outside the system and recorded
+afterwards (:func:`record_winners`). A freeze that turns out to be wrong is undone by
+:func:`cancel_draw`, which releases every stamp and journals the exact snapshot bytes.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
+from typing import cast
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Table, bindparam, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,26 +35,12 @@ from src.loyalty.models import (
     LotteryDraw,
     LotteryDrawStatus,
     LotteryTicket,
-    LotteryTicketSource,
-    LoyaltyStatus,
 )
 from src.users.models import User
 
 # The audience is Uzbekistan and the draw airs on the 1st at 19:00 local time, so every calendar
 # boundary and every date shown to a human is computed in this zone. Stored values stay UTC.
 TASHKENT = ZoneInfo("Asia/Tashkent")
-
-# "Activated recently" window. Counted from the freeze moment (`as_of`), NOT from the calendar
-# boundary of the period: the snapshot is what the draw runs on, so recency must be measured
-# against the same instant that froze it.
-ACTIVATION_WINDOW = timedelta(days=30)
-
-# The approved formula has exactly two sources — a filled survey (1) and "Друг" (+1) — so the
-# ceiling of 2 holds BY CONSTRUCTION. No `min(...)` guard here on purpose: it would be protection
-# against an unreachable state, and a mutation run proved it dead (raising the cap to 3 changed
-# nothing). When a third source appears (referrals, channel subscription — out of Stage 5), the
-# ceiling stops being implied and must be enforced explicitly, with a test that can fail.
-FRIEND_BONUS_TICKETS = 1
 
 # The legal floor for taking part, named because it is now asserted in two languages: here, and as
 # SQL in the dashboard detector that counts members owed a ticket. A bare 18 in both places is two
@@ -74,36 +71,11 @@ def has_survey(profile: CustomerProfile) -> bool:
     return profile.gender is not None and profile.city is not None
 
 
-def activated_within_window(profile: CustomerProfile, *, as_of: datetime) -> bool:
-    """Whether the member activated a QR code within :data:`ACTIVATION_WINDOW` before ``as_of``.
-
-    The bound is inclusive: exactly 30 days still counts. ``last_activation_at`` is ``timestamptz``,
-    so the comparison is between aware datetimes — a naive ``as_of`` would raise rather than
-    silently compare wrong, which is the failure mode we want.
-    """
-    if profile.last_activation_at is None:
-        return False
-    return as_of - profile.last_activation_at <= ACTIVATION_WINDOW
-
-
-def compute_ticket_count(profile: CustomerProfile | None, *, as_of: datetime) -> int:
-    """Tickets this profile holds in a draw frozen at ``as_of`` — 0, 1 or 2.
-
-    Pure: no DB, no clock. ``None`` means "not a club member" (no ``customer_profile`` row) and
-    yields 0, mirroring the rest of the loyalty surface where membership is the entry condition.
-    """
-    if profile is None:
-        return 0
-    if not (
-        has_survey(profile) and is_adult(profile) and activated_within_window(profile, as_of=as_of)
-    ):
-        return 0
-    tickets = 1
-    if profile.status == LoyaltyStatus.BIOTACT_FRIEND:
-        tickets += FRIEND_BONUS_TICKETS
-    return tickets
-
-
+# ⚠️ Dead since step 3, removed with the column in the contract phase (step 6). Nothing calls them:
+# a draw is frozen by a button press, there is no period to validate and no window to be inside.
+# They are kept only because ``lottery_draws.period`` still exists, and they are kept TESTED
+# (``test_lottery_legacy_period.py``) — removing the proof before the code is how a dead function
+# quietly becomes a live one again.
 def period_of(moment: datetime) -> str:
     """Calendar month (``YYYY-MM``) that ``moment`` belongs to, in Tashkent local time.
 
@@ -162,113 +134,157 @@ class CommitOutcome:
     """Result of a freeze — primitives only, safe to read after the transaction closes."""
 
     draw_id: int
-    period: str
+    draw_number: int
     total_tickets: int
     participant_hash: str
     committed_at: datetime
+    conducted_on: date | None
+
+
+@dataclass(frozen=True)
+class CancelOutcome:
+    """Result of cancelling a draw. ``released_tickets`` is what went back to the members."""
+
+    draw_id: int
+    draw_number: int
+    cancelled_at: datetime
+    released_tickets: int
 
 
 @dataclass(frozen=True)
 class ExportOutcome:
-    """A frozen draw ready to publish: the file's exact bytes, plus the label its filename carries.
+    """A draw ready to publish: the file's exact bytes, plus the label its filename carries.
 
-    Deliberately two fields. The hash and the ticket count are NOT carried here — nothing consumes
-    them (the body is the response, the period is the filename), and a field no caller reads is the
-    kind of dead weight a mutation run flags. Tests that need the count read the
-    ``lottery_draws.total_tickets`` column directly.
+    Deliberately three fields. The hash and the ticket count are NOT carried here — nothing consumes
+    them (the body is the response, the number is the filename), and a field no caller reads is the
+    kind of dead weight a mutation run flags. ``cancelled`` is read: the filename has to say so, and
+    a published list nobody can tell apart from a live one is how a cancelled draw turns into an
+    accusation.
     """
 
-    period: str
+    draw_number: int
     body: str
+    cancelled: bool
 
 
-# Two different races, two different serializers — see the spec §2.
-_ALREADY_COMMITTED = "Розыгрыш за период {period} уже заморожен"
-_NO_PARTICIPANTS = "За период {period} нет подходящих участников — замораживать нечего"
-_PERIOD_OUT_OF_WINDOW = (
-    "Период {period} нельзя заморозить сейчас: заморозка идёт по текущему или прошлому месяцу "
-    "(допустимо: {allowed}). Заморозка необратима, поэтому чужой период не принимается."
+_DRAW_ALREADY_LIVE = (
+    "Розыгрыш №{draw_number} ещё не закрыт: сначала запишите победителей или отмените его. "
+    "Двух замороженных тиражей одновременно не бывает."
+)
+_NOTHING_TO_FREEZE = (
+    "Замораживать нечего: ни одного чистого билета у пригодных участников. Билет есть только у "
+    "того, кто заполнил анкету и подтвердил 18+."
+)
+_COUNT_MISMATCH = (
+    "Подтверждение не совпало: вы указали {expected}, а к заморозке готово {actual} билетов. "
+    "Ничего не заморожено — проверьте число и повторите."
 )
 
 
+async def eligible_clean_tickets(
+    db: AsyncSession,
+) -> list[tuple[int, int, str]]:
+    """Clean tickets whose owner qualifies right now, as ``(ticket_id, user_id, source)``.
+
+    Ordered by ticket id — the order they were issued in. Not by owner: sorting by member would put
+    a person's two tickets on adjacent lines of the printed list, next to the last four digits of
+    their Telegram id. Fairness is untouched either way, because the numbers are drawn outside this
+    system; only the reading of the published list changes.
+
+    The INNER JOIN drops tickets whose owner has no profile row — not a member, not eligible —
+    which is the same answer the predicates would give, arrived at one round-trip earlier.
+
+    Public because the admin page (step 4) has to show the count that the freeze will actually
+    take. ``tickets_clean`` on the dashboard counts every clean ticket including the ones whose
+    owner no longer qualifies; confirming THAT number would fail the freeze and teach administrators
+    to press twice.
+    """
+    rows = (
+        await db.execute(
+            select(
+                LotteryTicket.id,
+                LotteryTicket.user_id,
+                LotteryTicket.source,
+                CustomerProfile,
+            )
+            .join(CustomerProfile, CustomerProfile.user_id == LotteryTicket.user_id)
+            .where(LotteryTicket.draw_id.is_(None))
+            .order_by(LotteryTicket.id)
+        )
+    ).all()
+    return [
+        (row.id, row.user_id, row.source)
+        for row in rows
+        if has_survey(row.CustomerProfile) and is_adult(row.CustomerProfile)
+    ]
+
+
 async def commit_draw(
-    db: AsyncSession, *, period: str, prize_label: str | None = None, as_of: datetime | None = None
+    db: AsyncSession,
+    *,
+    expected_tickets: int,
+    prize_label: str | None = None,
+    conducted_on: date | None = None,
+    as_of: datetime | None = None,
 ) -> CommitOutcome:
-    """Freeze the participant snapshot of ``period`` and publish its SHA-256. Irreversible.
+    """Stamp every eligible clean ticket into a new draw and publish its SHA-256.
 
-    One transaction: the draw row, every ticket, the total and the hash land together or not at
-    all — a half-written snapshot would be a published lie. The transaction is the session's
-    ambient one (autobegun), NOT an explicit ``async with db.begin()``: :func:`require_admin` reads
-    the user from the same session before this call, which already opened it — an explicit begin
-    would raise ``A transaction is already begun``. On any exception the caller rolls back
-    (``get_db``), so a refusal leaves nothing behind.
+    One transaction: the draw row, every stamp, the total and the hash land together or not at all —
+    a half-written snapshot would be a published lie. The transaction is the session's ambient one
+    (autobegun), NOT an explicit ``async with db.begin()``: :func:`require_admin` reads the user from
+    the same session before this call, which already opened it. On any exception the caller rolls
+    back (``get_db``), so a refusal leaves nothing behind.
 
-    **One serializer: ``UNIQUE(lottery_draws.period)``.** The first commit of a period cannot be
-    serialized by a row lock — there is no row yet to lock — so the loser's flush raises
-    ``IntegrityError`` and is answered 409. A repeat commit needs no serializer at all: the row is
-    created already ``committed`` and never returns to ``open``, so "row exists → refuse" is a
-    terminal, race-free state. A ``SELECT … FOR UPDATE`` was written here first (by analogy with
-    ``submit_survey``) and a mutation run proved it dead — removing it reddened nothing. It is
-    gone rather than kept "just in case": protection against an unreachable state is what the
-    rules forbid.
+    **Order is chosen so that no refusal burns a draw number.** Both refusals — nothing to freeze,
+    and a confirmation that does not match — happen BEFORE the draw row is inserted, because the
+    number comes from a database identity and a rolled-back insert consumes it anyway. An
+    administrator retrying a mistyped confirmation should not watch the draws jump from №1 to №3.
 
-    ⚠️ When PR-5.7 introduces a real ``open`` state (a draw opened ahead of time and committed
-    later), the row stops being terminal and the lock becomes load-bearing — it must come back
-    together with a race test that fails without it.
+    **``expected_tickets`` is the mechanical protection ratified for the button.** It is verified
+    here rather than only in the dialog: otherwise one client is protected and the endpoint is not,
+    while the operation stays irreversible. It doubles as optimistic concurrency — a ticket issued
+    while the administrator was reading the page changes the number and the freeze refuses instead
+    of silently capturing a different set.
 
-    Refuses an empty snapshot: freezing zero participants would burn the period irreversibly (the
-    next attempt is rejected as "already committed"), and an administrator facing an empty month
-    needs to know why it is empty, not to record the emptiness.
+    **What makes two live draws impossible is the partial unique index**
+    ``uq_lottery_draws_one_committed``, not the check above it. The check gives the diagnosis; two
+    presses microseconds apart both pass it, and the loser is stopped by the database — its
+    ``IntegrityError`` is translated here into the same message, because two paths into one state
+    that answer differently are a state nobody can debug from the outside.
+
+    Eligibility is re-checked at the stamp, by the same functions issuance uses (ratified
+    2026-07-30): a member who stopped qualifying keeps their tickets — they are theirs — but does not
+    play with them, and the ticket stays clean, waiting.
     """
     as_of = as_of or utc_now()
-    allowed = committable_periods(as_of)
-    if period not in allowed:
-        raise BadRequestException(
-            _PERIOD_OUT_OF_WINDOW.format(period=period, allowed=" | ".join(allowed))
-        )
 
-    # Not the serializer (that is the unique index) — but load-bearing for the DIAGNOSIS, which on
-    # an irreversible operation matters as much. Without this check a repeat freeze of a period
-    # whose participants have since gone stale would fall through to the "nobody qualifies" branch
-    # and tell the administrator the wrong thing about an already-frozen month.
-    existing = (
-        await db.execute(select(LotteryDraw.id).where(LotteryDraw.period == period))
+    live = (
+        await db.execute(
+            select(LotteryDraw.draw_number).where(
+                LotteryDraw.status == LotteryDrawStatus.COMMITTED.value
+            )
+        )
     ).one_or_none()
-    if existing is not None:
+    if live is not None:
         await db.rollback()  # leave no open transaction behind a refusal
-        raise ConflictException(_ALREADY_COMMITTED.format(period=period))
+        raise ConflictException(_DRAW_ALREADY_LIVE.format(draw_number=live.draw_number))
 
-    profiles = (
-        (
-            await db.execute(
-                select(CustomerProfile).order_by(CustomerProfile.user_id)  # stable numbering
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    rows: list[tuple[int, int, str]] = []
-    number = 0
-    for profile in profiles:
-        count = compute_ticket_count(profile, as_of=as_of)
-        for index in range(count):
-            number += 1
-            source = (
-                LotteryTicketSource.SURVEY.value if index == 0 else LotteryTicketSource.FRIEND.value
-            )
-            rows.append((number, profile.user_id, source))
-
-    if not rows:
+    candidates = await eligible_clean_tickets(db)
+    if not candidates:
         await db.rollback()
-        raise ConflictException(_NO_PARTICIPANTS.format(period=period))
+        raise ConflictException(_NOTHING_TO_FREEZE)
+    if len(candidates) != expected_tickets:
+        await db.rollback()
+        raise ConflictException(
+            _COUNT_MISMATCH.format(expected=expected_tickets, actual=len(candidates))
+        )
 
     draw = LotteryDraw(
-        period=period,
+        period=None,  # legacy column, removed in the contract phase
         prize_label=prize_label,
+        conducted_on=conducted_on,
         status=LotteryDrawStatus.COMMITTED.value,
-        total_tickets=len(rows),
-        participant_hash=snapshot_hash(rows),
+        total_tickets=len(candidates),
         committed_at=as_of,
         hash_published_at=as_of,
     )
@@ -276,31 +292,193 @@ async def commit_draw(
     try:
         await db.flush()
     except IntegrityError as exc:
+        # Lost the race by microseconds: the winner's committed draw already holds the index entry.
+        # Without this catch the global handler (main.py) still answers 409, but with a generic body,
+        # and the administrator would not learn WHICH conflict happened. The winner's number is only
+        # readable after the rollback — before it, this session is still inside the failed
+        # transaction — and it is read rather than guessed, so both paths into "a draw is already
+        # live" answer with the same sentence and the same number.
         await db.rollback()
-        # Lost the first-commit race: the winner inserted the same period microseconds earlier.
-        # Without this catch the global handler (main.py) still answers 409, but with a generic
-        # body — the administrator would not learn WHICH conflict happened.
-        raise ConflictException(_ALREADY_COMMITTED.format(period=period)) from exc
+        winner = (
+            await db.execute(
+                select(LotteryDraw.draw_number).where(
+                    LotteryDraw.status == LotteryDrawStatus.COMMITTED.value
+                )
+            )
+        ).one_or_none()
+        if winner is None:
+            # Not the race we know about. Re-raising beats inventing a diagnosis for a conflict we
+            # have not identified.
+            raise
+        raise ConflictException(_DRAW_ALREADY_LIVE.format(draw_number=winner.draw_number)) from exc
 
-    db.add_all(
-        LotteryTicket(draw_id=draw.id, user_id=user_id, ticket_number=ticket_number, source=source)
-        for ticket_number, user_id, source in rows
+    rows = [
+        (number, user_id, source) for number, (_, user_id, source) in enumerate(candidates, start=1)
+    ]
+    # One executemany against the TABLE, not the mapped class: handed an entity plus a list of
+    # parameter dicts, the ORM reads it as "bulk update by primary key" and demands the PK in every
+    # dict, which is a different statement from the one this needs. The candidate query never loaded
+    # ticket entities either, so there is no in-memory state to keep in step.
+    # ``__table__`` is a ``Table`` at runtime; the declarative stubs only promise ``FromClause``,
+    # which ``update()`` does not accept. The cast states what the mapper guarantees.
+    tickets = cast(Table, LotteryTicket.__table__)
+    await db.execute(
+        update(tickets)
+        .where(tickets.c.id == bindparam("ticket_id"), tickets.c.draw_id.is_(None))
+        .values(draw_id=draw.id, ticket_number=bindparam("number")),
+        [
+            {"ticket_id": ticket_id, "number": number}
+            for number, (ticket_id, _, _) in enumerate(candidates, start=1)
+        ],
     )
-    await db.flush()
 
+    draw.participant_hash = snapshot_hash(rows)
+    await db.flush()
     await db.commit()
     return CommitOutcome(
         draw_id=draw.id,
-        period=period,
+        draw_number=draw.draw_number,
         total_tickets=draw.total_tickets,
         participant_hash=draw.participant_hash or "",
         committed_at=as_of,
+        conducted_on=conducted_on,
     )
+
+
+_NOT_CANCELLABLE = (
+    "Розыгрыш №{draw_number} нельзя отменить: он в состоянии «{status}». Отменяется только "
+    "замороженный тираж, до записи победителей."
+)
+
+
+async def cancel_draw(
+    db: AsyncSession, *, draw_id: int, as_of: datetime | None = None
+) -> CancelOutcome:
+    """Release every stamp of a committed draw and journal what it contained.
+
+    **Locks are taken in the same order as** :func:`record_winners` — tickets first, the draw row
+    last. The opposite order is not a style question: cancelling and recording winners would then
+    hold each other's locks (one has the tickets and wants the draw, the other has the draw and
+    wants the tickets), PostgreSQL would break the deadlock by killing one, and an administrator
+    would get a 500 where the honest answer is a 409.
+
+    **The serializer is the conditional UPDATE at the end** (``WHERE status='committed'``), copied
+    from :func:`record_winners`: zero rows means the draw was drawn or cancelled while we worked, and
+    the whole transaction — including the released stamps — rolls back. "409 means nothing changed"
+    is literal, and it is the rollback that makes it so rather than our care.
+
+    **The journal keeps the canonical TEXT**, the exact bytes the published SHA-256 was taken over,
+    so anyone can re-hash it and check it against ``participant_hash`` in the same row. A trail that
+    cannot be verified only asserts that we kept something. The bytes are produced by the same
+    function the export serves, so there is no second serialization to drift.
+
+    It does NOT re-verify that the bytes still match the published hash. A draw whose rows were
+    edited after the freeze is exactly the one that must remain cancellable — refusing would trap
+    the system in a corrupted state — and the mismatch, preserved verbatim, is itself the evidence.
+
+    ``is_winner``/``prize_rank`` are not reset: winners are written in the same transaction that
+    moves a draw to ``drawn``, and that state is refused above. Resetting them would be protection
+    against a state that cannot exist.
+    """
+    as_of = as_of or utc_now()
+
+    draw = (
+        await db.execute(
+            select(LotteryDraw.draw_number, LotteryDraw.status).where(LotteryDraw.id == draw_id)
+        )
+    ).one_or_none()
+    if draw is None:
+        await db.rollback()
+        raise NotFoundException(_DRAW_NOT_FOUND.format(draw_id=draw_id))
+    if draw.status != LotteryDrawStatus.COMMITTED.value:
+        await db.rollback()
+        raise ConflictException(
+            _NOT_CANCELLABLE.format(draw_number=draw.draw_number, status=draw.status)
+        )
+
+    stamped = (
+        await db.execute(
+            select(LotteryTicket.ticket_number, LotteryTicket.user_id, LotteryTicket.source).where(
+                LotteryTicket.draw_id == draw_id
+            )
+        )
+    ).all()
+    rows: list[tuple[int, int, str]] = [
+        (r.ticket_number, r.user_id, r.source) for r in stamped if r.ticket_number is not None
+    ]
+    journal = canonical_snapshot(rows)
+
+    await db.execute(
+        update(LotteryTicket)
+        .where(LotteryTicket.draw_id == draw_id)
+        .values(draw_id=None, ticket_number=None)
+    )
+
+    transition = (
+        await db.execute(
+            update(LotteryDraw)
+            .where(
+                LotteryDraw.id == draw_id,
+                LotteryDraw.status == LotteryDrawStatus.COMMITTED.value,
+            )
+            .values(
+                status=LotteryDrawStatus.CANCELLED.value,
+                cancelled_at=as_of,
+                cancelled_snapshot=journal,
+            )
+            .returning(LotteryDraw.id)
+        )
+    ).one_or_none()
+    if transition is None:
+        await db.rollback()
+        raise ConflictException(_LOST_RACE.format(draw_number=draw.draw_number))
+
+    await db.commit()
+    return CancelOutcome(
+        draw_id=draw_id,
+        draw_number=draw.draw_number,
+        cancelled_at=as_of,
+        # The rows we just read are the rows we just released: the draw is committed, and the only
+        # two operations that touch these stamps both serialize on the draw row below.
+        released_tickets=len(stamped),
+    )
+
+
+_DATE_ON_CANCELLED = "Розыгрыш №{draw_number} отменён — менять его дату проведения нечего."
+
+
+async def set_conducted_on(
+    db: AsyncSession, *, draw_id: int, conducted_on: date | None
+) -> tuple[int, date | None]:
+    """Set or clear the announced date of a draw; returns ``(draw_number, conducted_on)``.
+
+    The date is informational and lives outside the published hash on purpose, which is precisely
+    what makes it editable at all: postponing a draw cannot break a fingerprint already published.
+    Allowed while a draw is committed or drawn — a date is announced, then sometimes moved — and
+    refused on a cancelled one, where there is no event left to date.
+    """
+    draw = (
+        await db.execute(
+            select(LotteryDraw.draw_number, LotteryDraw.status).where(LotteryDraw.id == draw_id)
+        )
+    ).one_or_none()
+    if draw is None:
+        await db.rollback()
+        raise NotFoundException(_DRAW_NOT_FOUND.format(draw_id=draw_id))
+    if draw.status == LotteryDrawStatus.CANCELLED.value:
+        await db.rollback()
+        raise ConflictException(_DATE_ON_CANCELLED.format(draw_number=draw.draw_number))
+
+    await db.execute(
+        update(LotteryDraw).where(LotteryDraw.id == draw_id).values(conducted_on=conducted_on)
+    )
+    await db.commit()
+    return draw.draw_number, conducted_on
 
 
 _DRAW_NOT_FOUND = "Розыгрыш {draw_id} не найден"
 _SNAPSHOT_TAMPERED = (
-    "Снимок розыгрыша {period} не сходится с опубликованным хешем: строки билетов изменились "
+    "Снимок розыгрыша №{draw_number} не сходится с опубликованным хешем: строки билетов изменились "
     "после заморозки. Выгрузка не отдана — публиковать список, который не сходится с нашим же "
     "хешем, снаружи неотличимо от подлога."
 )
@@ -326,38 +504,50 @@ async def export_draw(db: AsyncSession, *, draw_id: int) -> ExportOutcome:
     this endpoint makes is about the FILE, so that is what must be verified. The only way into this
     state is a snapshot row edited after the freeze; serving it would publish a list that fails our
     own published hash, which from outside looks exactly like a faked draw.
+
+    **A cancelled draw is served from its journal.** Cancelling releases the stamps, so recomputing
+    from ``lottery_tickets`` would return an empty body for a draw that certainly had participants —
+    the export of a cancelled draw would look like tampering the moment it is most needed. The
+    journal holds the exact bytes the hash was taken over, so the same verification still applies to
+    the same claim.
     """
     draw = (
         await db.execute(
-            select(LotteryDraw.period, LotteryDraw.participant_hash).where(
-                LotteryDraw.id == draw_id
-            )
+            select(
+                LotteryDraw.draw_number,
+                LotteryDraw.participant_hash,
+                LotteryDraw.status,
+                LotteryDraw.cancelled_snapshot,
+            ).where(LotteryDraw.id == draw_id)
         )
     ).one_or_none()
     if draw is None:
         raise NotFoundException(_DRAW_NOT_FOUND.format(draw_id=draw_id))
 
-    result = await db.execute(
-        select(LotteryTicket.ticket_number, LotteryTicket.user_id, LotteryTicket.source).where(
-            LotteryTicket.draw_id == draw_id
+    cancelled = draw.status == LotteryDrawStatus.CANCELLED.value
+    if cancelled:
+        body = draw.cancelled_snapshot or ""
+    else:
+        result = await db.execute(
+            select(LotteryTicket.ticket_number, LotteryTicket.user_id, LotteryTicket.source).where(
+                LotteryTicket.draw_id == draw_id
+            )
         )
-    )
-    rows: list[tuple[int, int, str]] = []
-    for r in result:
-        if r.ticket_number is None:
-            # Stamped into this draw yet unnumbered. Unreachable while only ``commit_draw`` writes
-            # tickets, and load-bearing from the step where clean (unnumbered) tickets start to
-            # exist: it means the snapshot lost the very identifier the published hash is taken
-            # over. Same alarm as the hash mismatch below, and the same refusal — a list we cannot
-            # number is, from outside, indistinguishable from a faked one.
-            raise ConflictException(_SNAPSHOT_TAMPERED.format(period=draw.period))
-        rows.append((r.ticket_number, r.user_id, r.source))
+        rows: list[tuple[int, int, str]] = []
+        for r in result:
+            if r.ticket_number is None:
+                # Stamped into this draw yet unnumbered: the snapshot lost the very identifier the
+                # published hash is taken over. Same alarm as the hash mismatch below, and the same
+                # refusal — a list we cannot number is, from outside, indistinguishable from a faked
+                # one.
+                raise ConflictException(_SNAPSHOT_TAMPERED.format(draw_number=draw.draw_number))
+            rows.append((r.ticket_number, r.user_id, r.source))
+        body = canonical_snapshot(rows)
 
-    body = canonical_snapshot(rows)
     if sha256(body.encode("utf-8")).hexdigest() != draw.participant_hash:
-        raise ConflictException(_SNAPSHOT_TAMPERED.format(period=draw.period))
+        raise ConflictException(_SNAPSHOT_TAMPERED.format(draw_number=draw.draw_number))
 
-    return ExportOutcome(period=draw.period, body=body)
+    return ExportOutcome(draw_number=draw.draw_number, body=body, cancelled=cancelled)
 
 
 @dataclass(frozen=True)
@@ -374,6 +564,19 @@ class DrawResult:
     prize_label: str | None
 
 
+def draw_label(draw_number: int) -> str:
+    """How a draw is named to a member: "№3".
+
+    ⚠️ This is what the field still called ``period`` carries until step 5 rewrites the card. The
+    name lies for one step and the contract does not: the member-facing strings interpolate it as
+    "Вы участвуете в розыгрыше {period}", so a label reads correctly in RU and UZ with no frontend
+    change at all. Renaming the field here instead would break the mini-app bundle already cached in
+    the Telegram clients of members who have not reloaded — and when that bundle updates is not
+    something we control.
+    """
+    return f"№{draw_number}"
+
+
 @dataclass(frozen=True)
 class MyTicketsOutcome:
     """What the member sees about their own participation.
@@ -386,7 +589,7 @@ class MyTicketsOutcome:
 
     tickets: int
     is_frozen: bool
-    period: str | None
+    period: str | None  # the draw label, see :func:`draw_label`
     prize_label: str | None
     result: DrawResult | None
 
@@ -396,37 +599,43 @@ _NO_TICKETS = MyTicketsOutcome(
 )
 
 
-async def get_my_tickets(
-    db: AsyncSession, *, telegram_id: int, as_of: datetime | None = None
-) -> MyTicketsOutcome:
-    """One member's participation: frozen tickets if a draw is committed, prospective otherwise.
+async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutcome:
+    """One member's participation: their stake in the live draw, or the tickets they hold now.
 
     Read-only. Never creates a ``users`` or ``customer_profile`` row — merely opening the card must
     cost nothing, the same rule :func:`~src.loyalty.service.get_loyalty_summary` follows. A user who
     never joined is not an error: they get zero tickets and the card explains how to earn one.
 
-    **Prospective and frozen counts are never conflated.** Before the freeze no ``lottery_tickets``
-    rows exist, so the number is recomputed from the profile and can still change on its own (an
-    activation ages out of the 30-day window). After the freeze it is fixed. The caller is told
-    which one it holds via ``is_frozen``, because "2 tickets" quietly becoming "1" without that
-    distinction reads to a member as tickets being taken away.
+    **Nothing is recomputed from the profile any more.** A ticket is a row the member owns, so both
+    numbers below are counts of rows: stamped into the live draw, or still clean. The distinction is
+    reported through ``is_frozen`` because "2 tickets" quietly becoming "1" without it reads to a
+    member as tickets being taken away.
 
-    After a draw is drawn the member gets BOTH its outcome and a prospective count for the next
-    period: showing a bare zero to someone who is already accumulating again would say they are out.
+    **Cancelled draws are skipped entirely.** Taking simply the latest draw would let a cancelled one
+    hide the result of the draw before it — the member would open the card after a cancellation and
+    see nothing where their prize used to be.
 
-    ``as_of`` is injectable exactly as in :func:`commit_draw`, so the count never depends on the
-    machine clock in tests.
+    ⚠️ Known gap until step 5 rewrites the card: while a draw is live the top block shows the stake
+    in it and NOT the tickets earned since the freeze, which do exist and are clean. Adding a field
+    for them here would ship a field nothing renders.
+
+    No ``as_of`` any more: it existed to date the 30-day activation window, and with the window gone
+    nothing in this read depends on the clock.
     """
-    as_of = as_of or utc_now()
-
     user = await get_user_by_telegram_id(db, telegram_id)
     if user is None:
         return _NO_TICKETS
 
     latest = (
         await db.execute(
-            select(LotteryDraw.id, LotteryDraw.period, LotteryDraw.status, LotteryDraw.prize_label)
-            .order_by(LotteryDraw.period.desc())
+            select(
+                LotteryDraw.id,
+                LotteryDraw.draw_number,
+                LotteryDraw.status,
+                LotteryDraw.prize_label,
+            )
+            .where(LotteryDraw.status != LotteryDrawStatus.CANCELLED.value)
+            .order_by(LotteryDraw.draw_number.desc())
             .limit(1)
         )
     ).one_or_none()
@@ -442,7 +651,7 @@ async def get_my_tickets(
         return MyTicketsOutcome(
             tickets=int(frozen),
             is_frozen=True,
-            period=latest.period,
+            period=draw_label(latest.draw_number),
             prize_label=latest.prize_label,
             result=None,
         )
@@ -463,24 +672,22 @@ async def get_my_tickets(
         if rows:
             ranks = [r.prize_rank for r in rows if r.is_winner and r.prize_rank is not None]
             result = DrawResult(
-                period=latest.period,
+                period=draw_label(latest.draw_number),
                 tickets=len(rows),
                 won=any(r.is_winner for r in rows),
                 prize_rank=min(ranks, default=None),
                 prize_label=latest.prize_label,
             )
 
-    # NOTE: `record_winners` lives at the end of this module; see it for the draw's terminal
-    # transition. Everything that is not a committed draw falls through to the prospective count —
-    # including
-    # the `open` status, which nothing writes today (`commit_draw` creates rows already committed)
-    # and which PR-5.7 will make real. Falling through is the right answer for it: a draw that has
-    # not run yet has no outcome to report, so the member simply sees what they currently hold.
-    profile = (
-        await db.execute(select(CustomerProfile).where(CustomerProfile.user_id == user.id))
-    ).scalar_one_or_none()
+    clean = (
+        await db.execute(
+            select(func.count())
+            .select_from(LotteryTicket)
+            .where(LotteryTicket.user_id == user.id, LotteryTicket.draw_id.is_(None))
+        )
+    ).scalar_one()
     return MyTicketsOutcome(
-        tickets=compute_ticket_count(profile, as_of=as_of),
+        tickets=int(clean),
         is_frozen=False,
         period=None,
         prize_label=None,
@@ -504,14 +711,14 @@ class DrawOutcome:
     """Result of closing a draw — primitives only, safe to read after the transaction closes."""
 
     draw_id: int
-    period: str
+    draw_number: int
     status: str
     drawn_at: datetime
     winners: tuple[WinnerRow, ...]
 
 
 _NOT_COMMITTED = (
-    "Розыгрыш {period} нельзя разыграть: он в состоянии «{status}». Разыгрывается только "
+    "Розыгрыш №{draw_number} нельзя разыграть: он в состоянии «{status}». Разыгрывается только "
     "замороженный тираж, и только один раз."
 )
 _NUMBER_OUT_OF_RANGE = "Номер {number} вне диапазона 1..{total} — проверьте, что назвали."
@@ -521,10 +728,16 @@ _ALREADY_WON = (
     "человек забирает один приз — крутите барабан ещё раз. Ничего не записано."
 )
 _SNAPSHOT_INCOMPLETE = (
-    "В снимке розыгрыша {period} нет билетов с номерами {numbers}, хотя они в диапазоне. "
+    "В снимке розыгрыша №{draw_number} нет билетов с номерами {numbers}, хотя они в диапазоне. "
     "Снимок повреждён — записывать победителей нельзя."
 )
-_LOST_RACE = "Розыгрыш {period} только что закрыл другой администратор. Ничего не записано."
+# One message for two outcomes on purpose: by the time we read the row again it is either drawn or
+# cancelled, and both mean the same thing to the administrator holding a list of numbers — this
+# call wrote nothing. Naming only one of them would state a fact we did not check.
+_LOST_RACE = (
+    "Розыгрыш №{draw_number} только что закрыл или отменил другой администратор. "
+    "Ничего не записано."
+)
 
 
 async def record_winners(
@@ -561,7 +774,10 @@ async def record_winners(
     draw = (
         await db.execute(
             select(
-                LotteryDraw.id, LotteryDraw.period, LotteryDraw.status, LotteryDraw.total_tickets
+                LotteryDraw.id,
+                LotteryDraw.draw_number,
+                LotteryDraw.status,
+                LotteryDraw.total_tickets,
             ).where(LotteryDraw.id == draw_id)
         )
     ).one_or_none()
@@ -570,7 +786,9 @@ async def record_winners(
         raise NotFoundException(_DRAW_NOT_FOUND.format(draw_id=draw_id))
     if draw.status != LotteryDrawStatus.COMMITTED.value:
         await db.rollback()
-        raise ConflictException(_NOT_COMMITTED.format(period=draw.period, status=draw.status))
+        raise ConflictException(
+            _NOT_COMMITTED.format(draw_number=draw.draw_number, status=draw.status)
+        )
 
     seen: set[int] = set()
     for number in winning_numbers:
@@ -600,7 +818,9 @@ async def record_winners(
         # snapshot lost rows after the freeze. Same class of alarm as the export guard.
         missing = sorted(seen - by_number.keys())
         await db.rollback()
-        raise ConflictException(_SNAPSHOT_INCOMPLETE.format(period=draw.period, numbers=missing))
+        raise ConflictException(
+            _SNAPSHOT_INCOMPLETE.format(draw_number=draw.draw_number, numbers=missing)
+        )
 
     winners: list[WinnerRow] = []
     owners: set[int] = set()
@@ -644,12 +864,12 @@ async def record_winners(
     ).one_or_none()
     if transition is None:
         await db.rollback()
-        raise ConflictException(_LOST_RACE.format(period=draw.period))
+        raise ConflictException(_LOST_RACE.format(draw_number=draw.draw_number))
 
     await db.commit()
     return DrawOutcome(
         draw_id=draw_id,
-        period=draw.period,
+        draw_number=draw.draw_number,
         status=LotteryDrawStatus.DRAWN.value,
         drawn_at=as_of,
         winners=tuple(winners),

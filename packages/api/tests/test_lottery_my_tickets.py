@@ -1,30 +1,31 @@
-"""My tickets (Stage 5, PR-5.5): what a member sees about their own participation.
+"""My tickets (Stage 5): what a member sees about their own participation.
 
-The load-bearing decision under test is that a PROSPECTIVE count and a FROZEN one are never
-conflated. Before the freeze there are no ``lottery_tickets`` rows at all, so the number is
-recomputed and may still change; after the freeze it is fixed. Every state therefore asserts the
-shape invariants from the spec, not merely the number.
+The load-bearing decision under test is that the stake in a LIVE draw and the tickets a member holds
+NOW are never conflated. While a draw is frozen the number is what they have in it; otherwise it is
+their clean tickets. Every state asserts the shape invariants from the spec, not merely the number.
+
+Since step 3 both numbers are counts of rows the member owns — nothing is recomputed from a profile,
+so nothing here depends on the clock any more.
 
 Seeding and freezing cannot share the ``test_db`` session (``commit_draw`` owns an explicit
 transaction) - a second sessionmaker is used, as in ``test_lottery_commit.py``.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-import pytest
 import pytest_asyncio
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
-from src.loyalty.lottery import commit_draw, get_my_tickets, period_of
+from src.loyalty.lottery import cancel_draw, commit_draw, record_winners
 from src.loyalty.models import (
     CustomerProfile,
     Gender,
     LotteryDraw,
     LotteryDrawStatus,
     LotteryTicket,
-    LoyaltyStatus,
+    LotteryTicketSource,
 )
 from src.users.models import User
 from tests.conftest import _make_init_data
@@ -51,29 +52,33 @@ async def _seed_member(
     sm: async_sessionmaker[AsyncSession],
     telegram_id: int,
     *,
-    status: LoyaltyStatus = LoyaltyStatus.NEWBIE,
+    tickets: int = 1,
     gender: Gender | None = Gender.MALE,
     age: int | None = 30,
     city: str | None = "Ташкент",
     is_adult: bool = False,
-    activated_ago: timedelta | None = timedelta(days=2),
 ) -> int:
-    """Commit a member (eligible by default); returns user id."""
+    """Commit an eligible member holding ``tickets`` clean tickets; returns user id."""
+    sources = (
+        LotteryTicketSource.SURVEY.value,
+        LotteryTicketSource.FRIEND.value,
+        LotteryTicketSource.ACTIVATION.value,
+    )
     async with sm() as s, s.begin():
         user = User(telegram_id=telegram_id, first_name="Member")
         s.add(user)
         await s.flush()
         s.add(
             CustomerProfile(
-                user_id=user.id,
-                gender=gender,
-                age=age,
-                city=city,
-                is_adult=is_adult,
-                status=status,
-                last_activation_at=None if activated_ago is None else _now() - activated_ago,
+                user_id=user.id, gender=gender, age=age, city=city, is_adult=is_adult
             )
         )
+        for source in sources[:tickets]:
+            s.add(
+                LotteryTicket(
+                    user_id=user.id, draw_id=None, ticket_number=None, source=source
+                )
+            )
         return user.id
 
 
@@ -86,16 +91,21 @@ async def _seed_user_without_profile(sm: async_sessionmaker[AsyncSession], teleg
         return user.id
 
 
-async def _freeze(sm: async_sessionmaker[AsyncSession], *, prize: str | None = None) -> str:
-    """Freeze the current period; returns the period label."""
-    period = period_of(_now())
+async def _freeze(
+    sm: async_sessionmaker[AsyncSession], *, expected: int, prize: str | None = None
+) -> str:
+    """Freeze every eligible clean ticket; returns the label the member sees («№1»)."""
     async with sm() as s:
-        await commit_draw(s, period=period, prize_label=prize, as_of=_now())
-    return period
+        outcome = await commit_draw(s, expected_tickets=expected, prize_label=prize)
+    return f"№{outcome.draw_number}"
 
 
 async def _mark_drawn(sm: async_sessionmaker[AsyncSession], *, winner_number: int | None) -> None:
-    """Finish the draw by hand - ``record_winners`` belongs to PR-5.4b and does not exist yet."""
+    """Finish the draw by hand: these tests are about the CARD, not about recording winners.
+
+    ``record_winners`` exists and is covered in ``test_lottery_winners.py``; going through it here
+    would drag its own refusals into every reading of the card.
+    """
     async with sm() as s, s.begin():
         await s.execute(
             update(LotteryDraw).values(status=LotteryDrawStatus.DRAWN.value, drawn_at=_now())
@@ -106,6 +116,28 @@ async def _mark_drawn(sm: async_sessionmaker[AsyncSession], *, winner_number: in
                 .where(LotteryTicket.ticket_number == winner_number)
                 .values(is_winner=True, prize_rank=1)
             )
+
+
+async def _give_clean_ticket(sm: async_sessionmaker[AsyncSession], user_id: int) -> None:
+    """A ticket earned after the freeze — clean, waiting for the next draw."""
+    async with sm() as s, s.begin():
+        s.add(
+            LotteryTicket(
+                user_id=user_id,
+                draw_id=None,
+                ticket_number=None,
+                source=LotteryTicketSource.ACTIVATION.value,
+            )
+        )
+
+
+async def _user_id(sm: async_sessionmaker[AsyncSession], telegram_id: int) -> int:
+    async with sm() as s:
+        return int(
+            (
+                await s.execute(select(User.id).where(User.telegram_id == telegram_id))
+            ).scalar_one()
+        )
 
 
 def _headers(telegram_id: int, name: str = "Member") -> dict[str, str]:
@@ -143,13 +175,13 @@ def _assert_invariants(body: dict) -> None:
 async def test_no_draw_yet_shows_prospective_count(client, maker, monkeypatch) -> None:
     """No draw exists yet, so the count is prospective and nothing is frozen."""
     _enable(monkeypatch)
-    await _seed_member(maker, 92001, status=LoyaltyStatus.BIOTACT_FRIEND)
+    await _seed_member(maker, 92001, tickets=2)
 
     resp = await client.get(URL, headers=_headers(92001))
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["tickets"] == 2  # survey (1) + friend (+1)
+    assert body["tickets"] == 2  # two clean tickets, held by the member and not yet in a draw
     assert body["is_frozen"] is False
     assert body["period"] is None
     assert body["prize_label"] is None
@@ -160,8 +192,8 @@ async def test_no_draw_yet_shows_prospective_count(client, maker, monkeypatch) -
 async def test_committed_draw_shows_frozen_count(client, maker, monkeypatch) -> None:
     """Once frozen, the number comes from the stored rows and participation is fixed."""
     _enable(monkeypatch)
-    await _seed_member(maker, 92011, status=LoyaltyStatus.BIOTACT_FRIEND)
-    period = await _freeze(maker, prize="Аэрогриль")
+    await _seed_member(maker, 92011, tickets=2)
+    label = await _freeze(maker, expected=2, prize="Аэрогриль")
 
     resp = await client.get(URL, headers=_headers(92011))
 
@@ -169,7 +201,7 @@ async def test_committed_draw_shows_frozen_count(client, maker, monkeypatch) -> 
     body = resp.json()
     assert body["tickets"] == 2
     assert body["is_frozen"] is True
-    assert body["period"] == period
+    assert body["period"] == label
     assert body["prize_label"] == "Аэрогриль"
     assert body["result"] is None
     _assert_invariants(body)
@@ -184,9 +216,10 @@ async def test_drawn_carries_both_the_result_and_a_fresh_prospective_count(
     a finished draw would say they are out, while they are already accumulating for next month.
     """
     _enable(monkeypatch)
-    await _seed_member(maker, 92021, status=LoyaltyStatus.BIOTACT_FRIEND)
-    period = await _freeze(maker, prize="Аэрогриль")
+    member = await _seed_member(maker, 92021, tickets=2)
+    label = await _freeze(maker, expected=2, prize="Аэрогриль")
     await _mark_drawn(maker, winner_number=1)
+    await _give_clean_ticket(maker, member)  # earned after the draw closed
 
     resp = await client.get(URL, headers=_headers(92021))
 
@@ -195,11 +228,11 @@ async def test_drawn_carries_both_the_result_and_a_fresh_prospective_count(
     # top block: prospective, about the NEXT draw
     assert body["is_frozen"] is False
     assert body["period"] is None
-    assert body["tickets"] == 2, "the prospective count must not vanish after a draw"
+    assert body["tickets"] == 1, "what they hold now: the ticket earned after the draw"
     # bottom block: about the finished one
     result = body["result"]
     assert result is not None
-    assert result["period"] == period
+    assert result["period"] == label
     assert result["tickets"] == 2
     assert result["won"] is True
     assert result["prize_rank"] == 1
@@ -217,7 +250,7 @@ async def test_someone_who_was_not_in_the_draw_is_not_told_they_lost(
     """
     _enable(monkeypatch)
     await _seed_member(maker, 92071)  # was in the snapshot
-    await _freeze(maker)
+    await _freeze(maker, expected=1)
     await _mark_drawn(maker, winner_number=1)
     await _seed_member(maker, 92072)  # joined after the freeze - never in that draw
 
@@ -236,7 +269,7 @@ async def test_drawn_without_a_win_reports_a_loss_not_an_absence(
     """Losing is an OUTCOME, not a missing outcome: result is present with won=False."""
     _enable(monkeypatch)
     await _seed_member(maker, 92031)
-    await _freeze(maker)
+    await _freeze(maker, expected=1)
     await _mark_drawn(maker, winner_number=None)
 
     resp = await client.get(URL, headers=_headers(92031))
@@ -256,9 +289,9 @@ async def test_drawn_without_a_win_reports_a_loss_not_an_absence(
 async def test_each_member_sees_only_their_own_tickets(client, maker, monkeypatch) -> None:
     """Two members in one draw: each sees their own number, not the sum and not the other's."""
     _enable(monkeypatch)
-    await _seed_member(maker, 92041, status=LoyaltyStatus.BIOTACT_FRIEND)  # 2 tickets
-    await _seed_member(maker, 92042)  # 1 ticket
-    await _freeze(maker)
+    await _seed_member(maker, 92041, tickets=2)
+    await _seed_member(maker, 92042, tickets=1)
+    await _freeze(maker, expected=3)
 
     friend = (await client.get(URL, headers=_headers(92041))).json()
     newbie = (await client.get(URL, headers=_headers(92042))).json()
@@ -309,88 +342,89 @@ async def test_user_without_a_profile_gets_a_zero_answer(client, maker, monkeypa
 
 
 # --------------------------------------------------------------------------- #
-# Prospective count must equal the shipped ticket formula
+# What the number means now: rows the member owns
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize(
-    ("status", "gender", "age", "city", "is_adult", "activated_ago", "expected"),
-    [
-        pytest.param(
-            LoyaltyStatus.NEWBIE, Gender.MALE, 30, "Ташкент", False, timedelta(days=2), 1,
-            id="survey_plus_age_over_18_plus_fresh_activation",
-        ),
-        pytest.param(
-            LoyaltyStatus.BIOTACT_FRIEND, Gender.MALE, 30, "Ташкент", False, timedelta(days=2), 2,
-            id="friend_gets_a_second_ticket",
-        ),
-        pytest.param(
-            LoyaltyStatus.NEWBIE, Gender.MALE, None, "Ташкент", True, timedelta(days=2), 1,
-            id="no_age_so_the_checkbox_decides",
-        ),
-        pytest.param(
-            LoyaltyStatus.NEWBIE, Gender.MALE, None, "Ташкент", False, timedelta(days=2), 0,
-            id="no_age_and_no_checkbox",
-        ),
-        pytest.param(
-            LoyaltyStatus.NEWBIE, Gender.MALE, 15, "Ташкент", True, timedelta(days=2), 0,
-            id="age_15_checkbox_does_not_override_data",
-        ),
-        pytest.param(
-            LoyaltyStatus.NEWBIE, Gender.MALE, 30, None, False, timedelta(days=2), 0,
-            id="no_city_survey_incomplete",
-        ),
-        pytest.param(
-            LoyaltyStatus.NEWBIE, None, 30, "Ташкент", False, timedelta(days=2), 0,
-            id="no_gender_survey_incomplete",
-        ),
-        pytest.param(
-            LoyaltyStatus.NEWBIE, Gender.MALE, 30, "Ташкент", False, timedelta(days=31), 0,
-            id="activation_older_than_30_days",
-        ),
-        pytest.param(
-            LoyaltyStatus.NEWBIE, Gender.MALE, 30, "Ташкент", False, None, 0,
-            id="never_activated",
-        ),
-    ],
-)
-async def test_prospective_count_matches_the_ticket_formula(
-    client, maker, monkeypatch, status, gender, age, city, is_adult, activated_ago, expected
+async def test_the_count_is_the_members_clean_tickets_not_a_recount(
+    client, maker, monkeypatch
 ) -> None:
-    """The prospective count must equal the shipped formula, not live a life of its own."""
+    """Eligibility is not recomputed for the card: a ticket earned is a ticket shown.
+
+    The member below no longer qualifies — their city is gone — and they still see the ticket they
+    earned, because it is theirs. What it does NOT do is play: the freeze leaves it clean (asserted
+    in ``test_lottery_freeze.py``). Step 5 adds the sentence explaining that to them.
+    """
     _enable(monkeypatch)
-    await _seed_member(
-        maker,
-        92100,
-        status=status,
-        gender=gender,
-        age=age,
-        city=city,
-        is_adult=is_adult,
-        activated_ago=activated_ago,
-    )
+    await _seed_member(maker, 92100, tickets=2, city=None)
 
     body = (await client.get(URL, headers=_headers(92100))).json()
 
-    assert body["tickets"] == expected
+    assert body["tickets"] == 2
     assert body["is_frozen"] is False
 
 
+async def test_a_live_draw_shows_the_stake_in_it(client, maker, monkeypatch) -> None:
+    """While a draw is frozen the number is participation in THAT draw, and it cannot change.
+
+    ⚠️ Known gap until step 5: the ticket earned after the freeze is real, clean and NOT shown here.
+    Pinned deliberately — when the card is rewritten this assertion has to be revisited, not
+    silently satisfied.
+    """
+    _enable(monkeypatch)
+    member = await _seed_member(maker, 92110, tickets=1)
+    await _freeze(maker, expected=1)
+    await _give_clean_ticket(maker, member)
+
+    body = (await client.get(URL, headers=_headers(92110))).json()
+
+    assert body["tickets"] == 1
+    assert body["is_frozen"] is True
+
+
 # --------------------------------------------------------------------------- #
-# Service level - deterministic as_of
+# A cancelled draw must not hide the one before it
 # --------------------------------------------------------------------------- #
 
 
-async def test_service_honours_an_injected_as_of(test_db: AsyncSession, maker) -> None:
-    """``as_of`` is injectable as in ``commit_draw``: the count does not depend on the wall clock."""
-    await _seed_member(maker, 92200, activated_ago=timedelta(days=20))
+async def test_a_cancelled_draw_is_skipped_in_favour_of_the_last_real_one(
+    client, maker, monkeypatch
+) -> None:
+    """Taking simply the latest draw would erase a member's prize the moment a later one is cancelled.
 
+    Sequence: draw №1 is held and won, draw №2 is frozen and then cancelled. The member must still
+    see the result of №1 — and their released ticket back in hand.
+    """
+    _enable(monkeypatch)
+    await _seed_member(maker, 92120, tickets=1)
+    first_label = await _freeze(maker, expected=1, prize="Аэрогриль")
     async with maker() as s:
-        fresh = await get_my_tickets(s, telegram_id=92200, as_of=_now())
-        stale = await get_my_tickets(s, telegram_id=92200, as_of=_now() + timedelta(days=15))
+        first = (
+            await s.execute(select(LotteryDraw.id).order_by(LotteryDraw.draw_number))
+        ).scalar_one()
+    async with maker() as s:
+        await record_winners(s, draw_id=first, winning_numbers=[1])
 
-    assert fresh.tickets == 1
-    assert stale.tickets == 0, "35 days after the activation the ticket is no longer earned"
+    await _give_clean_ticket(maker, (await _user_id(maker, 92120)))
+    await _freeze(maker, expected=1)
+    async with maker() as s:
+        second = (
+            await s.execute(
+                select(LotteryDraw.id)
+                .where(LotteryDraw.status == LotteryDrawStatus.COMMITTED.value)
+            )
+        ).scalar_one()
+    async with maker() as s:
+        await cancel_draw(s, draw_id=second)
+
+    body = (await client.get(URL, headers=_headers(92120))).json()
+
+    assert body["is_frozen"] is False, "the cancelled draw is not a live one"
+    assert body["result"] is not None, "the win in №1 must not disappear behind a cancelled №2"
+    assert body["result"]["period"] == first_label
+    assert body["result"]["won"] is True
+    assert body["tickets"] == 1, "the released ticket is clean again and back in hand"
+    _assert_invariants(body)
 
 
 # --------------------------------------------------------------------------- #

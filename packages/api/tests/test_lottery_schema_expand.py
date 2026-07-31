@@ -14,11 +14,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
-from src.loyalty.lottery import commit_draw
 from src.loyalty.models import (
     CustomerProfile,
     Gender,
     LotteryDraw,
+    LotteryDrawStatus,
     LotteryTicket,
     LoyaltyStatus,
 )
@@ -56,40 +56,35 @@ async def _seed_member(sm: async_sessionmaker[AsyncSession], telegram_id: int) -
         return user.id
 
 
-async def test_unchanged_commit_draw_still_works_and_gets_a_number_from_the_database(
+async def test_draw_numbers_come_from_the_database_identity(
     test_db: AsyncSession, maker
 ) -> None:
-    """The pre-step-3 freeze knows nothing about ``draw_number`` — the database supplies it.
+    """A writer that never mentions ``draw_number`` still gets one, and the numbers increase.
 
-    This is the compatibility guarantee of the whole EXPAND phase in one assertion. ``commit_draw``
-    is untouched by this PR: it inserts a draw naming ``period``, ``status``, ``total_tickets`` and
-    the hash, and never mentions ``draw_number``. If the column needed the writer's help, every
-    freeze between this step and step 3 would fail — and so would this test.
+    Written against the TABLE rather than through the freeze on purpose: this file is about the
+    schema, and the freeze has its own tests. Two rows, because a single one cannot show where the
+    number came from — an identity sequence keeps handing out increasing values, which is what the
+    contract phase promotes to NOT NULL and what ``MAX + 1`` could not promise under concurrency.
 
-    Two draws, because a single one cannot show where the number comes from: values handed out by
-    an identity sequence keep increasing across rows, which is what the contract phase will later
-    promote to NOT NULL and what ``MAX + 1`` under concurrency could not promise.
+    The rows are inserted as ``drawn``: at most one draw may be ``committed`` at a time, and that is
+    a different guarantee, tested where it belongs.
     """
-    await _seed_member(maker, 96001)
-
-    async with maker() as s:
-        first = await commit_draw(s, period="2026-07", as_of=AS_OF)
-    async with maker() as s:
-        second = await commit_draw(s, period="2026-08", as_of=AS_OF)
+    async with maker() as s, s.begin():
+        s.add_all(
+            [
+                LotteryDraw(period=None, status=LotteryDrawStatus.DRAWN.value, total_tickets=0),
+                LotteryDraw(period=None, status=LotteryDrawStatus.DRAWN.value, total_tickets=0),
+            ]
+        )
 
     async with maker() as s:
         numbers = (
-            (
-                await s.execute(
-                    select(LotteryDraw.draw_number).order_by(LotteryDraw.id)
-                )
-            )
+            (await s.execute(select(LotteryDraw.draw_number).order_by(LotteryDraw.id)))
             .scalars()
             .all()
         )
 
-    assert first.draw_id != second.draw_id
-    assert None not in numbers, "identity default did not fire — the pre-step-3 writer is broken"
+    assert None not in numbers, "identity default did not fire"
     assert numbers[1] > numbers[0], "numbers must come from a sequence, not from a constant"
 
 
