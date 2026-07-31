@@ -156,7 +156,7 @@
       "lost": "Bu safar omad kulib boqmadi",
       "resultPeriod": "{period} o'yini",
       "numbers": "Sizning raqamlaringiz: {numbers}",
-      "waiting": "Yana {count} {unit} keyingi o'yinni kutmoqda",
+      "waiting": "Keyingi o'yinni kutmoqda: {count} {unit}",
       "blockedSurvey": "Chipta o'ynashi uchun so'rovnomani to'ldiring",
       "blockedAge": "Chipta o'ynashi uchun 18 yoshga to'lganingizni tasdiqlang",
       "blockedOther": "Chipta hozircha o'yinda qatnashmaydi"

@@ -33,17 +33,26 @@ export function TicketsCard() {
     return null;
   }
 
-  const { tickets, isFrozen, period, prizeLabel, result, numbers, cleanTickets, notPlayingReason } =
-    data;
+  // `tickets` is deliberately NOT destructured: the legacy field still ships for bundles that have
+  // not updated yet, but this card reads the two numbers it actually means — stamped and in hand.
+  const { isFrozen, period, prizeLabel, result, numbers, cleanTickets, notPlayingReason } = data;
 
   const unit = (count: number) => t(`profile.tickets.unit.${pluralKey(count)}`);
 
-  // A frozen stake is decided; tickets in hand are waiting. Nothing expires on its own any more —
+  // Two different things a member can hold, and the card must not confuse them: tickets STAMPED
+  // into the draw on screen, and tickets in hand waiting for the next freeze. Someone who joined
+  // after the freeze has zero of the first and may have two of the second — reading `tickets`
+  // alone told them "you have none, go earn one" while their two tickets sat right there.
+  const stamped = numbers.length;
+  const shownCount = stamped > 0 ? stamped : cleanTickets;
+
+  // A stamped stake is decided; tickets in hand are waiting. Nothing expires on its own any more —
   // the 30-day window went away with the old model — so the live wording no longer warns about a
   // number that might shrink.
-  const state = isFrozen
-    ? t('profile.tickets.frozen', { period: period ?? '' })
-    : t('profile.tickets.prospective');
+  const state =
+    stamped > 0 && isFrozen
+      ? t('profile.tickets.frozen', { period: period ?? '' })
+      : t('profile.tickets.prospective');
 
   return (
     <motion.section
@@ -57,17 +66,14 @@ export function TicketsCard() {
           <Ticket size={16} className="text-[var(--primary)]" />
         </div>
 
-        {/* `tickets > 0` alone sent a member whose draw had just been drawn into the "you have
-            none" branch — hiding the very numbers they need to check the published list, and
-            telling them to go earn a ticket while their result sat right below. */}
-        {tickets > 0 || numbers.length > 0 ? (
+        {shownCount > 0 ? (
           <>
             <div className="flex items-baseline gap-1.5">
               <span data-testid="tickets-count" className="text-2xl font-bold">
-                {tickets}
+                {shownCount}
               </span>
               <span data-testid="tickets-unit" className="text-sm text-[var(--text-muted)]">
-                {unit(tickets)}
+                {unit(shownCount)}
               </span>
             </div>
 
@@ -94,14 +100,14 @@ export function TicketsCard() {
             will not play at all — and then the reason REPLACES the promise. Telling someone whose
             survey is incomplete that "one more waits for the next draw" is a quiet refusal dressed
             as good news: without the survey it will not play then either. */}
-        {cleanTickets > 0 && isFrozen && (
+        {cleanTickets > 0 && stamped > 0 && (
           <p data-testid="tickets-waiting" className="text-xs text-[var(--text-muted)]">
             {notPlayingReason
               ? t(blockedKey(notPlayingReason))
               : t('profile.tickets.waiting', { count: cleanTickets, unit: unit(cleanTickets) })}
           </p>
         )}
-        {cleanTickets > 0 && !isFrozen && notPlayingReason && (
+        {cleanTickets > 0 && stamped === 0 && notPlayingReason && (
           <p data-testid="tickets-blocked" className="text-sm text-[var(--text-secondary)]">
             {t(blockedKey(notPlayingReason))}
           </p>

@@ -83,7 +83,9 @@ describe('TicketsCard', () => {
   });
 
   it('explains how to earn one when the member has no tickets', async () => {
-    getMyTicketsMock.mockResolvedValue({ ...prospective, tickets: 0 });
+    // Outside a frozen draw the API keeps `tickets` and `clean_tickets` equal — a fixture that
+    // splits them describes a response the server never sends.
+    getMyTicketsMock.mockResolvedValue({ ...prospective, tickets: 0, cleanTickets: 0 });
     renderCard(<TicketsCard />);
 
     expect(await screen.findByTestId('tickets-howto')).toBeInTheDocument();
@@ -94,6 +96,7 @@ describe('TicketsCard', () => {
     getMyTicketsMock.mockResolvedValue({
       ...prospective,
       tickets: 1,
+      cleanTickets: 1,
       result: {
         period: '2026-07',
         tickets: 2,
@@ -204,7 +207,7 @@ describe('TicketsCard — step 5: numbers, tickets in hand, and why they will no
 
     const waiting = await screen.findByTestId('tickets-waiting');
     expect(waiting.textContent).toMatch(/анкету/);
-    expect(waiting.textContent).not.toMatch(/ждёт следующего/);
+    expect(waiting.textContent).not.toMatch(/следующего розыгрыша/);
   });
 
   it('promises the next draw when the held ticket will actually play', async () => {
@@ -212,7 +215,7 @@ describe('TicketsCard — step 5: numbers, tickets in hand, and why they will no
     renderCard(<TicketsCard />);
 
     const waiting = await screen.findByTestId('tickets-waiting');
-    expect(waiting.textContent).toMatch(/ждёт следующего розыгрыша/);
+    expect(waiting.textContent).toMatch(/Ждут следующего розыгрыша/);
     expect(waiting.textContent).toContain('1 билет');
   });
 
@@ -249,5 +252,52 @@ describe('TicketsCard — step 5: numbers, tickets in hand, and why they will no
     getMyTicketsMock.mockResolvedValue({ ...prospective, tickets: 5, cleanTickets: 5 });
     renderCard(<TicketsCard />);
     expect((await screen.findByTestId('tickets-unit')).textContent).toBe('билетов');
+  });
+});
+
+describe('TicketsCard — holding tickets while someone else’s draw is running', () => {
+  beforeEach(() => {
+    getMyTicketsMock.mockReset();
+  });
+
+  it('counts the tickets in hand when the member missed the freeze entirely', async () => {
+    // Joined after the freeze: nothing stamped, two tickets earned since. Reading the legacy
+    // `tickets` alone told them "you have none, go earn one" while both tickets sat right there,
+    // and the waiting line contradicted it two rows below. Caught by /review, not by a test.
+    getMyTicketsMock.mockResolvedValue({
+      ...base,
+      tickets: 0,
+      isFrozen: true,
+      period: '№3',
+      prizeLabel: null,
+      result: null,
+      numbers: [],
+      cleanTickets: 2,
+    });
+    renderCard(<TicketsCard />);
+
+    expect((await screen.findByTestId('tickets-count')).textContent).toBe('2');
+    expect(screen.getByTestId('tickets-unit').textContent).toBe('билета');
+    expect(screen.queryByTestId('tickets-howto')).toBeNull();
+    // The count already IS the tickets in hand — repeating "two more are waiting" would double them.
+    expect(screen.queryByTestId('tickets-waiting')).toBeNull();
+    expect(screen.getByTestId('tickets-state').textContent).toMatch(/ближайшем розыгрыше/);
+  });
+
+  it('explains the block instead of counting up to a draw the ticket cannot enter', async () => {
+    getMyTicketsMock.mockResolvedValue({
+      ...base,
+      tickets: 0,
+      isFrozen: true,
+      period: '№3',
+      prizeLabel: null,
+      result: null,
+      numbers: [],
+      cleanTickets: 1,
+      notPlayingReason: 'survey',
+    });
+    renderCard(<TicketsCard />);
+
+    expect((await screen.findByTestId('tickets-blocked')).textContent).toMatch(/анкету/);
   });
 });
