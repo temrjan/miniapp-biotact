@@ -72,8 +72,8 @@ async def test_draw_numbers_come_from_the_database_identity(
     async with maker() as s, s.begin():
         s.add_all(
             [
-                LotteryDraw(period=None, status=LotteryDrawStatus.DRAWN.value, total_tickets=0),
-                LotteryDraw(period=None, status=LotteryDrawStatus.DRAWN.value, total_tickets=0),
+                LotteryDraw(status=LotteryDrawStatus.DRAWN.value, total_tickets=0),
+                LotteryDraw(status=LotteryDrawStatus.DRAWN.value, total_tickets=0),
             ]
         )
 

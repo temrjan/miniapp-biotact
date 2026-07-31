@@ -167,13 +167,6 @@ class SurveyResponse(BaseModel):
     )
 
 
-# ⚠️ Dead since step 3, removed with the column in the contract phase (step 6): a freeze targets no
-# calendar month, so there is no period left to validate at the edge.
-DrawPeriod = Annotated[
-    str, StringConstraints(strip_whitespace=True, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
-]
-
-
 class CommitDrawRequest(BaseModel):
     """Body of ``POST /admin/lottery/commit`` — freeze the clean tickets into a new draw."""
 
@@ -337,13 +330,7 @@ class PrintListResponse(BaseModel):
 class DrawResultResponse(BaseModel):
     """How the previous draw ended for this member (``GET /loyalty/my-tickets``)."""
 
-    period: str = Field(
-        description=(
-            "Label of the draw that ended, «№3». Still named `period` until step 5 rewrites the "
-            "card: the member-facing strings interpolate it, and renaming the field would break "
-            "mini-app bundles already cached in members' Telegram clients."
-        )
-    )
+    draw_number: int = Field(ge=1, description="Which draw ended — the «№» is the client's to add")
     tickets: int = Field(ge=0, description="Tickets this member held in that draw")
     won: bool = Field(description="Whether any of their tickets was drawn")
     prize_rank: int | None = Field(
@@ -368,11 +355,14 @@ class MyTicketsResponse(BaseModel):
             "to the member MUST differ between the two — that distinction is the point."
         )
     )
-    period: str | None = Field(
+    draw_number: int | None = Field(
+        default=None,
+        ge=1,
         description=(
-            "Label of the live draw, «№3»; null exactly when is_frozen is false. Legacy field name — "
-            "see DrawResultResponse.period."
-        )
+            "The draw this response describes; null exactly when is_frozen is false. A NUMBER, not "
+            "a label: «розыгрыш №3» is a sentence, and sentences live in the client's i18n where "
+            "the Uzbek one can put the number somewhere else entirely."
+        ),
     )
     prize_label: str | None = Field(
         description="Prize of the frozen draw; null unless a frozen draw declares one"

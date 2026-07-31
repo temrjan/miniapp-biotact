@@ -121,7 +121,7 @@ async def test_the_freeze_stamps_clean_tickets_with_contiguous_numbers(
     async with maker() as s:
         draw = (await s.execute(select(LotteryDraw))).scalar_one()
     assert draw.status == LotteryDrawStatus.COMMITTED.value
-    assert draw.period is None  # the calendar binding is gone, not renamed
+    assert not hasattr(draw, "period"), "the calendar column is gone from the model, not merely unused"
     assert draw.participant_hash == outcome.participant_hash
 
 
@@ -317,12 +317,12 @@ async def test_the_database_itself_refuses_a_second_committed_draw(
     cover.
     """
     async with maker() as s, s.begin():
-        s.add(LotteryDraw(period=None, status=LotteryDrawStatus.COMMITTED.value, total_tickets=0))
+        s.add(LotteryDraw(status=LotteryDrawStatus.COMMITTED.value, total_tickets=0))
 
     with pytest.raises(IntegrityError):
         async with maker() as s, s.begin():
             s.add(
-                LotteryDraw(period=None, status=LotteryDrawStatus.COMMITTED.value, total_tickets=0)
+                LotteryDraw(status=LotteryDrawStatus.COMMITTED.value, total_tickets=0)
             )
 
 
@@ -351,7 +351,7 @@ async def test_the_loser_of_a_concurrent_freeze_is_told_which_draw_is_live(
     try:
         await winner_session.begin()
         winner_session.add(
-            LotteryDraw(period=None, status=LotteryDrawStatus.COMMITTED.value, total_tickets=0)
+            LotteryDraw(status=LotteryDrawStatus.COMMITTED.value, total_tickets=0)
         )
         await winner_session.flush()
 
