@@ -12,10 +12,13 @@ from src.database import get_db
 from src.loyalty import lottery
 from src.loyalty.router import require_loyalty_enabled
 from src.loyalty.schemas import (
+    CancelDrawResponse,
     CommitDrawRequest,
     CommitDrawResponse,
     RecordWinnersRequest,
     RecordWinnersResponse,
+    UpdateDrawRequest,
+    UpdateDrawResponse,
     WinnerRowResponse,
 )
 
@@ -31,23 +34,33 @@ async def commit_draw(
     payload: CommitDrawRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CommitDrawResponse:
-    """Freeze the participant snapshot of a period and publish its SHA-256. **Irreversible.**
+    """Stamp every eligible clean ticket into a new draw and publish its SHA-256.
 
     Guarded by :func:`~src.auth.dependencies.require_admin` (admin-typed token + ``is_admin`` in
-    the database), not by the lightweight ``verify_admin_jwt``: this endpoint writes a public,
-    unrepeatable artifact.
+    the database), not by the lightweight ``verify_admin_jwt``: this endpoint writes a public
+    artifact and takes tickets out of members\' hands.
 
-    409 in three cases, each with its own message: the period is already frozen (repeat call), the
-    period was frozen microseconds earlier by a concurrent caller, or nobody qualifies — an empty
-    month is refused rather than frozen, because freezing it would consume the period for good.
+    ``expected_tickets`` is the confirmation the ratified design puts on the button, verified here
+    and not only in the dialog: a client-side guard protects one client, while the operation is
+    irreversible for everyone.
+
+    409 in three cases, each with its own message: a draw is still live (close or cancel it first),
+    the confirmation does not match the number ready to freeze, or there is nothing to freeze at
+    all — an empty draw is refused rather than recorded.
     """
-    outcome = await lottery.commit_draw(db, period=payload.period, prize_label=payload.prize_label)
+    outcome = await lottery.commit_draw(
+        db,
+        expected_tickets=payload.expected_tickets,
+        prize_label=payload.prize_label,
+        conducted_on=payload.conducted_on,
+    )
     return CommitDrawResponse(
         draw_id=outcome.draw_id,
-        period=outcome.period,
+        draw_number=outcome.draw_number,
         total_tickets=outcome.total_tickets,
         participant_hash=outcome.participant_hash,
         committed_at=outcome.committed_at,
+        conducted_on=outcome.conducted_on,
     )
 
 
@@ -63,7 +76,7 @@ async def export_draw(
     """Download the frozen participant list of a draw, for external verification of its hash.
 
     The body is **byte-for-byte** the string the published SHA-256 was taken over, so verifying us
-    is one command — ``sha256sum draw-YYYY-MM.txt`` — with nothing to reassemble on the verifier's
+    is one command — ``sha256sum draw-3.txt`` — with nothing to reassemble on the verifier's
     side. Nothing may be added to it: a header line, the hash itself or a trailing newline would all
     change the file's digest and break the very proof this serves.
 
@@ -75,13 +88,18 @@ async def export_draw(
     database) like ``POST /commit``, though this one only reads: two different gates inside one
     four-endpoint router is how drift starts.
 
+    A cancelled draw is served from its journal, under a filename that says ``-cancelled``: the
+    list still exists as evidence, and nobody must be able to mistake it for a live one.
+
     404 when no such draw exists; 409 when the stored snapshot no longer matches the published hash.
     """
     outcome = await lottery.export_draw(db, draw_id=draw_id)
+    suffix = "-cancelled" if outcome.cancelled else ""
+    filename = f"draw-{outcome.draw_number}{suffix}.txt"
     return PlainTextResponse(
         content=outcome.body,
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="draw-{outcome.period}.txt"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -119,7 +137,7 @@ async def record_winners(
     )
     return RecordWinnersResponse(
         draw_id=outcome.draw_id,
-        period=outcome.period,
+        draw_number=outcome.draw_number,
         status=outcome.status,
         drawn_at=outcome.drawn_at,
         winners=[
@@ -132,3 +150,61 @@ async def record_winners(
             for w in outcome.winners
         ],
     )
+
+
+@router.post(
+    "/{draw_id}/cancel",
+    response_model=CancelDrawResponse,
+    dependencies=[Depends(require_loyalty_enabled), Depends(require_admin)],
+)
+async def cancel_draw(
+    draw_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CancelDrawResponse:
+    """Cancel a frozen draw: every stamp goes back to its owner as a clean ticket.
+
+    This is the product-level undo of an irreversible-looking action, and the second line of defence
+    behind the confirmation on the freeze. Only a frozen draw can be cancelled — once the winning
+    numbers are recorded there is a result in the world, and taking it back is not this endpoint's
+    business.
+
+    ⚠️ **The cancellation has to be published the same way the fingerprint was.** A draw whose hash
+    was announced and which then quietly disappears is indistinguishable from a draw we did not like
+    the outcome of. The journal kept here (``cancelled_snapshot``: the exact bytes the hash was taken
+    over) is what makes that publication checkable — anyone can re-hash it against the announced
+    value.
+
+    404 — no such draw. 409 — it is not frozen (already drawn, or already cancelled), or another
+    administrator recorded the winners a moment earlier; in both cases nothing changed.
+    """
+    outcome = await lottery.cancel_draw(db, draw_id=draw_id)
+    return CancelDrawResponse(
+        draw_id=outcome.draw_id,
+        draw_number=outcome.draw_number,
+        cancelled_at=outcome.cancelled_at,
+        released_tickets=outcome.released_tickets,
+    )
+
+
+@router.patch(
+    "/{draw_id}",
+    response_model=UpdateDrawResponse,
+    dependencies=[Depends(require_loyalty_enabled), Depends(require_admin)],
+)
+async def update_draw(
+    draw_id: int,
+    payload: UpdateDrawRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UpdateDrawResponse:
+    """Set or clear the announced date of a draw.
+
+    Editable precisely because the date is outside the published hash: a postponed draw must not
+    break a fingerprint that is already public. Refused on a cancelled draw — there is no event left
+    to date.
+
+    404 — no such draw. 409 — the draw is cancelled.
+    """
+    draw_number, conducted_on = await lottery.set_conducted_on(
+        db, draw_id=draw_id, conducted_on=payload.conducted_on
+    )
+    return UpdateDrawResponse(draw_number=draw_number, conducted_on=conducted_on)

@@ -1,7 +1,7 @@
 """Loyalty API schemas (Stage 2): QR activation request/response."""
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
@@ -167,25 +167,36 @@ class SurveyResponse(BaseModel):
     )
 
 
-# Period label of a monthly draw: "YYYY-MM". Validated by pattern rather than parsed — the column
-# is VARCHAR(7) and the value is a public label, so a malformed one must be refused at the edge.
+# ⚠️ Dead since step 3, removed with the column in the contract phase (step 6): a freeze targets no
+# calendar month, so there is no period left to validate at the edge.
 DrawPeriod = Annotated[
     str, StringConstraints(strip_whitespace=True, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
 ]
 
 
 class CommitDrawRequest(BaseModel):
-    """Body of ``POST /admin/lottery/commit`` — which month to freeze."""
+    """Body of ``POST /admin/lottery/commit`` — freeze the clean tickets into a new draw."""
 
-    period: DrawPeriod = Field(description="Calendar month being drawn, YYYY-MM (Tashkent time)")
+    expected_tickets: int = Field(
+        ge=1,
+        description=(
+            "How many tickets the administrator expects to freeze — the mechanical confirmation "
+            "of an irreversible action. Must equal the number of ELIGIBLE clean tickets at the "
+            "moment of the call, otherwise nothing is frozen and the actual number is reported."
+        ),
+    )
     prize_label: str | None = Field(default=None, max_length=200, description="Marketing label")
+    conducted_on: date | None = Field(
+        default=None,
+        description="Announced date of the draw. Optional, editable, outside the published hash",
+    )
 
 
 class CommitDrawResponse(BaseModel):
     """What was frozen — the numbers an administrator publishes for external verification."""
 
     draw_id: int
-    period: str
+    draw_number: int = Field(ge=1, description="Public identity of the draw: «розыгрыш №N»")
     total_tickets: int = Field(
         ge=1, description="Tickets in the snapshot; a draw is never frozen empty"
     )
@@ -193,6 +204,37 @@ class CommitDrawResponse(BaseModel):
         description="SHA-256 (lowercase hex) of the canonical ticket list"
     )
     committed_at: datetime
+    conducted_on: date | None
+
+
+class CancelDrawResponse(BaseModel):
+    """What cancelling released. The canonical snapshot stays on the draw row as the audit trail."""
+
+    draw_id: int
+    draw_number: int
+    cancelled_at: datetime
+    released_tickets: int = Field(
+        ge=0, description="Tickets that went back to their owners as clean tickets"
+    )
+
+
+class UpdateDrawRequest(BaseModel):
+    """Body of ``PATCH /admin/lottery/{draw_id}`` — the announced date, set or cleared.
+
+    Only field, and deliberately so: everything else about a frozen draw is either published or
+    derived, and a draw is not an editable document.
+    """
+
+    conducted_on: date | None = Field(
+        default=None, description="New announced date; null clears it back to «дата уточняется»"
+    )
+
+
+class UpdateDrawResponse(BaseModel):
+    """The draw after the edit."""
+
+    draw_number: int
+    conducted_on: date | None
 
 
 class RecordWinnersRequest(BaseModel):
@@ -228,7 +270,7 @@ class RecordWinnersResponse(BaseModel):
     """What was recorded — the draw is closed and cannot be replayed."""
 
     draw_id: int
-    period: str
+    draw_number: int
     status: str
     drawn_at: datetime
     winners: list[WinnerRowResponse]
@@ -237,7 +279,13 @@ class RecordWinnersResponse(BaseModel):
 class DrawResultResponse(BaseModel):
     """How the previous draw ended for this member (``GET /loyalty/my-tickets``)."""
 
-    period: str = Field(description="Calendar month that was drawn, YYYY-MM")
+    period: str = Field(
+        description=(
+            "Label of the draw that ended, «№3». Still named `period` until step 5 rewrites the "
+            "card: the member-facing strings interpolate it, and renaming the field would break "
+            "mini-app bundles already cached in members' Telegram clients."
+        )
+    )
     tickets: int = Field(ge=0, description="Tickets this member held in that draw")
     won: bool = Field(description="Whether any of their tickets was drawn")
     prize_rank: int | None = Field(
@@ -263,7 +311,10 @@ class MyTicketsResponse(BaseModel):
         )
     )
     period: str | None = Field(
-        description="Period the frozen count belongs to; null exactly when is_frozen is false"
+        description=(
+            "Label of the live draw, «№3»; null exactly when is_frozen is false. Legacy field name — "
+            "see DrawResultResponse.period."
+        )
     )
     prize_label: str | None = Field(
         description="Prize of the frozen draw; null unless a frozen draw declares one"

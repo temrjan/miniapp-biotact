@@ -19,12 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.config import settings
 from src.loyalty.lottery import commit_draw
-from src.loyalty.models import CustomerProfile, Gender, LotteryTicket, LoyaltyStatus
+from src.loyalty.models import CustomerProfile, Gender, LotteryTicket, LotteryTicketSource
 from src.users.models import User
 
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
 AS_OF = datetime(2026, 8, 1, 10, 0, tzinfo=UTC)
-PERIOD = "2026-07"
 
 
 @pytest_asyncio.fixture
@@ -69,26 +68,21 @@ async def _seed_admin(sm: async_sessionmaker[AsyncSession], telegram_id: int) ->
 
 
 async def _seed_member(
-    sm: async_sessionmaker[AsyncSession],
-    telegram_id: int,
-    *,
-    status: LoyaltyStatus = LoyaltyStatus.NEWBIE,
+    sm: async_sessionmaker[AsyncSession], telegram_id: int, *, tickets: int = 1
 ) -> int:
-    """Commit an eligible member; returns user id."""
+    """Commit an eligible member holding ``tickets`` clean tickets; returns user id."""
+    sources = (LotteryTicketSource.SURVEY.value, LotteryTicketSource.FRIEND.value)
     async with sm() as s, s.begin():
         user = User(telegram_id=telegram_id, first_name="Member")
         s.add(user)
         await s.flush()
-        s.add(
-            CustomerProfile(
-                user_id=user.id,
-                gender=Gender.MALE,
-                age=30,
-                city="Ташкент",
-                status=status,
-                last_activation_at=AS_OF - timedelta(days=2),
+        s.add(CustomerProfile(user_id=user.id, gender=Gender.MALE, age=30, city="Ташкент"))
+        for source in sources[:tickets]:
+            s.add(
+                LotteryTicket(
+                    user_id=user.id, draw_id=None, ticket_number=None, source=source
+                )
             )
-        )
         return user.id
 
 
@@ -100,9 +94,9 @@ async def _freeze(sm: async_sessionmaker[AsyncSession]) -> tuple[int, str, int, 
     foreign key, so an invented id is rejected by the database before it can model anything.
     """
     await _seed_member(sm, 91001)
-    second_id = await _seed_member(sm, 91002, status=LoyaltyStatus.BIOTACT_FRIEND)
+    second_id = await _seed_member(sm, 91002, tickets=2)
     async with sm() as s:
-        outcome = await commit_draw(s, period=PERIOD, as_of=AS_OF)
+        outcome = await commit_draw(s, expected_tickets=3, as_of=AS_OF)
     return outcome.draw_id, outcome.participant_hash, outcome.total_tickets, second_id
 
 
@@ -160,7 +154,7 @@ async def test_served_as_a_downloadable_text_file(client, maker, monkeypatch) ->
     )
 
     assert resp.headers["content-type"] == "text/plain; charset=utf-8"
-    assert resp.headers["content-disposition"] == f'attachment; filename="draw-{PERIOD}.txt"'
+    assert resp.headers["content-disposition"] == 'attachment; filename="draw-1.txt"'
 
 
 # --------------------------------------------------------------------------- #

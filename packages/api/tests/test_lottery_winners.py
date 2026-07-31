@@ -21,14 +21,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.common.exceptions import ConflictException
 from src.config import settings
-from src.loyalty.lottery import DrawOutcome, commit_draw, period_of, record_winners
+from src.loyalty.lottery import DrawOutcome, commit_draw, record_winners
 from src.loyalty.models import (
     CustomerProfile,
     Gender,
     LotteryDraw,
     LotteryDrawStatus,
     LotteryTicket,
-    LoyaltyStatus,
+    LotteryTicketSource,
 )
 from src.users.models import User
 
@@ -79,28 +79,27 @@ async def _seed_member(
     telegram_id: int,
     *,
     name: str = "Member",
-    status: LoyaltyStatus = LoyaltyStatus.NEWBIE,
+    tickets: int = 1,
 ) -> int:
+    """An eligible member holding ``tickets`` clean tickets; returns user id."""
+    sources = (LotteryTicketSource.SURVEY.value, LotteryTicketSource.FRIEND.value)
     async with sm() as s, s.begin():
         user = User(telegram_id=telegram_id, first_name=name)
         s.add(user)
         await s.flush()
-        s.add(
-            CustomerProfile(
-                user_id=user.id,
-                gender=Gender.MALE,
-                age=30,
-                city="Ташкент",
-                status=status,
-                last_activation_at=_now() - timedelta(days=2),
+        s.add(CustomerProfile(user_id=user.id, gender=Gender.MALE, age=30, city="Ташкент"))
+        for source in sources[:tickets]:
+            s.add(
+                LotteryTicket(
+                    user_id=user.id, draw_id=None, ticket_number=None, source=source
+                )
             )
-        )
         return user.id
 
 
-async def _freeze(sm: async_sessionmaker[AsyncSession]) -> int:
+async def _freeze(sm: async_sessionmaker[AsyncSession], *, expected: int) -> int:
     async with sm() as s:
-        outcome = await commit_draw(s, period=period_of(_now()), as_of=_now())
+        outcome = await commit_draw(s, expected_tickets=expected, as_of=_now())
     return outcome.draw_id
 
 
@@ -155,8 +154,8 @@ async def test_a_second_ticket_of_the_same_person_is_refused(client, maker, monk
     """
     _enable(monkeypatch)
     admin_id = await _seed_admin(maker, 93000)
-    friend_id = await _seed_member(maker, 93001, status=LoyaltyStatus.BIOTACT_FRIEND)
-    draw_id = await _freeze(maker)
+    friend_id = await _seed_member(maker, 93001, tickets=2)
+    draw_id = await _freeze(maker, expected=2)
     first, second = await _numbers_of(maker, friend_id)
 
     resp = await client.post(
@@ -173,8 +172,8 @@ async def test_the_rule_does_not_depend_on_the_order_of_entry(client, maker, mon
     """Same pair entered the other way round is refused too - order must not change the outcome."""
     _enable(monkeypatch)
     admin_id = await _seed_admin(maker, 93010)
-    friend_id = await _seed_member(maker, 93011, status=LoyaltyStatus.BIOTACT_FRIEND)
-    draw_id = await _freeze(maker)
+    friend_id = await _seed_member(maker, 93011, tickets=2)
+    draw_id = await _freeze(maker, expected=2)
     first, second = await _numbers_of(maker, friend_id)
 
     resp = await client.post(
@@ -192,7 +191,7 @@ async def test_two_different_people_are_recorded_with_ranks(client, maker, monke
     admin_id = await _seed_admin(maker, 93020)
     a_id = await _seed_member(maker, 93021, name="Азиза")
     b_id = await _seed_member(maker, 93022, name="Бекзод")
-    draw_id = await _freeze(maker)
+    draw_id = await _freeze(maker, expected=2)
     (a_number,) = await _numbers_of(maker, a_id)
     (b_number,) = await _numbers_of(maker, b_id)
 
@@ -227,8 +226,8 @@ async def test_a_refused_list_writes_nothing_at_all(client, maker, monkeypatch) 
     _enable(monkeypatch)
     admin_id = await _seed_admin(maker, 93030)
     other_id = await _seed_member(maker, 93031)
-    friend_id = await _seed_member(maker, 93032, status=LoyaltyStatus.BIOTACT_FRIEND)
-    draw_id = await _freeze(maker)
+    friend_id = await _seed_member(maker, 93032, tickets=2)
+    draw_id = await _freeze(maker, expected=3)
     (other_number,) = await _numbers_of(maker, other_id)
     first, second = await _numbers_of(maker, friend_id)
 
@@ -262,7 +261,7 @@ async def test_numbers_outside_the_range_are_refused(
     _enable(monkeypatch)
     admin_id = await _seed_admin(maker, 93040)
     await _seed_member(maker, 93041)
-    draw_id = await _freeze(maker)
+    draw_id = await _freeze(maker, expected=1)
 
     resp = await client.post(
         _url(draw_id),
@@ -277,7 +276,7 @@ async def test_a_repeated_number_in_the_list_is_refused(client, maker, monkeypat
     _enable(monkeypatch)
     admin_id = await _seed_admin(maker, 93050)
     member_id = await _seed_member(maker, 93051)
-    draw_id = await _freeze(maker)
+    draw_id = await _freeze(maker, expected=1)
     (number,) = await _numbers_of(maker, member_id)
 
     resp = await client.post(
@@ -294,7 +293,7 @@ async def test_an_empty_list_is_refused(client, maker, monkeypatch) -> None:
     _enable(monkeypatch)
     admin_id = await _seed_admin(maker, 93060)
     await _seed_member(maker, 93061)
-    draw_id = await _freeze(maker)
+    draw_id = await _freeze(maker, expected=1)
 
     resp = await client.post(
         _url(draw_id),
@@ -329,7 +328,7 @@ async def test_a_second_call_on_a_drawn_draw_changes_nothing(client, maker, monk
     admin_id = await _seed_admin(maker, 93080)
     a_id = await _seed_member(maker, 93081)
     b_id = await _seed_member(maker, 93082)
-    draw_id = await _freeze(maker)
+    draw_id = await _freeze(maker, expected=2)
     (a_number,) = await _numbers_of(maker, a_id)
     (b_number,) = await _numbers_of(maker, b_id)
     headers = {"Authorization": f"Bearer {_admin_token(admin_id)}"}
@@ -364,7 +363,7 @@ async def test_two_administrators_at_once_produce_one_result(
     """
     a_id = await _seed_member(maker, 93091)
     b_id = await _seed_member(maker, 93092)
-    draw_id = await _freeze(maker)
+    draw_id = await _freeze(maker, expected=2)
     (a_number,) = await _numbers_of(maker, a_id)
     (b_number,) = await _numbers_of(maker, b_id)
 
@@ -393,7 +392,7 @@ async def test_a_number_in_range_whose_row_vanished_is_refused(client, maker, mo
     _enable(monkeypatch)
     admin_id = await _seed_admin(maker, 93130)
     await _seed_member(maker, 93131)
-    draw_id = await _freeze(maker)
+    draw_id = await _freeze(maker, expected=1)
 
     async with maker() as s, s.begin():
         await s.execute(
@@ -425,7 +424,7 @@ async def test_recording_winners_does_not_break_the_published_hash(
     _enable(monkeypatch)
     admin_id = await _seed_admin(maker, 93100)
     member_id = await _seed_member(maker, 93101)
-    draw_id = await _freeze(maker)
+    draw_id = await _freeze(maker, expected=1)
     (number,) = await _numbers_of(maker, member_id)
     headers = {"Authorization": f"Bearer {_admin_token(admin_id)}"}
 
