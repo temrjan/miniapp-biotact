@@ -6,7 +6,9 @@ import type {
   CurrentDrawResponse,
   LoyaltyStats,
   PrintListResponse,
+  HoldersFilter,
   RecordWinnersResponse,
+  TicketHoldersResponse,
   UpdateDrawResponse,
 } from '../types'
 
@@ -19,6 +21,18 @@ export const loyaltyApi = {
   getLoyaltyStats: async (days: number = 30): Promise<LoyaltyStats> => {
     const response = await apiClient.get<LoyaltyStats>('/analytics/loyalty', {
       params: { days },
+    })
+    return response.data
+  },
+
+  /** Who holds tickets and on what grounds — the list behind each dashboard number. */
+  getTicketHolders: async (
+    filter: HoldersFilter,
+    page: number,
+    size: number
+  ): Promise<TicketHoldersResponse> => {
+    const response = await apiClient.get<TicketHoldersResponse>('/admin/lottery/holders', {
+      params: { filter, page, size },
     })
     return response.data
   },

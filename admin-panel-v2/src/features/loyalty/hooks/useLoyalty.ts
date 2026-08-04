@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { loyaltyApi } from '../api/loyaltyApi'
-import type { CommitDrawRequest } from '../types'
+import type { CommitDrawRequest, HoldersFilter } from '../types'
 
 export const useLoyaltyStats = (days: number = 30) => {
   return useQuery({
@@ -13,6 +13,15 @@ export const useLoyaltyStats = (days: number = 30) => {
 const drawKeys = {
   current: ['loyalty', 'draw', 'current'] as const,
   print: (drawId: number) => ['loyalty', 'draw', 'print', drawId] as const,
+  holders: (filter: HoldersFilter, page: number) =>
+    ['loyalty', 'holders', filter, page] as const,
+}
+
+export const useTicketHolders = (filter: HoldersFilter, page: number, size = 20) => {
+  return useQuery({
+    queryKey: drawKeys.holders(filter, page),
+    queryFn: () => loyaltyApi.getTicketHolders(filter, page, size),
+  })
 }
 
 export const useCurrentDraw = () => {

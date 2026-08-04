@@ -156,3 +156,36 @@ export interface UpdateDrawResponse {
   draw_number: number
   conducted_on: string | null
 }
+
+/** One member on the holders screen: how many tickets, on what grounds, and where they are now. */
+export interface TicketHolder {
+  user_id: number
+  name: string
+  phone: string | null
+  tickets_total: number
+  tickets_clean: number
+  /** The answer to "for what" — the question the dashboard counters cannot give. */
+  by_source: { survey: number; friend: number; activation: number }
+  /** One draw only (live freeze, else the last drawn) — never a member's whole history. */
+  draw_number: number | null
+  numbers: number[]
+  played: number
+  won: boolean
+  eligible_now: boolean
+  not_eligible_reason: 'survey' | 'age' | null
+  /**
+   * Diagnostic column of the `owed` filter. Activation issues every source, so a RECENT date next
+   * to a missing survey ticket is a real issuance failure; an absent one is the expected residue of
+   * the decision not to backfill. The list is sorted by it, freshest first.
+   */
+  last_activation_at: string | null
+}
+
+export type HoldersFilter = 'all' | 'clean' | 'owed'
+
+export interface TicketHoldersResponse {
+  items: TicketHolder[]
+  total: number
+  page: number
+  size: number
+}
