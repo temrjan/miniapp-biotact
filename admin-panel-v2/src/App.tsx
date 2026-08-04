@@ -26,6 +26,7 @@ const CustomersPage = lazy(() => import('./features/customers/pages/CustomersPag
 const BroadcastsPage = lazy(() => import('./features/broadcasts/pages/BroadcastsPage').then(m => ({ default: m.BroadcastsPage })))
 const LoyaltyPage = lazy(() => import('./features/loyalty/pages/LoyaltyPage').then(m => ({ default: m.LoyaltyPage })))
 const DrawPage = lazy(() => import('./features/loyalty/pages/DrawPage').then(m => ({ default: m.DrawPage })))
+const HoldersPage = lazy(() => import('./features/loyalty/pages/HoldersPage').then(m => ({ default: m.HoldersPage })))
 const DrawPrintPage = lazy(() => import('./features/loyalty/pages/DrawPrintPage').then(m => ({ default: m.DrawPrintPage })))
 
 function App() {
@@ -198,6 +199,17 @@ function App() {
                     <PrivateRoute>
                       <MainLayout>
                         <LoyaltyPage />
+                      </MainLayout>
+                    </PrivateRoute>
+                  }
+                />
+
+                <Route
+                  path='/loyalty/holders'
+                  element={
+                    <PrivateRoute>
+                      <MainLayout>
+                        <HoldersPage />
                       </MainLayout>
                     </PrivateRoute>
                   }
