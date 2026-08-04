@@ -211,7 +211,6 @@ async def test_a_stamped_ticket_still_counts_as_owned(test_db: AsyncSession, mak
     """
     async with maker() as s, s.begin():
         draw = LotteryDraw(
-            period="2026-07",
             status=LotteryDrawStatus.COMMITTED.value,
             total_tickets=1,
         )

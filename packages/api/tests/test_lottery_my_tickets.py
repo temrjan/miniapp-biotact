@@ -88,11 +88,11 @@ async def _seed_user_without_profile(sm: async_sessionmaker[AsyncSession], teleg
 
 async def _freeze(
     sm: async_sessionmaker[AsyncSession], *, expected: int, prize: str | None = None
-) -> str:
-    """Freeze every eligible clean ticket; returns the label the member sees («№1»)."""
+) -> int:
+    """Freeze every eligible clean ticket; returns the draw's number."""
     async with sm() as s:
         outcome = await commit_draw(s, expected_tickets=expected, prize_label=prize)
-    return f"№{outcome.draw_number}"
+    return outcome.draw_number
 
 
 async def _mark_drawn(sm: async_sessionmaker[AsyncSession], *, winner_number: int | None) -> None:
@@ -145,6 +145,10 @@ def _enable(monkeypatch) -> None:
 def _assert_invariants(body: dict) -> None:
     """Shape invariants I1, I2 and I4 from the spec - asserted rather than described.
 
+    I1 moved from `period` to `draw_number` when the calendar left the schema: the response now
+    carries the NUMBER and the client builds "розыгрыш №3" from it. The invariant is the same one,
+    written about the field that replaced the old.
+
     Kept in one helper and called from every state test on purpose: an invariant checked only in
     the state that happens to satisfy it is not an invariant.
 
@@ -153,7 +157,7 @@ def _assert_invariants(body: dict) -> None:
     this helper cannot see - it only receives the body. Each state test asserts it directly instead,
     by knowing which state it seeded.
     """
-    assert (body["period"] is not None) == body["is_frozen"], "I1: period <=> is_frozen"
+    assert (body["draw_number"] is not None) == body["is_frozen"], "I1: draw_number <=> is_frozen"
     if body["prize_label"] is not None:
         assert body["is_frozen"], "I2: a prize is known only from a frozen draw"
     if body["result"] is not None:
@@ -176,7 +180,7 @@ async def test_no_draw_yet_shows_prospective_count(client, maker, monkeypatch) -
     body = resp.json()
     assert body["tickets"] == 2  # two clean tickets, held by the member and not yet in a draw
     assert body["is_frozen"] is False
-    assert body["period"] is None
+    assert body["draw_number"] is None
     assert body["prize_label"] is None
     assert body["result"] is None
     _assert_invariants(body)
@@ -194,7 +198,7 @@ async def test_committed_draw_shows_frozen_count(client, maker, monkeypatch) -> 
     body = resp.json()
     assert body["tickets"] == 2
     assert body["is_frozen"] is True
-    assert body["period"] == label
+    assert body["draw_number"] == label
     assert body["prize_label"] == "Аэрогриль"
     assert body["result"] is None
     _assert_invariants(body)
@@ -203,7 +207,7 @@ async def test_committed_draw_shows_frozen_count(client, maker, monkeypatch) -> 
 async def test_drawn_carries_both_the_result_and_a_fresh_prospective_count(
     client, maker, monkeypatch
 ) -> None:
-    """A finished draw returns its outcome AND a prospective count for the next period.
+    """A finished draw returns its outcome AND what the member holds for the next one.
 
     Spec section 1: the third row is not decoration. Showing a bare zero to an active member after
     a finished draw would say they are out, while they are already accumulating for next month.
@@ -220,12 +224,12 @@ async def test_drawn_carries_both_the_result_and_a_fresh_prospective_count(
     body = resp.json()
     # top block: prospective, about the NEXT draw
     assert body["is_frozen"] is False
-    assert body["period"] is None
+    assert body["draw_number"] is None
     assert body["tickets"] == 1, "what they hold now: the ticket earned after the draw"
     # bottom block: about the finished one
     result = body["result"]
     assert result is not None
-    assert result["period"] == label
+    assert result["draw_number"] == label
     assert result["tickets"] == 2
     assert result["won"] is True
     assert result["prize_rank"] == 1
@@ -415,7 +419,7 @@ async def test_a_cancelled_draw_is_skipped_in_favour_of_the_last_real_one(
 
     assert body["is_frozen"] is False, "the cancelled draw is not a live one"
     assert body["result"] is not None, "the win in №1 must not disappear behind a cancelled №2"
-    assert body["result"]["period"] == first_label
+    assert body["result"]["draw_number"] == first_label
     assert body["result"]["won"] is True
     assert body["tickets"] == 1, "the released ticket is clean again and back in hand"
     _assert_invariants(body)

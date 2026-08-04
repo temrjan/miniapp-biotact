@@ -203,11 +203,11 @@ describe('loyaltyApi.getMyTickets', () => {
     getMock.mockResolvedValue({
       tickets: 1,
       is_frozen: false,
-      period: null,
+      draw_number: null,
       prize_label: null,
       // Distinct numbers (1 vs 2, rank 3) catch a crossed mapping that would still typecheck.
       result: {
-        period: '2026-07',
+        draw_number: 4,
         tickets: 2,
         won: true,
         prize_rank: 3,
@@ -223,10 +223,10 @@ describe('loyaltyApi.getMyTickets', () => {
     expect(result).toEqual({
       tickets: 1,
       isFrozen: false,
-      period: null,
+      drawNumber: null,
       prizeLabel: null,
       result: {
-        period: '2026-07',
+        drawNumber: 4,
         tickets: 2,
         won: true,
         prizeRank: 3,
@@ -242,7 +242,7 @@ describe('loyaltyApi.getMyTickets', () => {
     getMock.mockResolvedValue({
       tickets: 2,
       is_frozen: true,
-      period: '№3',
+      draw_number: 3,
       prize_label: 'Аэрогриль',
       result: null,
       numbers: [7, 12],
@@ -253,7 +253,7 @@ describe('loyaltyApi.getMyTickets', () => {
     expect(await loyaltyApi.getMyTickets()).toEqual({
       tickets: 2,
       isFrozen: true,
-      period: '№3',
+      drawNumber: 3,
       prizeLabel: 'Аэрогриль',
       result: null,
       numbers: [7, 12],
@@ -271,7 +271,7 @@ describe('loyaltyApi.getMyTickets', () => {
     const result = await loyaltyApi.getMyTickets();
 
     expect(result.isFrozen).toBe(false); // safest default: a live recount, never a fixed promise
-    expect(result.period).toBeNull();
+    expect(result.drawNumber).toBeNull();
     expect(result.prizeLabel).toBeNull();
     expect(result.result).toBeNull();
     // The step-5 fields follow the same rule, and their defaults show LESS than the member has

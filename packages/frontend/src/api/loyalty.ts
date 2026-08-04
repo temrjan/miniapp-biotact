@@ -62,7 +62,7 @@ interface SurveyRequestDto {
 }
 
 interface DrawResultDto {
-  period: string;
+  draw_number: number;
   tickets: number;
   won: boolean;
   prize_rank: number | null;
@@ -72,7 +72,7 @@ interface DrawResultDto {
 interface MyTicketsDto {
   tickets: number;
   is_frozen: boolean;
-  period: string | null;
+  draw_number: number | null;
   prize_label: string | null;
   result: DrawResultDto | null;
   numbers?: number[];
@@ -124,7 +124,7 @@ export const loyaltyApi = {
       // safe default — it words the number as a live recount that may still change, which is true
       // of a frozen count too. The opposite default would promise a fixed count we cannot back.
       isFrozen: dto.is_frozen ?? false,
-      period: dto.period ?? null,
+      drawNumber: dto.draw_number ?? null,
       prizeLabel: dto.prize_label ?? null,
       // Optional for the same deploy-window reason as the fields above: during a rollout the API
       // may still be the previous one. The defaults show LESS than the member has, never something
@@ -137,7 +137,7 @@ export const loyaltyApi = {
         dto.result == null
           ? null
           : {
-              period: dto.result.period,
+              drawNumber: dto.result.draw_number,
               tickets: dto.result.tickets,
               won: dto.result.won,
               prizeRank: dto.result.prize_rank ?? null,

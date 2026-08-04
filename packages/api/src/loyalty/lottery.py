@@ -19,10 +19,9 @@ afterwards (:func:`record_winners`). A freeze that turns out to be wrong is undo
 """
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from hashlib import sha256
 from typing import cast
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import Table, bindparam, func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -37,10 +36,6 @@ from src.loyalty.models import (
     LotteryTicket,
 )
 from src.users.models import User
-
-# The audience is Uzbekistan and the draw airs on the 1st at 19:00 local time, so every calendar
-# boundary and every date shown to a human is computed in this zone. Stored values stay UTC.
-TASHKENT = ZoneInfo("Asia/Tashkent")
 
 # The legal floor for taking part, named because it is now asserted in two languages: here, and as
 # SQL in the dashboard detector that counts members owed a ticket. A bare 18 in both places is two
@@ -69,36 +64,6 @@ def has_survey(profile: CustomerProfile) -> bool:
     which would leave the checkbox unable to change any outcome at all (blocker caught at Gate-1).
     """
     return profile.gender is not None and profile.city is not None
-
-
-# ⚠️ Dead since step 3, removed with the column in the contract phase (step 6). Nothing calls them:
-# a draw is frozen by a button press, there is no period to validate and no window to be inside.
-# They are kept only because ``lottery_draws.period`` still exists, and they are kept TESTED
-# (``test_lottery_legacy_period.py``) — removing the proof before the code is how a dead function
-# quietly becomes a live one again.
-def period_of(moment: datetime) -> str:
-    """Calendar month (``YYYY-MM``) that ``moment`` belongs to, in Tashkent local time.
-
-    Taken in the local zone on purpose: the last hours of a month in Tashkent are still the
-    previous month in UTC, and a draw labelled "July" must mean July to the people in it.
-    """
-    return moment.astimezone(TASHKENT).strftime("%Y-%m")
-
-
-def committable_periods(as_of: datetime) -> tuple[str, str]:
-    """Periods a freeze may legally target at ``as_of``: the previous and the current month.
-
-    Tashkent months, not UTC ones — see :func:`period_of`. The window is two wide because the
-    snapshot is taken 24h before the live draw on the 1st: that moment can fall on the last day of
-    the month being drawn or already on the 1st of the next one.
-
-    Anything else is refused, and the refusal is not pedantry: freezing is irreversible, so a typo
-    in the year would burn a period that has not happened yet — filled with today's participants —
-    and freezing a long-past month would fill it with today's eligibility instead of that month's.
-    """
-    local = as_of.astimezone(TASHKENT)
-    previous_month_day = local.replace(day=1) - timedelta(days=1)
-    return previous_month_day.strftime("%Y-%m"), local.strftime("%Y-%m")
 
 
 def canonical_snapshot(rows: list[tuple[int, int, str]]) -> str:
@@ -280,7 +245,6 @@ async def commit_draw(
         )
 
     draw = LotteryDraw(
-        period=None,  # legacy column, removed in the contract phase
         prize_label=prize_label,
         conducted_on=conducted_on,
         status=LotteryDrawStatus.COMMITTED.value,
@@ -753,7 +717,7 @@ async def get_print_list(db: AsyncSession, *, draw_id: int) -> PrintListOutcome:
 class DrawResult:
     """How a finished draw ended for one member."""
 
-    period: str
+    draw_number: int
     tickets: int  # how many tickets this member held in THAT draw
     won: bool
     # The best rank the member took (1 = main prize). Singular even though a member can hold
@@ -763,32 +727,19 @@ class DrawResult:
     prize_label: str | None
 
 
-def draw_label(draw_number: int) -> str:
-    """How a draw is named to a member: "№3".
-
-    ⚠️ This is what the field still called ``period`` carries until step 5 rewrites the card. The
-    name lies for one step and the contract does not: the member-facing strings interpolate it as
-    "Вы участвуете в розыгрыше {period}", so a label reads correctly in RU and UZ with no frontend
-    change at all. Renaming the field here instead would break the mini-app bundle already cached in
-    the Telegram clients of members who have not reloaded — and when that bundle updates is not
-    something we control.
-    """
-    return f"№{draw_number}"
-
-
 @dataclass(frozen=True)
 class MyTicketsOutcome:
     """What the member sees about their own participation.
 
     The top block is "what I have now", ``result`` is "how the previous draw ended" — they describe
     different draws and are deliberately not merged. Invariants held by construction here and
-    asserted in the tests: ``period is not None`` exactly when ``is_frozen``; ``prize_label`` is
-    non-null only when frozen; after a finished draw the top block is always prospective.
+    asserted in the tests: ``draw_number is not None`` exactly when ``is_frozen``; ``prize_label``
+    is non-null only when frozen; after a finished draw the top block is always prospective.
     """
 
     tickets: int
     is_frozen: bool
-    period: str | None  # the draw label, see :func:`draw_label`
+    draw_number: int | None  # the draw this card describes; the "№" belongs to the client's i18n
     prize_label: str | None
     result: DrawResult | None
     # The member's own ticket numbers in the draw the card is showing — ascending, and present for a
@@ -811,7 +762,7 @@ REASON_AGE = "age"
 _NO_TICKETS = MyTicketsOutcome(
     tickets=0,
     is_frozen=False,
-    period=None,
+    draw_number=None,
     prize_label=None,
     result=None,
     numbers=(),
@@ -917,7 +868,7 @@ async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutc
         return MyTicketsOutcome(
             tickets=len(numbers),
             is_frozen=True,
-            period=draw_label(latest.draw_number),
+            draw_number=latest.draw_number,
             prize_label=latest.prize_label,
             result=None,
             numbers=numbers,
@@ -943,7 +894,7 @@ async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutc
         if rows:
             ranks = [r.prize_rank for r in rows if r.is_winner and r.prize_rank is not None]
             result = DrawResult(
-                period=draw_label(latest.draw_number),
+                draw_number=latest.draw_number,
                 tickets=len(rows),
                 won=any(r.is_winner for r in rows),
                 prize_rank=min(ranks, default=None),
@@ -953,7 +904,7 @@ async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutc
     return MyTicketsOutcome(
         tickets=clean,
         is_frozen=False,
-        period=None,
+        draw_number=None,
         prize_label=None,
         result=result,
         numbers=numbers,

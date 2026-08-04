@@ -151,7 +151,7 @@ async def test_one_time_sources_do_not_come_back_after_being_played(
     await _run_sync(maker, user_id)
 
     async with maker() as s, s.begin():  # a draw takes the ticket
-        draw = LotteryDraw(period="2026-07", status=LotteryDrawStatus.COMMITTED.value)
+        draw = LotteryDraw(status=LotteryDrawStatus.COMMITTED.value)
         s.add(draw)
         await s.flush()
         await s.execute(

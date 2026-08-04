@@ -210,7 +210,7 @@ async def get_my_tickets(
     return MyTicketsResponse(
         tickets=outcome.tickets,
         is_frozen=outcome.is_frozen,
-        period=outcome.period,
+        draw_number=outcome.draw_number,
         prize_label=outcome.prize_label,
         numbers=list(outcome.numbers),
         clean_tickets=outcome.clean_tickets,
@@ -219,7 +219,7 @@ async def get_my_tickets(
             None
             if outcome.result is None
             else DrawResultResponse(
-                period=outcome.result.period,
+                draw_number=outcome.result.draw_number,
                 tickets=outcome.result.tickets,
                 won=outcome.result.won,
                 prize_rank=outcome.result.prize_rank,

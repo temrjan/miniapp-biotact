@@ -143,7 +143,7 @@ async def test_revert_keeps_and_reports_tickets_already_in_a_draw(
 
     async with maker() as s, s.begin():
         await run_backfill(s, batch=BATCH, dry_run=False)
-        draw = LotteryDraw(period="2026-07", status=LotteryDrawStatus.COMMITTED.value)
+        draw = LotteryDraw(status=LotteryDrawStatus.COMMITTED.value)
         s.add(draw)
         await s.flush()
         # one of the two goes into the draw
