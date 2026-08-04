@@ -1,4 +1,4 @@
-import { Ticket, TicketCheck, Hourglass } from 'lucide-react'
+import { Ticket, TicketCheck, AlertTriangle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { LoyaltyStatCard } from './LoyaltyStatCard'
 import type { HoldersFilter, LoyaltyStats } from '../types'
@@ -12,6 +12,20 @@ interface TicketsStatsProps {
 const holdersLink = (filter: HoldersFilter): string => `/loyalty/holders?filter=${filter}`
 
 export function TicketsStats({ stats, isLoading = false }: TicketsStatsProps) {
+  // Issuance runs inside the activation and survey transactions and is deliberately allowed to fail
+  // without taking the cashback down with it — so a skipped issuance raises nothing, and the only
+  // thing that shows it is the count of members owed a survey ticket who do not have one.
+  //
+  // It reads 0 in a healthy system, and it read 0 on production on 2026-08-04: the backfill ran on
+  // 31.07 (batch `initial-2026-08`), so every eligible member already holds their ticket and a new
+  // one is issued the moment the survey is saved. Anything else is a defect.
+  //
+  // This alarm was briefly demoted to a reference on the belief that no backfill would run and the
+  // number would therefore never be zero. The belief was wrong — measured, not argued — and the
+  // demotion is undone. What the demotion DID leave behind is kept: the card is a link, so the
+  // question "who exactly" is one click away instead of unanswerable.
+  const leak = stats.eligible_without_survey_ticket > 0
+
   return (
     <section>
       <h2 className="text-xl font-semibold mb-4">Билеты розыгрыша</h2>
@@ -34,26 +48,12 @@ export function TicketsStats({ stats, isLoading = false }: TicketsStatsProps) {
             isLoading={isLoading}
           />
         </Link>
-        {/*
-          Reference, not an alarm — and the change is deliberate.
-          Until 2026-08-04 this card read "0 is the norm, anything else is a defect": issuance runs
-          inside the activation and survey transactions and is allowed to fail without taking the
-          cashback down with it, so a skipped issuance raises nothing and only this count would show
-          it. Then the Captain decided NOT to backfill tickets, which makes a non-zero value the
-          expected state — members who filled the survey before issuance existed hold no ticket
-          until their next action. A siren that rings permanently is taped over, and the real signal
-          would die with it.
-          The signal did not disappear: it moved into the LIST, ordered by last activation. A member
-          who activated a QR recently and still holds no survey ticket is a genuine failure — the
-          activation path issues every source. That is why this card links to `owed` rather than
-          shouting a colour nobody can act on.
-        */}
         <Link to={holdersLink('owed')} className="block hover:opacity-80 transition-opacity">
           <LoyaltyStatCard
-            title="Ждут билет за анкету"
+            title={leak ? '⚠️ Билет не выдан' : 'Пропусков выдачи'}
             value={stats.eligible_without_survey_ticket}
-            subtitle="получат при следующем действии · открыть список"
-            icon={Hourglass}
+            subtitle={leak ? 'участники ждут билет за анкету' : 'норма — ноль'}
+            icon={AlertTriangle}
             isLoading={isLoading}
           />
         </Link>
