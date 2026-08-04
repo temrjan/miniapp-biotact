@@ -1,9 +1,9 @@
 """Admin surface of the monthly draw: freezing the participant snapshot (PR-5.3) and exporting it
 for external verification (PR-5.4a)."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,8 @@ from src.loyalty.schemas import (
     PrintRowResponse,
     RecordWinnersRequest,
     RecordWinnersResponse,
+    TicketHolderResponse,
+    TicketHoldersResponse,
     UpdateDrawRequest,
     UpdateDrawResponse,
     WinnerRowResponse,
@@ -56,6 +58,56 @@ async def get_current_draw(
         clean_tickets=outcome.clean_tickets,
         draw=_draw_info_response(outcome.draw),
         last_drawn=_draw_info_response(outcome.last_drawn),
+    )
+
+
+# Declared BEFORE the ``/{draw_id}`` routes on purpose: a literal segment registered after a
+# parameterised one is shadowed by it, and the symptom is a 405 on a path that looks fine.
+@router.get(
+    "/holders",
+    response_model=TicketHoldersResponse,
+    dependencies=[Depends(require_loyalty_enabled), Depends(require_admin)],
+)
+async def list_ticket_holders(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    size: Annotated[int, Query(ge=1, le=100)] = 20,
+    filter_by: Annotated[Literal["all", "clean", "owed"], Query(alias="filter")] = "all",
+) -> TicketHoldersResponse:
+    """Who holds tickets and on what grounds — the list behind each number on the dashboard.
+
+    ``all`` and ``clean`` answer "who has them"; ``owed`` answers "who is still waiting", filtered
+    by the very expression the dashboard counter is built from, so the list and the number above it
+    cannot disagree about the rule. ``owed`` is ordered by last activation, freshest first: that
+    row is where a genuine failure of issuance shows itself, and everything below it is the
+    expected residue of the decision not to backfill.
+
+    Read-only by design. Issuing or revoking a ticket by hand would put a writer outside the three
+    code paths that earn one, and the snapshot's provability rests on there being no such writer.
+    """
+    outcome = await lottery.list_ticket_holders(db, page=page, size=size, filter_by=filter_by)
+    return TicketHoldersResponse(
+        items=[
+            TicketHolderResponse(
+                user_id=row.user_id,
+                name=row.name,
+                phone=row.phone,
+                tickets_total=row.tickets_total,
+                tickets_clean=row.tickets_clean,
+                by_source=row.by_source,
+                draw_number=row.draw_number,
+                numbers=list(row.numbers),
+                played=row.played,
+                won=row.won,
+                eligible_now=row.eligible_now,
+                not_eligible_reason=row.not_eligible_reason,
+                last_activation_at=row.last_activation_at,
+            )
+            for row in outcome.items
+        ],
+        total=outcome.total,
+        page=outcome.page,
+        size=outcome.size,
     )
 
 

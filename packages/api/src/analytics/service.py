@@ -21,7 +21,7 @@ from src.analytics.schemas import (
     RevenueDataPoint,
     TopProductItem,
 )
-from src.loyalty.lottery import ADULT_AGE
+from src.loyalty.lottery import owed_survey_ticket_sql
 from src.loyalty.models import (
     CodeBatch,
     Consent,
@@ -29,7 +29,6 @@ from src.loyalty.models import (
     CustomerEventType,
     CustomerProfile,
     LotteryTicket,
-    LotteryTicketSource,
     LoyaltyStatus,
     PointLedger,
     QrCode,
@@ -443,31 +442,19 @@ async def get_loyalty_stats(db: AsyncSession, days: int = 30) -> LoyaltyStats:
     # The eligibility predicates of `loyalty.lottery` expressed in SQL, because an aggregate cannot
     # call them row by row.
     #
-    # The duplication is real, and what binds the two halves is `tests/test_detector_agreement.py`:
-    # it seeds the full matrix and asserts this count equals the one computed with the Python
-    # predicates. Seven mutations of the SQL below redden it, including a threshold shifted by a
-    # single year. Edit these rules and that file has to be re-run — a drifting copy makes the
-    # detector lie, and a lying detector is worse than none: it keeps reading 0 while members go
-    # without their tickets.
-    adult_sql = case(
-        (CustomerProfile.age.is_not(None), CustomerProfile.age >= ADULT_AGE),
-        else_=CustomerProfile.is_adult,
-    )
+    # The condition is NOT written here: it is `lottery.owed_survey_ticket_sql()`, the same object
+    # the holders list filters by. Two callers, one expression — the copy that used to sit inline
+    # was the place a third one would have been added next. What still binds SQL to the Python
+    # predicates is `tests/test_detector_agreement.py`: it seeds the full matrix and asserts this
+    # count equals the one computed with `has_survey`/`is_adult`; mutations of the shared
+    # expression, down to a threshold shifted by a single year, redden it.
+    #
+    # Since 2026-08-04 (no backfill) this number is NOT expected to read zero: members who filled
+    # the survey before issuance existed hold no ticket until their next action. It is a reference,
+    # not an alarm — the holders list ordered by last activation is what separates that residue
+    # from a genuine issuance failure.
     eligible_without_survey_ticket = (
-        await db.scalar(
-            select(func.count(CustomerProfile.id)).where(
-                CustomerProfile.gender.is_not(None),
-                CustomerProfile.city.is_not(None),
-                adult_sql,
-                ~select(LotteryTicket.id)
-                .where(
-                    LotteryTicket.user_id == CustomerProfile.user_id,
-                    LotteryTicket.source == LotteryTicketSource.SURVEY.value,
-                )
-                .exists(),
-            )
-        )
-        or 0
+        await db.scalar(select(func.count(CustomerProfile.id)).where(owed_survey_ticket_sql())) or 0
     )
 
     return LoyaltyStats(

@@ -23,7 +23,17 @@ from datetime import UTC, date, datetime
 from hashlib import sha256
 from typing import cast
 
-from sqlalchemy import Table, bindparam, func, select, update
+from sqlalchemy import (
+    ColumnElement,
+    Select,
+    Table,
+    and_,
+    bindparam,
+    case,
+    func,
+    select,
+    update,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +44,7 @@ from src.loyalty.models import (
     LotteryDraw,
     LotteryDrawStatus,
     LotteryTicket,
+    LotteryTicketSource,
 )
 from src.users.models import User
 
@@ -64,6 +75,49 @@ def has_survey(profile: CustomerProfile) -> bool:
     which would leave the checkbox unable to change any outcome at all (blocker caught at Gate-1).
     """
     return profile.gender is not None and profile.city is not None
+
+
+def eligible_sql() -> ColumnElement[bool]:
+    """``has_survey(p) and is_adult(p)``, as SQL over ``customer_profile``, for aggregates.
+
+    An aggregate cannot call the two predicates row by row, so the rules have to exist here a
+    second time -- but they exist here ONCE, in one function with two callers (the dashboard's
+    detector and the holders list). The alternative, each caller writing its own WHERE, is how a
+    third copy appears and how the copies drift apart; ``tests/test_detector_agreement.py`` binds
+    this expression to the Python originals and reddens on a threshold moved by a single year.
+    """
+    return and_(
+        CustomerProfile.gender.is_not(None),
+        CustomerProfile.city.is_not(None),
+        case(
+            (CustomerProfile.age.is_not(None), CustomerProfile.age >= ADULT_AGE),
+            else_=CustomerProfile.is_adult,
+        ),
+    )
+
+
+def owed_survey_ticket_sql() -> ColumnElement[bool]:
+    """Eligible members holding no survey ticket -- the dashboard's third counter, as a condition.
+
+    Since the 2026-08-04 decision not to backfill, this is no longer expected to read zero: a
+    member who filled in the survey before issuance existed legitimately has no ticket until their
+    next action. That is why the number alone stopped being a verdict and the LIST became the
+    diagnosis -- see :func:`list_ticket_holders` for the ordering that carries the real signal.
+    """
+    return and_(
+        eligible_sql(),
+        ~select(LotteryTicket.id)
+        .where(
+            LotteryTicket.user_id == CustomerProfile.user_id,
+            LotteryTicket.source == LotteryTicketSource.SURVEY.value,
+        )
+        # Correlate the OUTER profile only. Left to itself SQLAlchemy also correlates away
+        # ``lottery_tickets`` whenever the enclosing query already joins it — as the holders list
+        # does — and the subquery is then emitted with no FROM at all. The dashboard's query does
+        # not join tickets, so this went unnoticed until the second caller existed.
+        .correlate(CustomerProfile)
+        .exists(),
+    )
 
 
 def canonical_snapshot(rows: list[tuple[int, int, str]]) -> str:
@@ -956,6 +1010,180 @@ _LOST_RACE = (
     "Розыгрыш №{draw_number} только что закрыл или отменил другой администратор. "
     "Ничего не записано."
 )
+
+
+@dataclass(frozen=True)
+class HolderRow:
+    """One member on the holders screen -- primitives only, safe to read after the session closes."""
+
+    user_id: int
+    name: str
+    phone: str | None
+    tickets_total: int
+    tickets_clean: int
+    by_source: dict[str, int]
+    draw_number: int | None
+    numbers: tuple[int, ...]
+    played: int
+    won: bool
+    eligible_now: bool
+    not_eligible_reason: str | None
+    last_activation_at: datetime | None
+
+
+@dataclass(frozen=True)
+class HoldersOutcome:
+    """A page of holders plus the size of the whole filtered set."""
+
+    items: tuple[HolderRow, ...]
+    total: int
+    page: int
+    size: int
+
+
+HOLDER_FILTERS = ("all", "clean", "owed")
+
+
+async def _relevant_draw(db: AsyncSession) -> LotteryDraw | None:
+    """The one draw a holder row may report: the live freeze, else the last one actually drawn.
+
+    Cancelled draws are skipped for the same reason the member card skips them -- their stamps were
+    released, so reporting them would answer "where are these tickets now" with a draw the tickets
+    are no longer in.
+    """
+    draw: LotteryDraw | None = await db.scalar(
+        select(LotteryDraw)
+        .where(LotteryDraw.status != LotteryDrawStatus.CANCELLED.value)
+        .order_by(LotteryDraw.draw_number.desc())
+        .limit(1)
+    )
+    return draw
+
+
+def _holder_base(filter_by: str) -> Select[tuple[int]]:
+    """Profile ids matching the filter. Shared by the count and the page so they cannot disagree."""
+    stmt = (
+        select(CustomerProfile.id)
+        .outerjoin(LotteryTicket, LotteryTicket.user_id == CustomerProfile.user_id)
+        .group_by(CustomerProfile.id)
+    )
+    if filter_by == "owed":
+        return stmt.where(owed_survey_ticket_sql())
+    if filter_by == "clean":
+        return stmt.having(func.count(LotteryTicket.id).filter(LotteryTicket.draw_id.is_(None)) > 0)
+    return stmt.having(func.count(LotteryTicket.id) > 0)
+
+
+async def list_ticket_holders(
+    db: AsyncSession,
+    *,
+    page: int,
+    size: int,
+    filter_by: str,
+) -> HoldersOutcome:
+    """Who holds tickets and on what grounds -- the list behind each dashboard number.
+
+    Three filters, one query shape: ``all`` and ``clean`` list ticket holders, ``owed`` lists
+    eligible members who hold no survey ticket. ``owed`` reuses :func:`owed_survey_ticket_sql`, the
+    very condition the dashboard counter is built from, so the list and the number it hangs behind
+    cannot disagree about the rule -- only about nothing.
+
+    **Ordering carries the alarm.** ``owed`` is sorted by ``last_activation_at`` DESC **NULLS
+    LAST**. Activating a QR calls issuance with every source, so a member who activated recently
+    and still holds no survey ticket is a genuine issuance failure, while a member who never came
+    back is merely the expected residue of not backfilling. PostgreSQL sorts NULLs FIRST on DESC,
+    and entry without a QR has existed since Stage 4 -- without ``nullslast()`` the never-activated
+    would fill exactly the rows where the failure must show. The other filters sort by ticket count,
+    where the question is "who holds the most", not "what broke".
+
+    Eligibility per row is decided by :func:`has_survey`/:func:`is_adult` on the loaded profile --
+    the same functions the freeze re-checks, not a third phrasing of the rules.
+
+    Cost is three statements regardless of page size: the relevant draw, the total, the page.
+    """
+    if filter_by not in HOLDER_FILTERS:
+        raise BadRequestException(f"Unknown filter: {filter_by}")
+
+    draw = await _relevant_draw(db)
+    draw_id = draw.id if draw is not None else None
+
+    total = await db.scalar(select(func.count()).select_from(_holder_base(filter_by).subquery()))
+
+    stmt = (
+        select(
+            CustomerProfile,
+            User,
+            func.count(LotteryTicket.id).label("total"),
+            func.count(LotteryTicket.id).filter(LotteryTicket.draw_id.is_(None)).label("clean"),
+            func.count(LotteryTicket.id)
+            .filter(LotteryTicket.source == LotteryTicketSource.SURVEY.value)
+            .label("survey"),
+            func.count(LotteryTicket.id)
+            .filter(LotteryTicket.source == LotteryTicketSource.FRIEND.value)
+            .label("friend"),
+            func.count(LotteryTicket.id)
+            .filter(LotteryTicket.source == LotteryTicketSource.ACTIVATION.value)
+            .label("activation"),
+            func.count(LotteryTicket.id)
+            .filter(LotteryDraw.status == LotteryDrawStatus.DRAWN.value)
+            .label("played"),
+            func.bool_or(LotteryTicket.is_winner).label("won"),
+            # Numbers of ONE draw, never glued across a member's history: "where are these tickets
+            # now" has to have a single answer. With no relevant draw the filter degenerates to
+            # ``draw_id IS NULL``, whose rows are clean tickets -- and a clean ticket has no number
+            # yet, so the aggregate yields NULLs that the reader below drops.
+            func.array_agg(LotteryTicket.ticket_number)
+            .filter(LotteryTicket.draw_id == draw_id)
+            .label("numbers"),
+        )
+        .join(User, User.id == CustomerProfile.user_id)
+        .outerjoin(LotteryTicket, LotteryTicket.user_id == CustomerProfile.user_id)
+        .outerjoin(LotteryDraw, LotteryDraw.id == LotteryTicket.draw_id)
+        .where(CustomerProfile.id.in_(_holder_base(filter_by).subquery().select()))
+        .group_by(CustomerProfile.id, User.id)
+    )
+    if filter_by == "owed":
+        stmt = stmt.order_by(
+            CustomerProfile.last_activation_at.desc().nullslast(), CustomerProfile.id
+        )
+    else:
+        stmt = stmt.order_by(func.count(LotteryTicket.id).desc(), CustomerProfile.id)
+
+    rows = (await db.execute(stmt.offset((page - 1) * size).limit(size))).all()
+
+    items = []
+    for row in rows:
+        profile: CustomerProfile = row[0]
+        user: User = row[1]
+        reason = None
+        if not has_survey(profile):
+            reason = "survey"
+        elif not is_adult(profile):
+            reason = "age"
+        numbers = tuple(sorted(n for n in (row.numbers or []) if n is not None))
+        items.append(
+            HolderRow(
+                user_id=user.id,
+                name=" ".join(p for p in (user.first_name, user.last_name) if p) or "—",
+                phone=user.phone,
+                tickets_total=row.total,
+                tickets_clean=row.clean,
+                by_source={
+                    "survey": row.survey,
+                    "friend": row.friend,
+                    "activation": row.activation,
+                },
+                draw_number=draw.draw_number if draw is not None and numbers else None,
+                numbers=numbers,
+                played=row.played,
+                won=bool(row.won),
+                eligible_now=reason is None,
+                not_eligible_reason=reason,
+                last_activation_at=profile.last_activation_at,
+            )
+        )
+
+    return HoldersOutcome(items=tuple(items), total=total or 0, page=page, size=size)
 
 
 async def record_winners(

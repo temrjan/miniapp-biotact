@@ -327,6 +327,47 @@ class PrintListResponse(BaseModel):
     rows: list[PrintRowResponse]
 
 
+class TicketHolderResponse(BaseModel):
+    """One member on the holders screen: how many tickets, on what grounds, and where they are now.
+
+    ``by_source`` is the answer to "for what" — the question the dashboard counters cannot answer.
+    ``draw_number``/``numbers`` describe ONE draw (the live freeze, else the last one drawn), never
+    a member's whole history: "where are they now" must have a single answer.
+    """
+
+    user_id: int
+    name: str
+    phone: str | None = Field(description="Admin-only, as in the customers list — names repeat")
+    tickets_total: int = Field(ge=0)
+    tickets_clean: int = Field(ge=0, description="Not yet stamped into any draw")
+    by_source: dict[str, int] = Field(description="survey / friend / activation counts")
+    draw_number: int | None = Field(default=None, description="Only when this member is in it")
+    numbers: list[int] = Field(description="Own ticket numbers in that one draw, ascending")
+    played: int = Field(ge=0, description="Tickets that took part in a draw already drawn")
+    won: bool
+    eligible_now: bool = Field(description="Would these tickets be stamped by a freeze right now")
+    not_eligible_reason: str | None = Field(
+        default=None, description="`survey` or `age` — null when eligible"
+    )
+    last_activation_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Last QR activation. Diagnostic column of the `owed` filter: activation issues every "
+            "source, so a recent date next to a missing survey ticket is a real issuance failure, "
+            "while an absent one is the expected residue of not backfilling."
+        ),
+    )
+
+
+class TicketHoldersResponse(BaseModel):
+    """Body of ``GET /admin/lottery/holders`` — one page plus the size of the filtered set."""
+
+    items: list[TicketHolderResponse]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    size: int = Field(ge=1)
+
+
 class DrawResultResponse(BaseModel):
     """How the previous draw ended for this member (``GET /loyalty/my-tickets``)."""
 
