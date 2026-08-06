@@ -48,6 +48,8 @@ function withCartAndPending() {
   usePendingOrderStore.getState().rememberOrder(42);
 }
 
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   getMock.mockReset();
   onEventMock.mockReset();
@@ -55,6 +57,7 @@ beforeEach(() => {
   useCartStore.getState().clearCart();
   usePendingOrderStore.getState().forgetOrder();
   fireVisibility('visible');
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -128,6 +131,8 @@ describe('useClearCartOnPaidOrder', () => {
 
       expect(usePendingOrderStore.getState().pending).toBeNull();
       expect(useCartStore.getState().items).toHaveLength(1);
+      // Штатный исход — в консоль не шумим.
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
     }
   );
 
@@ -141,6 +146,22 @@ describe('useClearCartOnPaidOrder', () => {
 
     expect(usePendingOrderStore.getState().pending).not.toBeNull();
     expect(useCartStore.getState().items).toHaveLength(1);
+  });
+
+  // Отказавшая сверка выглядит снаружи ровно как исходный баг — «корзина не очистилась». Молчащий
+  // catch означал бы, что о поломке команда узнаёт из жалобы клиента, а не из логов.
+  it('неожиданный сбой сверки попадает в консоль', async () => {
+    withCartAndPending();
+    getMock.mockRejectedValue(new Error('network down'));
+
+    await act(async () => {
+      renderHook(() => useClearCartOnPaidOrder());
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Pending order check failed:',
+      expect.any(Error)
+    );
   });
 
   // 401 достижим: initData живёт 24 часа — ровно столько же, сколько памятка. 408 — наш

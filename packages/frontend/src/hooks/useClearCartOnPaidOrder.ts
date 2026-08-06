@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import WebApp from '@twa-dev/sdk';
 
 import { api, ApiError } from '@/api/client';
+import type { OrderStatus, PaymentStatus } from '@/types';
 import { useCartStore } from '@stores/cartStore';
 import { isPendingOrderExpired, usePendingOrderStore } from '@stores/pendingOrderStore';
 
@@ -37,15 +38,20 @@ const RECHECK_DELAYS_MS = [5000, 15000];
  */
 const FORGET_ON_HTTP_STATUSES = [403, 404];
 
-/** Платёжные статусы, после которых заказ уже не станет оплаченным. */
-const TERMINAL_PAYMENT_STATUSES = ['failed', 'refunded'];
+/**
+ * Платёжные статусы, после которых заказ уже не станет оплаченным.
+ *
+ * Тип — словарь бэкенда (`PaymentStatus`), а не `string[]`: опечатка в значении обязана падать на
+ * тайпчекере, а не тихо превращаться в «такого статуса не бывает, ждём дальше».
+ */
+const TERMINAL_PAYMENT_STATUSES: readonly PaymentStatus[] = ['failed', 'refunded'];
 
 /** Статус заказа, после которого он уже не станет оплаченным (`refunded` приходит вместе с ним). */
-const TERMINAL_ORDER_STATUS = 'cancelled';
+const TERMINAL_ORDER_STATUS: OrderStatus = 'cancelled';
 
 interface OrderStatusResponse {
-  payment_status?: string | null;
-  status?: string | null;
+  payment_status?: PaymentStatus | null;
+  status?: OrderStatus | null;
 }
 
 function isPaid(order: OrderStatusResponse): boolean {
@@ -99,6 +105,11 @@ export function useClearCartOnPaidOrder(): void {
       }
       // 401, 408, 5xx, обрыв сети, неожиданное тело — «не смогли спросить». Памятку оставляем,
       // экран не трогаем: сверка не имеет права ломать приложение тем, кто просто его открыл.
+      //
+      // Но и молчать нельзя. Снаружи отказавшая сверка выглядит РОВНО как баг, который она чинит —
+      // «корзина не очистилась»; без записи в консоль команда узнала бы о поломке из новой жалобы
+      // клиента, а не из логов.
+      console.error('Pending order check failed:', error);
     } finally {
       isCheckingRef.current = false;
     }
