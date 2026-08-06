@@ -69,6 +69,15 @@ export type OrderStatus =
   | 'delivered'
   | 'cancelled';
 
+/**
+ * Состояние оплаты — словарь бэкенда (колонка `orders.payment_status`).
+ *
+ * `unpaid` — умолчание при создании заказа; `pending` — счёт в Multicard выставлен; `refunded`
+ * выставляется всегда вместе с отменой заказа (`payments/lifecycle.py`). Отдельно от
+ * `OrderStatus` намеренно: с частичным списанием баллов «оплачен» и «подтверждён» — разные факты.
+ */
+export type PaymentStatus = 'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded';
+
 export interface Order {
   id: string;
   userId: number;

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { useHaptic } from '@hooks/useTelegram';
 import { LOYALTY_ME_KEY } from '@hooks/useLoyalty';
+import { usePendingOrderStore } from '@stores/pendingOrderStore';
 import { useTranslation } from '@/i18n';
 import { api, ApiError } from '@/api/client';
 import { buildOrderRequest } from '@/utils/order';
@@ -71,6 +72,7 @@ export function usePayment({
   const { t } = useTranslation();
   const [isProcessing, setIsProcessing] = useState(false);
   const isProcessingRef = useRef(false);
+  const rememberOrder = usePendingOrderStore((state) => state.rememberOrder);
 
   const pay = useCallback(async () => {
     if (isProcessingRef.current) return;
@@ -98,6 +100,11 @@ export function usePayment({
       // (App.tsx), so nothing re-reads it when they come back from an abandoned payment — which is
       // exactly when they look at their balance and try to redeem again.
       void queryClient.invalidateQueries({ queryKey: LOYALTY_ME_KEY });
+      // Отсюда человек уходит из мини-аппа в браузер, и экран «оплата прошла» — вместе с его
+      // очисткой корзины — откроется ТАМ. Запоминаем заказ, чтобы очистить корзину у себя, когда
+      // человек вернётся (`useClearCartOnPaidOrder`). Запоминаем `order.id` — числовой, тот, что
+      // принимает `GET /orders/{order_id}`; `order_number` из адреса возврата здесь не годится.
+      rememberOrder(order.id);
       WebApp.openLink(payment.payment_url);
     } catch (error) {
       // Failed — release the guard so the customer can retry.
@@ -131,6 +138,7 @@ export function usePayment({
     navigate,
     haptic,
     queryClient,
+    rememberOrder,
     t,
   ]);
 
