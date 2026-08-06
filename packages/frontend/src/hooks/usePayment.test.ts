@@ -8,6 +8,7 @@ import WebApp from '@twa-dev/sdk';
 
 import { api, ApiError } from '@/api/client';
 import type { CartItem, Product } from '@/types';
+import { usePendingOrderStore } from '@stores/pendingOrderStore';
 import { usePayment } from './usePayment';
 
 // useNavigate → spy (hoisted so the vi.mock factory can reference it).
@@ -76,6 +77,7 @@ beforeEach(() => {
   navigateMock.mockReset();
   openLinkMock.mockReset();
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  usePendingOrderStore.getState().forgetOrder();
   // jsdom does not implement window.alert — stub it so error paths don't blow up the test.
   vi.spyOn(window, 'alert').mockImplementation(() => {});
 });
@@ -181,6 +183,62 @@ describe('usePayment', () => {
 
     expect(openLinkMock).toHaveBeenCalled();
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['loyalty', 'me'] });
+  });
+
+  // Ловушка, на которой фикс молча умирает: `order_number` — строка `ORD-…`, а `GET /orders/{id}`
+  // принимает целое. Памятка с номером заказа дала бы 422/404 на каждой сверке, и корзина не
+  // очистилась бы никогда — при внешне правильном коде.
+  it('уход на оплату → памятка помнит ЧИСЛОВОЙ order.id, а не order_number', async () => {
+    postMock.mockImplementation((endpoint: string) =>
+      endpoint === '/orders'
+        ? Promise.resolve({
+            id: 5,
+            order_number: 'ORD-20260806123456-A1B2C3',
+            total: 30000,
+            payment_status: 'unpaid',
+            points_applied: 5000,
+          })
+        : Promise.resolve({ payment_url: 'https://pay/5', payment_uuid: 'u', order_id: 5 })
+    );
+
+    const { result } = renderPay();
+    await act(async () => {
+      await result.current.pay();
+    });
+
+    expect(usePendingOrderStore.getState().pending).toMatchObject({ orderId: 5 });
+  });
+
+  it('полное покрытие баллами (paid) → памятки НЕТ (экран успеха открывается внутри приложения)', async () => {
+    postMock.mockResolvedValue({
+      id: 9,
+      order_number: 'ORD-9',
+      total: 30000,
+      payment_status: 'paid',
+      points_applied: 30000,
+    });
+
+    const { result } = renderPay({ redeemPoints: 30000 });
+    await act(async () => {
+      await result.current.pay();
+    });
+
+    expect(usePendingOrderStore.getState().pending).toBeNull();
+  });
+
+  it('создание платежа упало → памятки НЕТ (платить было негде)', async () => {
+    postMock.mockImplementation((endpoint: string) =>
+      endpoint === '/orders'
+        ? Promise.resolve({ id: 5, order_number: 'ORD-5', payment_status: 'unpaid' })
+        : Promise.reject(new ApiError('bad gateway', 502))
+    );
+
+    const { result } = renderPay();
+    await act(async () => {
+      await result.current.pay();
+    });
+
+    expect(usePendingOrderStore.getState().pending).toBeNull();
   });
 
   it('409 → снимок лояльности инвалидируется, чтобы степпер пришёл к правде', async () => {

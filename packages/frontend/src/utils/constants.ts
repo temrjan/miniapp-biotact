@@ -38,6 +38,7 @@ export const STORAGE_KEYS = {
   USER: 'biotact_user',
   THEME: 'biotact_theme',
   LANGUAGE: 'biotact_language',
+  PENDING_ORDER: 'biotact_pending_order',
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════

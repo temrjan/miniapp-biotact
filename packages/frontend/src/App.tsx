@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MainLayout } from '@components/layouts/MainLayout';
 import { Loading } from '@components/ui/Loading';
 import { LocationModal } from '@components/features/LocationModal';
+import { useClearCartOnPaidOrder } from '@hooks/useClearCartOnPaidOrder';
 import { useAppStore } from '@stores/appStore';
 import { ROUTES } from '@utils/constants';
 
@@ -56,6 +57,10 @@ export function App() {
   useEffect(() => {
     initApp();
   }, [initApp]);
+
+  // Оплата картой уводит человека из мини-аппа, и экран «оплата прошла» со своей очисткой корзины
+  // открывается в браузере. Здесь приложение узнаёт об оплате само — на старте и при возврате.
+  useClearCartOnPaidOrder();
 
   return (
     <QueryClientProvider client={queryClient}>
