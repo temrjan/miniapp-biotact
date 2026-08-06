@@ -28,8 +28,8 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return captured
 
 
-async def _line(slug: str | None, *, with_key: bool = True) -> str:
-    """Send one-item notification and return its items block."""
+async def _line(slug: str | None, *, with_key: bool = True) -> None:
+    """Send a one-item paid notification; the text lands in the ``sent`` fixture."""
     item: dict[str, object] = {
         "product_name": "BIFOLAK® ACTIVE",
         "quantity": 1,
@@ -40,7 +40,6 @@ async def _line(slug: str | None, *, with_key: bool = True) -> str:
     await TelegramNotifier().notify_payment_success(
         order_number="ORD-TEST", total=75500.0, items=[item]
     )
-    return ""
 
 
 async def test_capsules_slug_marks_the_line(sent: list[str]) -> None:

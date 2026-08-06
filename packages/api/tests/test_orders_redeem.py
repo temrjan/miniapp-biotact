@@ -31,7 +31,7 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -405,6 +405,51 @@ async def test_full_coverage_pays_confirms_and_notifies(
     message = sent_messages[0]
     assert "ОПЛАЧЕНО БАЛЛАМИ" in message
     assert "Списано баллов" in message
+
+
+async def test_new_order_notice_survives_a_product_deleted_before_payment(
+    client: AsyncClient,
+    maker: async_sessionmaker[AsyncSession],
+    sent_messages: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A product deleted between order creation and ``/payments/create`` must not mute the notice.
+
+    The two are separate HTTP requests and ``create_payment`` re-reads the order from the DB, so
+    "the same moment" is a property of the frontend calling them back to back, not a guarantee of
+    the API: ``order_items.product_id`` can already be NULL by then (ON DELETE SET NULL). Reading
+    ``item.product.slug`` unguarded would raise inside the notify block, which swallows exceptions
+    — the fulfilment group would never hear about the new order.
+    Mutation: drop ``if item.product else None`` in the create-payment notice → red.
+    """
+    await _seed_user(maker, telegram_id=80012)
+    product_id = await _seed_product(maker, slug="probe_active_caps")
+
+    created = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=0), headers=_headers(80012)
+    )
+    assert created.status_code == 201, created.text
+
+    async with maker() as session, session.begin():
+        await session.execute(delete(Product).where(Product.id == product_id))
+
+    sent_messages.clear()  # интересует только уведомление о выставленном счёте
+
+    async def _fake_invoice(payment_data: PaymentCreateData) -> MultiCardPaymentResponse:
+        return MultiCardPaymentResponse(uuid="stub-orphan", pay_url="https://pay.uz/stub")
+
+    monkeypatch.setattr(multicard_client, "create_invoice", _fake_invoice)
+
+    resp = await client.post(
+        PAYMENTS_URL,
+        json={"order_id": created.json()["id"], "return_url": "https://x.uz"},
+        headers=_headers(80012),
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert len(sent_messages) == 1  # уведомление ушло, несмотря на удалённый товар
+    assert "НОВЫЙ ЗАКАЗ" in sent_messages[0]
+    assert "(капсулы)" not in sent_messages[0]
 
 
 async def test_notifications_release_form_points_path(
