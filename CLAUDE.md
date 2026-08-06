@@ -17,7 +17,7 @@
 cd packages/frontend && npm ci && npm run build
 npm run test          # vitest (129 tests)
 npm run lint          # eslint
-npx tsc --noEmit      # type check
+npx tsc -b            # type check
 
 # Admin
 cd admin-panel-v2 && npm ci && npm run build
