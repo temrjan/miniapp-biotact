@@ -52,7 +52,7 @@ npm run dev          # Dev-сервер (порт 5173)
 npm run build        # Сборка (tsc + vite build)
 npm run test         # Тесты (vitest, 129 тестов)
 npm run lint         # ESLint
-npm run type-check   # tsc --noEmit
+npm run type-check   # tsc -b
 npm run format       # Prettier
 ```
 
