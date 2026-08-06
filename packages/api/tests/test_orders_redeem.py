@@ -407,6 +407,30 @@ async def test_full_coverage_pays_confirms_and_notifies(
     assert "Списано баллов" in message
 
 
+async def test_notifications_release_form_points_path(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
+) -> None:
+    """A fully-points order carries the release form too — it ships like any other.
+
+    This path never reaches the payments router, so it is the only send for such an order. It also
+    guards a dependency that is invisible from here: the product is reachable only because
+    ``create_order`` ends with ``db.refresh(order)``, which reloads the items and (via
+    ``lazy="joined"``) their products. Drop that refresh and the notification silently stops going
+    out — the block that sends it swallows exceptions. Then this test fails.
+    """
+    user_id = await _seed_user(maker, telegram_id=80011)
+    product_id = await _seed_product(maker, slug="probe_active_caps")
+    await _seed_points(maker, user_id=user_id, amount=69_000)
+
+    resp = await client.post(
+        ORDERS_URL, json=_payload(product_id, points_to_apply=69_000), headers=_headers(80011)
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert len(sent_messages) == 1
+    assert "(капсулы)" in sent_messages[0]
+
+
 async def test_full_points_order_cannot_be_invoiced_via_multicard(
     client: AsyncClient, maker: async_sessionmaker[AsyncSession]
 ) -> None:

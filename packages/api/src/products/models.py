@@ -28,6 +28,10 @@ class Product(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     name_uz: Mapped[str | None] = mapped_column(String(200))
+    # ⚠️ Не только адрес: окончание slug'а (`_caps` / `_stik`) читается как ФОРМА ВЫПУСКА и
+    # печатается в уведомлении отделу продаж — см. `RELEASE_FORM_BY_SLUG_SUFFIX` в
+    # `notifications/service.py`. Переименование slug'а меняет то, что увидит человек, готовящий
+    # отгрузку.
     slug: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     description_uz: Mapped[str | None] = mapped_column(Text)
