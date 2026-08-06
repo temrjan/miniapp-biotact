@@ -138,6 +138,16 @@ class TelegramNotifier:
             if points_applied
             else ""
         )
+        # Сколько реально собрала карта — просьба бухгалтерии: до этого «Сумма» и «Списано баллов»
+        # стояли рядом, а разницу считали в уме. Печатается ТОЛЬКО при частичном списании: без
+        # баллов уплаченное и есть «Сумма» (строка была бы дублем), при полном покрытии карта не
+        # участвовала и «0» был бы шумом — об этом уже сказал заголовок. Слово «картой»
+        # обязательно: человек заплатил и баллами тоже, «итого оплачено» без него двусмысленно.
+        card_paid_line = (
+            f"\n💳 <b>Итого оплачено картой:</b> {self._format_price(total - points_applied)} сум"
+            if points_applied and not fully_points
+            else ""
+        )
 
         message = f"""📱 <b>Biotact Mini-App</b>
 {header}
@@ -145,7 +155,7 @@ class TelegramNotifier:
 📦 <b>Товары:</b>
 {items_text}
 
-💰 <b>Сумма:</b> {self._format_price(total)} сум{points_line}
+💰 <b>Сумма:</b> {self._format_price(total)} сум{points_line}{card_paid_line}
 
 👤 <b>Клиент:</b>
 Имя: {customer_name or "Не указано"}
