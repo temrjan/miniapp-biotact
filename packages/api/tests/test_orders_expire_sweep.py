@@ -175,3 +175,29 @@ async def test_button_path_still_ignores_card_only_orders(
     assert outcome.released_orders == 0
     assert deleted_invoices == []
     assert (await _committed(maker, order_id)).status == OrderStatus.PENDING
+
+
+async def test_sweep_paces_its_calls_to_the_payment_provider(
+    maker: async_sessionmaker[AsyncSession],
+    deleted_invoices: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Between orders the sweep waits: each one is a separate Multicard call."""
+    # Не осторожность, а замер: 07.08.2026 уборка 68 заказов вместе с диагностикой получила
+    # `429 Too Many Requests` на `/auth`. Отказ безопасен (заказ просто не отменится и попадёт в
+    # следующий прогон), но залп тратит вызовы впустую.
+    pauses: list[float] = []
+
+    async def _record(seconds: float) -> None:
+        pauses.append(seconds)
+
+    monkeypatch.setattr("src.orders.service.asyncio.sleep", _record)
+    await _seed(maker, telegram_id=90006, age=timedelta(hours=2))
+    await _seed(maker, telegram_id=90007, age=timedelta(hours=2))
+
+    async with maker() as session:
+        outcome = await expire_stale_orders(session)
+        await session.commit()
+
+    assert outcome.released_orders == 2
+    assert len(pauses) == 1  # пауза между заказами, но не перед первым

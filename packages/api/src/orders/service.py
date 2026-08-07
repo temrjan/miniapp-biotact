@@ -1,5 +1,6 @@
 """Order service layer."""
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
@@ -310,6 +311,10 @@ async def create_order(
 # risks cancelling an order a customer is mid-paying (UX, not money), too long holds the reserve.
 REDEEM_RESERVE_TIMEOUT = timedelta(minutes=30)
 
+# Пауза между вызовами к Multicard в регулярной уборке. Накопившаяся очередь уходит
+# залпом: 07.08.2026 уборка 68 заказов с диагностикой упёрлась в 429 на /auth.
+SWEEP_CALL_INTERVAL_SECONDS = 0.2
+
 
 @dataclass(frozen=True)
 class ReleaseOutcome:
@@ -416,7 +421,14 @@ async def expire_stale_orders(
     stale = (await db.execute(select(Order).where(*filters))).scalars().all()
 
     released_orders = released_points = blocked_orders = 0
-    for order in stale:
+    for index, order in enumerate(stale):
+        # Пауза между заказами: каждый — отдельный вызов к Multicard, и накопившаяся очередь
+        # уходит в них залпом. 07.08.2026 уборка 68 заказов вместе с диагностикой упёрлась в
+        # `429 Too Many Requests` на их `/auth` — это измеренный факт, а не осторожность.
+        # Отказ по 429 безопасен сам по себе (`delete_invoice` вернёт False, заказ не отменится и
+        # попадёт в следующий прогон), но тогда прогон тратит вызовы впустую.
+        if index:
+            await asyncio.sleep(SWEEP_CALL_INTERVAL_SECONDS)
         points = order.points_applied
         if await _expire_partial(db, order):
             released_orders += 1
