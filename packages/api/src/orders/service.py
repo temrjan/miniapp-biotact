@@ -315,10 +315,6 @@ REDEEM_RESERVE_TIMEOUT = timedelta(minutes=30)
 # залпом: 07.08.2026 уборка 68 заказов с диагностикой упёрлась в 429 на /auth.
 SWEEP_CALL_INTERVAL_SECONDS = 0.2
 
-# Сколько живёт счёт Multicard. Замерено 07.08.2026: в ответе есть expiry_at = создание + 24ч
-# (у счетов до ~30.01.2026 срока нет вовсе). После этого момента гасить уже нечего.
-MULTICARD_INVOICE_TTL = timedelta(hours=24)
-
 
 @dataclass(frozen=True)
 class ReleaseOutcome:
@@ -424,30 +420,16 @@ async def expire_stale_orders(
     ]
     stale = (await db.execute(select(Order).where(*filters))).scalars().all()
 
-    released_orders = released_points = blocked_orders = calls_made = 0
-    dead_invoice_cutoff = datetime.now(UTC) - MULTICARD_INVOICE_TTL
-    for order in stale:
-        points = order.points_applied
-        if order.created_at < dead_invoice_cutoff:
-            # Счёт уже просрочен — гасить нечего, Multicard на такой вызов ответит отказом.
-            # «Оплачен ли» мы знаем и без него: успешная оплата приходит колбэком и сама
-            # переводит заказ в paid, а такой заказ в эту выборку не попадает вовсе (фильтр по
-            # payment_status выше). Поэтому для старых заказов сети нет ни одного вызова —
-            # именно это, а не пауза, убирает причину 429, полученного 07.08.2026.
-            if await _cancel_pending_order(db, order) is not None:
-                released_orders += 1
-                released_points += points
-            else:
-                blocked_orders += 1
-            continue
-
-        # Дальше — живой счёт, его надо ПОГАСИТЬ, иначе человек заплатит по старой ссылке, а
-        # поздний success уже не применится: разрешён только из unpaid/pending (`lifecycle.py`),
-        # а мы поставим failed. Деньги спишутся, заказ останется отменённым.
-        # Пауза — между сетевыми вызовами, а не между заказами.
-        if calls_made:
+    released_orders = released_points = blocked_orders = 0
+    for index, order in enumerate(stale):
+        # Пауза между заказами: каждый — отдельный вызов к Multicard, и накопившаяся очередь
+        # уходит в них залпом. 07.08.2026 уборка 68 заказов вместе с диагностикой упёрлась в
+        # `429 Too Many Requests` на их `/auth` — это измеренный факт, а не осторожность.
+        # Отказ по 429 безопасен сам по себе (`delete_invoice` вернёт False, заказ не отменится и
+        # попадёт в следующий прогон), но тогда прогон тратит вызовы впустую.
+        if index:
             await asyncio.sleep(SWEEP_CALL_INTERVAL_SECONDS)
-        calls_made += 1
+        points = order.points_applied
         if await _expire_partial(db, order):
             released_orders += 1
             released_points += points
@@ -458,18 +440,6 @@ async def expire_stale_orders(
         released_points=released_points,
         blocked_orders=blocked_orders,
     )
-
-
-async def _cancel_pending_order(db: AsyncSession, order: Order) -> int | None:
-    """Atomic conditional cancel: a no-op if a real success settled the order meanwhile."""
-    return (
-        await db.execute(
-            update(Order)
-            .where(Order.id == order.id, Order.payment_status.in_(("unpaid", "pending")))
-            .values(payment_status="failed", status=OrderStatus.CANCELLED)
-            .returning(Order.id)
-        )
-    ).scalar_one_or_none()
 
 
 async def _expire_partial(db: AsyncSession, order: Order) -> bool:
@@ -495,7 +465,14 @@ async def _expire_partial(db: AsyncSession, order: Order) -> bool:
                 order.payment_uuid,
             )
             return False
-    cancelled = await _cancel_pending_order(db, order)
+    cancelled = (
+        await db.execute(
+            update(Order)
+            .where(Order.id == order.id, Order.payment_status.in_(("unpaid", "pending")))
+            .values(payment_status="failed", status=OrderStatus.CANCELLED)
+            .returning(Order.id)
+        )
+    ).scalar_one_or_none()
     return cancelled is not None
 
 
