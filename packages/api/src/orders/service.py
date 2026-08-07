@@ -1,5 +1,6 @@
 """Order service layer."""
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
@@ -310,6 +311,10 @@ async def create_order(
 # risks cancelling an order a customer is mid-paying (UX, not money), too long holds the reserve.
 REDEEM_RESERVE_TIMEOUT = timedelta(minutes=30)
 
+# Пауза между вызовами к Multicard в регулярной уборке. Накопившаяся очередь уходит
+# залпом: 07.08.2026 уборка 68 заказов с диагностикой упёрлась в 429 на /auth.
+SWEEP_CALL_INTERVAL_SECONDS = 0.2
+
 
 @dataclass(frozen=True)
 class ReleaseOutcome:
@@ -371,6 +376,59 @@ async def expire_stale_partials(
         # Read the amount BEFORE cancelling: after the update+commit the instance can be expired,
         # and re-reading it then would either refetch or raise instead of yielding the figure we
         # need to report back to the customer.
+        points = order.points_applied
+        if await _expire_partial(db, order):
+            released_orders += 1
+            released_points += points
+        else:
+            blocked_orders += 1
+    return ReleaseOutcome(
+        released_orders=released_orders,
+        released_points=released_points,
+        blocked_orders=blocked_orders,
+    )
+
+
+# ⚠️ ЗАПУСК ОБЯЗАН БЫТЬ ЧАСТЫМ — часы, не сутки. Счёт Multicard живёт около 24 часов, а
+# `_expire_partial` отменяет заказ ТОЛЬКО на подтверждённом удалении счёта. Заказ, созданный сразу
+# после суточного прогона, дойдёт до следующего уже с мёртвым счётом — и останется неотменяемым
+# навсегда. Частота здесь — вопрос корректности, а не опрятности.
+async def expire_stale_orders(
+    db: AsyncSession,
+    *,
+    max_age: timedelta = REDEEM_RESERVE_TIMEOUT,
+) -> ReleaseOutcome:
+    """Reclaim abandoned orders of EVERY payment kind, across all customers — the periodic sweep.
+
+    Why this exists next to :func:`expire_stale_partials` instead of relaxing its filter: that one is
+    reactive and per-customer (it runs before a new redemption and behind the «вернуть баллы»
+    button, the latter with ``max_age=None``). Dropping its ``points_applied > 0`` filter would make
+    the button cancel a pure-card order the customer is paying AT THAT MOMENT. The two have
+    different triggers and different safety envelopes, so they stay separate functions over the same
+    primitive.
+
+    Card-only abandoned orders had no reclaimer at all: Multicard sends no webhook for an abandoned
+    invoice, and the reactive path skips them (`orders/router.py`: `if points_to_apply > 0`). They
+    sat in `PENDING` forever, which the customer reads as "the money is about to be taken".
+
+    Run frequency is a correctness constraint, not housekeeping — see the comment above.
+    """
+    filters = [
+        Order.status == OrderStatus.PENDING,
+        Order.payment_status.in_(("unpaid", "pending")),
+        Order.created_at < datetime.now(UTC) - max_age,
+    ]
+    stale = (await db.execute(select(Order).where(*filters))).scalars().all()
+
+    released_orders = released_points = blocked_orders = 0
+    for index, order in enumerate(stale):
+        # Пауза между заказами: каждый — отдельный вызов к Multicard, и накопившаяся очередь
+        # уходит в них залпом. 07.08.2026 уборка 68 заказов вместе с диагностикой упёрлась в
+        # `429 Too Many Requests` на их `/auth` — это измеренный факт, а не осторожность.
+        # Отказ по 429 безопасен сам по себе (`delete_invoice` вернёт False, заказ не отменится и
+        # попадёт в следующий прогон), но тогда прогон тратит вызовы впустую.
+        if index:
+            await asyncio.sleep(SWEEP_CALL_INTERVAL_SECONDS)
         points = order.points_applied
         if await _expire_partial(db, order):
             released_orders += 1
