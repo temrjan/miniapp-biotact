@@ -200,4 +200,41 @@ async def test_sweep_paces_its_calls_to_the_payment_provider(
         await session.commit()
 
     assert outcome.released_orders == 2
-    assert len(pauses) == 1  # пауза между заказами, но не перед первым
+    assert len(pauses) == 1  # пауза между вызовами, но не перед первым
+
+
+async def test_expired_invoice_is_cancelled_without_calling_multicard(
+    maker: async_sessionmaker[AsyncSession], deleted_invoices: list[str]
+) -> None:
+    """An invoice past its 24h TTL is already dead — the sweep must not call the provider at all."""
+    # Ответ на вопрос Капитана: «оплачен ли» мы знаем из своих данных — успешная оплата приходит
+    # колбэком и переводит заказ в paid, а такой в выборку не попадает. Звонок нужен только чтобы
+    # ПОГАСИТЬ живой счёт; у просроченного гасить нечего. Отсюда ноль вызовов на старом хвосте —
+    # именно это убирает причину 429, а не пауза.
+    order_id = await _seed(maker, telegram_id=90008, age=timedelta(days=3))
+
+    async with maker() as session:
+        outcome = await expire_stale_orders(session)
+        await session.commit()
+
+    assert outcome.released_orders == 1
+    assert deleted_invoices == []  # ни одного обращения к Multicard
+    order = await _committed(maker, order_id)
+    assert order.status == OrderStatus.CANCELLED
+    assert order.payment_status == "failed"
+
+
+async def test_live_invoice_is_still_closed_before_cancelling(
+    maker: async_sessionmaker[AsyncSession], deleted_invoices: list[str]
+) -> None:
+    """Inside the TTL the invoice is still payable, so it must be annulled BEFORE the cancel."""
+    # Иначе человек заплатит по старой ссылке, а поздний success не применится: он разрешён только
+    # из unpaid/pending, а мы поставим failed. Деньги спишутся, заказ останется отменённым.
+    await _seed(maker, telegram_id=90009, age=timedelta(hours=5))
+
+    async with maker() as session:
+        outcome = await expire_stale_orders(session)
+        await session.commit()
+
+    assert outcome.released_orders == 1
+    assert deleted_invoices == ["uuid-90009"]
