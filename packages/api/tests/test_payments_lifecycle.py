@@ -29,9 +29,10 @@ from src.database import get_db
 from src.loyalty import service as loyalty_service
 from src.loyalty.models import CustomerProfile, LedgerReason, PointLedger
 from src.main import app
-from src.orders.models import Order, OrderStatus
+from src.orders.models import Order, OrderItem, OrderStatus
 from src.payments.models import PaymentEvent
 from src.payments.service import multicard_client
+from src.products.models import Product
 from src.users.models import User
 
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
@@ -141,6 +142,8 @@ async def _seed_order(
     payment_status: str = "unpaid",
     order_status: OrderStatus = OrderStatus.PENDING,
     points_balance: int = 0,
+    product_slug: str | None = None,
+    orphan_item: bool = False,
 ) -> int:
     """Seed an order. ``payment_uuid`` "arms" a Multicard attempt on it (as /payments/create does);
     an event applies only if its uuid matches this active attempt. ``points_balance`` (> 0) also
@@ -172,6 +175,40 @@ async def _seed_order(
         )
         session.add(order)
         await session.flush()
+        if orphan_item:
+            # Товар удалён после заказа: `order_items.product_id` — nullable с ON DELETE SET NULL,
+            # позиция живёт дальше без товара. Уведомление обязано уйти всё равно.
+            session.add(
+                OrderItem(
+                    order_id=order.id,
+                    product_id=None,
+                    product_name="Снятый с продажи товар",
+                    product_price=total,
+                    quantity=1,
+                    total=total,
+                )
+            )
+            await session.flush()
+        elif product_slug is not None:
+            # Позиция с товаром нужна только там, где проверяется СОДЕРЖИМОЕ строки товаров
+            # (форма выпуска выводится из slug'а). По умолчанию заказ по-прежнему без позиций —
+            # остальные тесты этого файла не меняются.
+            product = Product(
+                name="BIFOLAK® ACTIVE", slug=product_slug, price=total, is_in_stock=True
+            )
+            session.add(product)
+            await session.flush()
+            session.add(
+                OrderItem(
+                    order_id=order.id,
+                    product_id=product.id,
+                    product_name=product.name,
+                    product_price=product.price,
+                    quantity=1,
+                    total=total,
+                )
+            )
+            await session.flush()
         return order.id
 
 
@@ -340,6 +377,66 @@ async def test_partial_order_paid_via_callback_commits_redeem_and_notifies_paid(
     assert "ОПЛАЧЕНО" in message
     assert "ОПЛАЧЕНО БАЛЛАМИ" not in message  # the card closed it, not points
     assert "Списано баллов" in message  # but the points spent are still recorded
+
+
+async def test_paid_notification_carries_the_release_form(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
+) -> None:
+    """The card-paid notice names the release form, so sales know what to put in the parcel.
+
+    Proves the slug travels the whole way — order item → ``items_data`` → formatter — not merely
+    that the formatter can render it. Two catalogue pairs share a name and a price and differ only
+    in form, so without this the line is ambiguous.
+    Mutation: drop ``"slug"`` from ``items_data`` in ``_notify_paid`` → red.
+    """
+    await _seed_order(
+        maker,
+        order_number="ORD-FORM",
+        payment_uuid="u-form",
+        payment_status="pending",
+        product_slug="bifolak_active_caps",
+    )
+
+    resp = await client.post(
+        CALLBACK_URL,
+        json=_callback_body(uuid="u-form", invoice_id="ORD-FORM", amount=int(ORDER_TOTAL) * 100),
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert len(sent_messages) == 1
+    assert "BIFOLAK® ACTIVE (капсулы)" in sent_messages[0]
+
+
+async def test_paid_notification_survives_a_deleted_product(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
+) -> None:
+    """A line whose product was deleted still gets its notification — without a form mark.
+
+    ``order_items.product_id`` is nullable with ON DELETE SET NULL, so the line outlives the
+    product. Reading ``item.product.slug`` unguarded raises inside the notify block, which swallows
+    exceptions — sales would simply never hear about a paid order, and nothing would be logged as a
+    failure of THIS feature. Guards the ``if item.product else None`` in ``_notify_paid``.
+    Mutation: drop that guard → red.
+    """
+    await _seed_order(
+        maker,
+        order_number="ORD-ORPHAN",
+        payment_uuid="u-orphan",
+        payment_status="pending",
+        orphan_item=True,
+    )
+
+    resp = await client.post(
+        CALLBACK_URL,
+        json=_callback_body(
+            uuid="u-orphan", invoice_id="ORD-ORPHAN", amount=int(ORDER_TOTAL) * 100
+        ),
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert len(sent_messages) == 1  # уведомление ушло, несмотря на удалённый товар
+    assert "Снятый с продажи товар" in sent_messages[0]
+    assert "(капсулы)" not in sent_messages[0]
 
 
 async def test_callback_unknown_invoice_returns_404(client: AsyncClient, maker) -> None:

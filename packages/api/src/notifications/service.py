@@ -11,6 +11,18 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Форма выпуска отдельным полем не хранится — она закодирована в служебном slug'е товара
+# (`bifolak_active_caps` против `bifolak_active_stik`). Отдел продаж по строке уведомления решает,
+# что готовить к отгрузке, а у этих пар названия в каталоге ОДИНАКОВЫЕ и цена одна — без формы
+# позиция неразличима, и отгрузить можно не то. Дописать форму в название запрещено руководством,
+# поэтому её выводит сервер и только здесь, в уведомлении.
+#
+# ⚠️ ЭТО СОГЛАШЕНИЕ, А НЕ ДАННЫЕ. Товар, чей slug не оканчивается на известный суффикс, останется
+# без пометки МОЛЧА — на 2026-08-06 по соглашению живут 4 товара из 55 активных. Постоянное
+# решение — отдельное поле «форма выпуска» у товара: оно закрыло бы ещё фискальный чек, карточку
+# заказа в админке, аналитику «Топ товаров» и витрину, которых эта правка не касается.
+RELEASE_FORM_BY_SLUG_SUFFIX = {"_caps": "капсулы", "_stik": "стик"}
+
 
 class TelegramNotifier:
     """Send notifications to Telegram group."""
@@ -48,6 +60,20 @@ class TelegramNotifier:
             logger.error(f"Failed to send Telegram notification: {e}")
             return False
 
+    def _release_form(self, slug: str | None) -> str:
+        """Release form for a product slug, ready to append to its line (empty when unknown).
+
+        Matches the END of the slug, never a substring: ``bifolak_active_caps`` is a form, a
+        hypothetical ``..._caps_new`` is not, and guessing would put a wrong word in front of the
+        person packing the parcel.
+        """
+        if not slug:
+            return ""
+        for suffix, form in RELEASE_FORM_BY_SLUG_SUFFIX.items():
+            if slug.endswith(suffix):
+                return f" ({form})"
+        return ""
+
     def _format_items(self, items: Sequence[dict[str, Any]]) -> str:
         """Format order items for message."""
         lines = []
@@ -55,7 +81,11 @@ class TelegramNotifier:
             name = item.get("product_name", "Товар")
             qty = item.get("quantity", 1)
             price = item.get("product_price", 0)
-            lines.append(f"{i}. {name} - {qty} шт × {price:,.0f} сум")
+            # `.get`, не индексация: вызывающих мест три, и забытый ключ у любого из них не имеет
+            # права уронить уведомление — это означало бы «отдел продаж не узнал об оплаченном
+            # заказе». Отсутствие slug'а = отсутствие пометки, строка остаётся прежней.
+            form = self._release_form(item.get("slug"))
+            lines.append(f"{i}. {name}{form} - {qty} шт × {price:,.0f} сум")
         return "\n".join(lines)
 
     def _format_price(self, price: float) -> str:

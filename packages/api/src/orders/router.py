@@ -116,6 +116,18 @@ async def create_order(
                     "product_name": item.product_name,
                     "quantity": item.quantity,
                     "product_price": item.product_price,
+                    # Форма выпуска для отдела продаж. Заказ, покрытый баллами целиком, до
+                    # платёжного роутера не доходит вовсе — если не отдать slug здесь, отгрузка
+                    # такого заказа готовится вслепую, в отличие от карточных.
+                    #
+                    # ⚠️ ЗАВИСИМОСТЬ: товар доступен здесь только потому, что `create_order`
+                    # заканчивается `db.refresh(order)` (`orders/service.py:302`) — refresh
+                    # каскадом перезагружает `order.items`, а связь `OrderItem.product` объявлена
+                    # `lazy="joined"` (`orders/models.py:132`) и приезжает тем же JOIN'ом.
+                    # Уберут refresh — обращение к `item.product` упадёт, уведомление молча не
+                    # уйдёт (блок ниже глотает исключения). Это стережёт тест
+                    # `test_notifications_release_form_points_path`.
+                    "slug": item.product.slug if item.product else None,
                 }
                 for item in order.items
             ]
