@@ -1,5 +1,6 @@
 """Telegram notification service."""
 
+import html
 import logging
 from collections.abc import Sequence
 from datetime import datetime
@@ -10,6 +11,25 @@ import httpx
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# Экранируется ВСЁ неконстантное, что попадает в сообщение, без списка «эти поля безопасны» —
+# такой список есть приглашение ошибиться на следующем поле. Неэкранированным остаётся только
+# литеральный текст шаблона и наша собственная разметка.
+#
+# Почему это важнее, чем выглядит: сообщение уходит с parse_mode="HTML", и если разметка окажется
+# невалидной, Telegram ответит ошибкой — а её глотает except в send_message, и все три вызывающих
+# места результат не читают. Один символ «<» в адресе доставки молча оставляет оплаченный заказ
+# без уведомления отделу продаж.
+#
+# ЭТО ИЗМЕРЕНО, не выведено из документации (06.08.2026, боевой бот, админская группа):
+#   адрес «ул. Пушкина <5> & двор» → HTTP 400
+#   «Bad Request: can't parse entities: Unsupported start tag "5" at byte offset 347»,
+#   сообщение в чат НЕ доставлено; тот же адрес экранированным → HTTP 200, доставлено.
+def esc(value: object) -> str:
+    """Escape a value for Telegram's HTML parse mode."""
+    return html.escape(str(value), quote=False)
+
 
 # Форма выпуска отдельным полем не хранится — она закодирована в служебном slug'е товара
 # (`bifolak_active_caps` против `bifolak_active_stik`). Отдел продаж по строке уведомления решает,
@@ -37,28 +57,45 @@ class TelegramNotifier:
         """Check if Telegram is configured."""
         return bool(self.bot_token and self.chat_id)
 
+    async def _post_message(self, text: str, parse_mode: str | None) -> None:
+        """POST one sendMessage; raises on any non-2xx. ``parse_mode=None`` sends plain text."""
+        payload: dict[str, Any] = {"chat_id": self.chat_id, "text": text}
+        if parse_mode is not None:
+            payload["parse_mode"] = parse_mode
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(f"{self.base_url}/sendMessage", json=payload)
+            response.raise_for_status()
+
     async def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
-        """Send message to Telegram chat."""
+        """Send message to Telegram chat; falls back to plain text if the markup is refused."""
         if not self.is_configured:
             logger.warning("Telegram not configured, skipping notification")
             return False
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/sendMessage",
-                    json={
-                        "chat_id": self.chat_id,
-                        "text": text,
-                        "parse_mode": parse_mode,
-                    },
-                )
-                response.raise_for_status()
-                logger.info("Telegram notification sent successfully")
-                return True
+            await self._post_message(text, parse_mode)
+            logger.info("Telegram notification sent successfully")
+            return True
         except Exception as e:
-            logger.error(f"Failed to send Telegram notification: {e}")
-            return False
+            # Запасной путь. Экранирование (`esc`) закрывает известную причину отказа разметки, но
+            # цена ошибки здесь несимметрична: потеря невидима (все три вызывающих места не читают
+            # результат — оплаченный заказ остаётся без уведомления отделу продаж), а лишнее
+            # сообщение видно сотруднику и безвредно. Поэтому пробуем ещё раз БЕЗ разметки:
+            # текст дойдёт кривым, но дойдёт. Рекурсии здесь нет: повтор идёт в `_post_message`
+            # напрямую, мимо этой обработки.
+            try:
+                await self._post_message(text, None)
+            except Exception as fallback_error:
+                logger.error(f"Failed to send Telegram notification: {fallback_error}")
+                return False
+
+            # Отдельный warning обязателен: без него тихая потеря просто перекрасилась бы в тихую
+            # деградацию — сообщения ходят без разметки, и никто не знает, что экранирование течёт.
+            logger.warning(
+                "Telegram rejected the formatted message (%s); sent as plain text instead", e
+            )
+            return True
 
     def _release_form(self, slug: str | None) -> str:
         """Release form for a product slug, ready to append to its line (empty when unknown).
@@ -85,7 +122,10 @@ class TelegramNotifier:
             # права уронить уведомление — это означало бы «отдел продаж не узнал об оплаченном
             # заказе». Отсутствие slug'а = отсутствие пометки, строка остаётся прежней.
             form = self._release_form(item.get("slug"))
-            lines.append(f"{i}. {name}{form} - {qty} шт × {price:,.0f} сум")
+            # `name` — снимок названия из каталога: им управляет администратор, а `&` в названии
+            # товара вполне реален. `form` из нашей таблицы и `qty`/`price` числовые, но правило
+            # «экранируем всё неконстантное» держим без исключений.
+            lines.append(f"{i}. {esc(name)}{form} - {esc(qty)} шт × {price:,.0f} сум")
         return "\n".join(lines)
 
     def _format_price(self, price: float) -> str:
@@ -127,12 +167,12 @@ class TelegramNotifier:
 💰 <b>К оплате картой:</b> {self._format_price(amount_due)} сум{points_line}
 
 👤 <b>Клиент:</b>
-Имя: {customer_name or "Не указано"}
-Телефон: {customer_phone or "Не указано"}
-{f"Адрес: {delivery_address}" if delivery_address else ""}
+Имя: {esc(customer_name) if customer_name else "Не указано"}
+Телефон: {esc(customer_phone) if customer_phone else "Не указано"}
+{f"Адрес: {esc(delivery_address)}" if delivery_address else ""}
 
-🔖 <b>Заказ:</b> {order_number}
-{f"🧾 Invoice: {invoice_uuid}" if invoice_uuid else ""}
+🔖 <b>Заказ:</b> {esc(order_number)}
+{f"🧾 Invoice: {esc(invoice_uuid)}" if invoice_uuid else ""}
 
 ⏰ {now}"""
 
@@ -188,12 +228,12 @@ class TelegramNotifier:
 💰 <b>Сумма:</b> {self._format_price(total)} сум{points_line}{card_paid_line}
 
 👤 <b>Клиент:</b>
-Имя: {customer_name or "Не указано"}
-Телефон: {customer_phone or "Не указано"}
-{f"Адрес: {delivery_address}" if delivery_address else ""}
+Имя: {esc(customer_name) if customer_name else "Не указано"}
+Телефон: {esc(customer_phone) if customer_phone else "Не указано"}
+{f"Адрес: {esc(delivery_address)}" if delivery_address else ""}
 
-🔖 <b>Заказ:</b> {order_number}
-{f"🧾 Invoice: {invoice_uuid}" if invoice_uuid else ""}
+🔖 <b>Заказ:</b> {esc(order_number)}
+{f"🧾 Invoice: {esc(invoice_uuid)}" if invoice_uuid else ""}
 
 ⏰ {now}"""
 
