@@ -3,8 +3,13 @@
 ``scripts/expire_stale_orders.py`` was delivered, reviewed and merged without ever being run: the
 unit tests call ``expire_stale_orders`` directly, and by then ``conftest`` has already populated
 ``sys.modules``, so the module-level import order never gets exercised. On production the script
-died instantly on the pre-existing ``src.users.router`` ↔ ``src.auth.dependencies`` cycle, which
-resolves only when ``src.auth.*`` loads AFTER ``src.users`` (documented in ``src/models_registry``).
+died instantly on the ``src.users.router`` ↔ ``src.auth.dependencies`` cycle, which resolved only
+when ``src.auth.*`` loaded AFTER ``src.users``.
+
+That cycle is gone (``src/users/__init__.py`` no longer re-exports the router), and
+``test_modules_import_standalone.py`` now guards every module the same way this file guards every
+script. Both still earn their place: a script can break on its own — a bad shebang, an argument
+parsed at import time, a missing dependency — none of which is an import cycle.
 
 Hence a SUBPROCESS: only a clean interpreter re-walks the import graph. ``--help`` exits before any
 database or network work, so this stays a pure start-up check.
