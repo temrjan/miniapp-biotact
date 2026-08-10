@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.analytics.service import get_loyalty_stats
 from src.config import settings
-from src.loyalty.lottery import has_survey, is_adult, survey_complete_sql
+from src.loyalty.lottery import has_survey, is_adult
 from src.loyalty.models import (
     CustomerProfile,
     Gender,
@@ -36,6 +36,7 @@ from src.loyalty.models import (
     LotteryTicket,
     LotteryTicketSource,
 )
+from src.loyalty.predicates import survey_complete_sql
 from src.users.models import User
 
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"

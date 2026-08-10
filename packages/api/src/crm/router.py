@@ -12,8 +12,8 @@ from sqlalchemy.orm import selectinload
 
 from src.config import settings
 from src.database import get_db
-from src.loyalty.lottery import survey_complete_sql
 from src.loyalty.models import CustomerProfile, PointLedger
+from src.loyalty.predicates import survey_complete_sql
 from src.loyalty.schemas import RegistrationSource
 from src.orders.models import Order
 from src.users.models import User
@@ -225,7 +225,9 @@ async def get_customers(
             #
             # The survey rule is NOT restated here. `survey_complete_sql` is the same expression
             # `eligible_sql` is built from, so this filter cannot drift away from the definition
-            # the draw itself uses; `not_` is exact because `IS NOT NULL` never yields NULL.
+            # the draw itself uses; `not_` is exact because `IS NOT NULL` never yields NULL. It is
+            # imported from `predicates`, not `lottery`: the latter reaches `src.auth` and would
+            # make importing THIS module hit a package cycle (measured, not assumed).
             has_points = (
                 select(func.coalesce(func.sum(PointLedger.amount), 0))
                 .where(PointLedger.user_id == CustomerProfile.user_id)
