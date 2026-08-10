@@ -46,6 +46,7 @@ from src.loyalty.models import (
     LotteryTicket,
     LotteryTicketSource,
 )
+from src.loyalty.predicates import survey_complete_sql
 from src.users.models import User
 
 # The legal floor for taking part, named because it is now asserted in two languages: here, and as
@@ -81,14 +82,15 @@ def eligible_sql() -> ColumnElement[bool]:
     """``has_survey(p) and is_adult(p)``, as SQL over ``customer_profile``, for aggregates.
 
     An aggregate cannot call the two predicates row by row, so the rules have to exist here a
-    second time -- but they exist here ONCE, in one function with two callers (the dashboard's
-    detector and the holders list). The alternative, each caller writing its own WHERE, is how a
-    third copy appears and how the copies drift apart; ``tests/test_detector_agreement.py`` binds
-    this expression to the Python originals and reddens on a threshold moved by a single year.
+    second time -- but each half exists ONCE: the survey question in
+    :func:`~src.loyalty.predicates.survey_complete_sql` (shared with the CRM reminder list, and
+    kept in that module because importing THIS one drags in a package cycle), the 18+ question in
+    the ``case`` below. The alternative, each caller writing its own WHERE, is how a third copy
+    appears and how the copies drift apart; ``tests/test_detector_agreement.py`` binds both halves
+    to the Python originals and reddens on a threshold moved by a single year.
     """
     return and_(
-        CustomerProfile.gender.is_not(None),
-        CustomerProfile.city.is_not(None),
+        survey_complete_sql(),
         case(
             (CustomerProfile.age.is_not(None), CustomerProfile.age >= ADULT_AGE),
             else_=CustomerProfile.is_adult,

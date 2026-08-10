@@ -35,12 +35,18 @@ export interface Customer {
   loyalty?: CustomerLoyalty | null
 }
 
+// The club filter values the API accepts. Named rather than repeated: the same union is also the
+// page's state (widened by an "all" sentinel) and the cast that narrows the Select's plain string
+// back to it. A literal written in three places is one edit away from an annotation that lies —
+// the cast keeps compiling and silently claims a value it no longer covers.
+export type ClubFilter = "member" | "qr" | "no_survey"
+
 export interface CustomersParams {
   page?: number | undefined
   size?: number | undefined
   search?: string | undefined
   problem?: ProblemTag | undefined
-  club?: "member" | "qr" | undefined
+  club?: ClubFilter | undefined
 }
 
 export interface PaginatedCustomers {

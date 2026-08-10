@@ -116,4 +116,25 @@ describe("CustomersPage — фильтр Biotact Club", () => {
     // Пустой результат под активным фильтром — «не найдены», а не «пока нет клиентов».
     expect(await screen.findByText("Клиенты не найдены")).toBeInTheDocument()
   })
+
+  it("выбор «Без анкеты (были начисления)» шлёт club='no_survey'", async () => {
+    renderPage()
+    await waitFor(() => expect(getAllMock).toHaveBeenCalled())
+
+    fireEvent.pointerDown(screen.getByText("Все клиенты"), {
+      button: 0,
+      ctrlKey: false,
+      pointerId: 1,
+      pointerType: "mouse",
+    })
+    const option = await screen.findByText("Без анкеты (были начисления)")
+    fireEvent.pointerUp(option, { button: 0 })
+    fireEvent.click(option)
+
+    await waitFor(() =>
+      expect(getAllMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ club: "no_survey", page: 1 })
+      )
+    )
+  })
 })

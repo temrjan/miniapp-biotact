@@ -282,6 +282,146 @@ async def test_customers_filtered_pagination_math(
     assert body["items"][0]["loyalty"] is not None
 
 
+# --------------------------------------------------------------------------- #
+# no-survey filter — members who earned points and never filled the survey in
+# --------------------------------------------------------------------------- #
+
+
+async def _seed_reminder_cohort(sm: async_sessionmaker[AsyncSession]) -> None:
+    """One member per branch the filter has to decide, plus a plain user that must not leak.
+
+    Both survey columns are seeded alone as well as together: a filter written with AND where the
+    rule needs OR would still answer correctly for the empty and the complete profile, and only a
+    half-filled one tells the two apart.
+    """
+    await _seed_admin(sm)
+    # TWO positive accruals on purpose. The condition asks whether a credit ever happened, so one
+    # member has to carry more than one: written as a JOIN instead of EXISTS — the shape used two
+    # lines above for club=qr, and therefore the likely rewrite — this member would be counted once
+    # per ledger row. `total` would inflate while `result.unique()` collapsed the duplicates AFTER
+    # LIMIT, serving a short page under an honest-looking count. With a single row each, no test
+    # could tell the two formulations apart.
+    await _seed_customer(sm, 80201, "EarnedNoSurvey", member=True, source="qr", ledger=(500, 300))
+    await _seed_customer(
+        sm,
+        80202,
+        "EarnedWithSurvey",
+        member=True,
+        source="qr",
+        ledger=(500,),
+        gender=Gender.MALE,
+        city="Ташкент",
+    )
+    await _seed_customer(sm, 80203, "NoPointsNoSurvey", member=True, source="qr")
+    await _seed_customer(
+        sm, 80204, "EarnedCityOnly", member=True, source="qr", ledger=(300,), city="Ташкент"
+    )
+    await _seed_customer(
+        sm, 80205, "EarnedGenderOnly", member=True, source="qr", ledger=(300,), gender=Gender.MALE
+    )
+    await _seed_customer(sm, 80206, "PlainShopper")
+
+
+async def test_customers_filter_no_survey_lists_earners_with_an_unfinished_survey(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """club=no_survey → earned points AND survey not complete. Both halves are load-bearing.
+
+    A half-filled profile counts as unfinished: the survey is complete only when gender AND city
+    are both there (``has_survey``), so either one missing is a reason to remind.
+    """
+    await _seed_reminder_cohort(maker)
+
+    resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    # A LIST, not a set: a set would swallow the very duplication the two-accrual member is seeded
+    # to expose, and the page would look correct while carrying the same person twice.
+    assert sorted(item["telegram_id"] for item in body["items"]) == [80201, 80204, 80205]
+    assert body["total"] == 3
+
+
+async def test_customers_filter_no_survey_keeps_a_member_who_spent_every_point(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """Points were EVER credited — spending them again does not undo that.
+
+    The rule is the Captain's, ratified 2026-08-10 against the opposite reading proposed at Gate-1
+    ("still holds points"): the survey is still unfinished, so the reminder is still due. Seeded
+    through a REDEEM row that cancels the earn exactly, which is the case the two readings disagree
+    about — a balance of zero over a ledger that once carried a credit.
+    """
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80211, "SpentEverything", member=True, ledger=(500, -500))
+
+    resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert [item["telegram_id"] for item in resp.json()["items"]] == [80211]
+
+
+async def test_customers_filter_no_survey_excludes_an_accrual_that_credited_nothing(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """A ledger row of zero is an activation that credited nothing — and nothing is not "credited".
+
+    Reachable, not hypothetical: ``compute_cashback`` is exact Decimal math rounded HALF_UP, so a
+    small enough ``unit_price`` yields 0 (1 сум at the 250 bps welcome rate → 0.025 → 0), and the
+    earn row is written unconditionally either way. Without this the condition could quietly relax
+    to "has any ledger row" and start reminding people who were never credited a point.
+    """
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80213, "AccruedZero", member=True, ledger=(0,))
+
+    resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"] == []
+
+
+async def test_customers_filter_no_survey_still_excludes_a_member_who_never_earned(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """The other half of the same rule: never credited → not on the list, however empty the survey.
+
+    Without this the filter could quietly become "every member without a survey" — the population
+    it is meant to be a small subset of.
+    """
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80212, "NeverEarned", member=True)
+
+    resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"] == []
+
+
+async def test_customers_filter_no_survey_pagination_math(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """13 matching members → page 2 holds exactly 1 and total counts the FILTERED set.
+
+    The count query has to carry the same conditions as the data query; if it does not, the page
+    is right while ``total``/``pages`` describe a different, larger population.
+    """
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80250, "PlainAround")
+    await _seed_customer(
+        maker, 80251, "SurveyDone", member=True, ledger=(500,), gender=Gender.MALE, city="Ташкент"
+    )
+    for i in range(13):
+        await _seed_customer(maker, 80300 + i, f"Owed{i:02d}", member=True, ledger=(100,))
+
+    resp = await client.get(
+        CUSTOMERS_URL,
+        params={"club": "no_survey", "page": 2, "size": 12},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 13
+    assert body["pages"] == 2
+    assert len(body["items"]) == 1
+
+
 async def test_customer_negative_balance_is_serialized(
     client: AsyncClient, maker, admin_headers: dict[str, str]
 ) -> None:
