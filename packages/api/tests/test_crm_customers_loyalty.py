@@ -295,7 +295,13 @@ async def _seed_reminder_cohort(sm: async_sessionmaker[AsyncSession]) -> None:
     half-filled one tells the two apart.
     """
     await _seed_admin(sm)
-    await _seed_customer(sm, 80201, "EarnedNoSurvey", member=True, source="qr", ledger=(500,))
+    # TWO positive accruals on purpose. The condition asks whether a credit ever happened, so one
+    # member has to carry more than one: written as a JOIN instead of EXISTS — the shape used two
+    # lines above for club=qr, and therefore the likely rewrite — this member would be counted once
+    # per ledger row. `total` would inflate while `result.unique()` collapsed the duplicates AFTER
+    # LIMIT, serving a short page under an honest-looking count. With a single row each, no test
+    # could tell the two formulations apart.
+    await _seed_customer(sm, 80201, "EarnedNoSurvey", member=True, source="qr", ledger=(500, 300))
     await _seed_customer(
         sm,
         80202,
@@ -330,7 +336,9 @@ async def test_customers_filter_no_survey_lists_earners_with_an_unfinished_surve
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    assert {item["telegram_id"] for item in body["items"]} == {80201, 80204, 80205}
+    # A LIST, not a set: a set would swallow the very duplication the two-accrual member is seeded
+    # to expose, and the page would look correct while carrying the same person twice.
+    assert sorted(item["telegram_id"] for item in body["items"]) == [80201, 80204, 80205]
     assert body["total"] == 3
 
 

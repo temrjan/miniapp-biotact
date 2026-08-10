@@ -117,7 +117,7 @@ describe("CustomersPage — фильтр Biotact Club", () => {
     expect(await screen.findByText("Клиенты не найдены")).toBeInTheDocument()
   })
 
-  it("выбор «Без анкеты (есть баллы)» шлёт club='no_survey'", async () => {
+  it("выбор «Без анкеты (были начисления)» шлёт club='no_survey'", async () => {
     renderPage()
     await waitFor(() => expect(getAllMock).toHaveBeenCalled())
 
@@ -127,7 +127,7 @@ describe("CustomersPage — фильтр Biotact Club", () => {
       pointerId: 1,
       pointerType: "mouse",
     })
-    const option = await screen.findByText("Без анкеты (есть баллы)")
+    const option = await screen.findByText("Без анкеты (были начисления)")
     fireEvent.pointerUp(option, { button: 0 })
     fireEvent.click(option)
 

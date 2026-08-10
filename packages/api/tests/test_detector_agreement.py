@@ -180,13 +180,15 @@ async def test_the_survey_half_selects_the_same_members_as_the_python_predicate(
     # complete (or only incomplete) profiles, equality would prove nothing about the rule.
     assert expected_complete, "matrix seeded no complete survey — equality would prove nothing"
     assert expected_incomplete, "matrix seeded no incomplete survey — equality would prove nothing"
-    assert complete == expected_complete
-    assert incomplete == expected_incomplete
-    # The halves must PARTITION the seeded set. A row falling out of both would mean the negation
+    # Partition FIRST, equality after. A row falling out of both halves means the negation
     # evaluated to NULL for it — the three-valued-logic leak that choosing `not_` over a
-    # hand-written `IS NULL OR IS NULL` twin is meant to make impossible.
+    # hand-written `IS NULL OR IS NULL` twin is meant to make impossible. Asserted before the
+    # equalities because otherwise it can never be the check that fails: an equality would break
+    # on the same row first and report "these sets differ", which names the symptom, not the cause.
     assert complete | incomplete == {p.user_id for p in profiles}
     assert not (complete & incomplete)
+    assert complete == expected_complete
+    assert incomplete == expected_incomplete
 
 
 async def _seed_one(
