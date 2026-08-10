@@ -334,17 +334,52 @@ async def test_customers_filter_no_survey_lists_earners_with_an_unfinished_surve
     assert body["total"] == 3
 
 
-async def test_customers_filter_no_survey_excludes_a_member_who_spent_every_point(
+async def test_customers_filter_no_survey_keeps_a_member_who_spent_every_point(
     client: AsyncClient, maker, admin_headers: dict[str, str]
 ) -> None:
-    """A balance spent back down to zero is not "has points" — the ratified reading of the filter.
+    """Points were EVER credited — spending them again does not undo that.
 
-    Pinned on its own because it is a decision, not a consequence: the list reminds people who
-    still hold points, and a ledger summing to zero means they no longer do. Seeded through a
-    REDEEM row rather than an empty ledger so it also proves the condition reads the SUM.
+    The rule is the Captain's, ratified 2026-08-10 against the opposite reading proposed at Gate-1
+    ("still holds points"): the survey is still unfinished, so the reminder is still due. Seeded
+    through a REDEEM row that cancels the earn exactly, which is the case the two readings disagree
+    about — a balance of zero over a ledger that once carried a credit.
     """
     await _seed_admin(maker)
     await _seed_customer(maker, 80211, "SpentEverything", member=True, ledger=(500, -500))
+
+    resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert [item["telegram_id"] for item in resp.json()["items"]] == [80211]
+
+
+async def test_customers_filter_no_survey_excludes_an_accrual_that_credited_nothing(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """A ledger row of zero is an activation that credited nothing — and nothing is not "credited".
+
+    Reachable, not hypothetical: ``compute_cashback`` is exact Decimal math rounded HALF_UP, so a
+    small enough ``unit_price`` yields 0 (1 сум at the 250 bps welcome rate → 0.025 → 0), and the
+    earn row is written unconditionally either way. Without this the condition could quietly relax
+    to "has any ledger row" and start reminding people who were never credited a point.
+    """
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80213, "AccruedZero", member=True, ledger=(0,))
+
+    resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"] == []
+
+
+async def test_customers_filter_no_survey_still_excludes_a_member_who_never_earned(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """The other half of the same rule: never credited → not on the list, however empty the survey.
+
+    Without this the filter could quietly become "every member without a survey" — the population
+    it is meant to be a small subset of.
+    """
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80212, "NeverEarned", member=True)
 
     resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
     assert resp.status_code == 200, resp.text

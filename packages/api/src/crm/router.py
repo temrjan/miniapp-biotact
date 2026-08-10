@@ -215,31 +215,46 @@ async def get_customers(
             query = query.where(CustomerProfile.registration_source == qr_source)
             count_query = count_query.where(CustomerProfile.registration_source == qr_source)
         elif club == "no_survey":
-            # Members who earned points and never finished the survey — the list staff work
-            # through to remind them, not an analytics figure.
+            # Members who were EVER credited points and never finished the survey — the list staff
+            # work through to remind them, not an analytics figure.
             #
-            # "Earned points" is asked of the ledger, because a balance is SUM(point_ledger) and
-            # never a column: filtering after the page is fetched (the way `_loyalty_by_user_id`
-            # computes balances for display) would hand back a short page while `total` counted a
-            # different, larger population.
+            # "Ever credited", not "still holds a balance" (Captain's ruling, 2026-08-10, against
+            # the opposite reading proposed at Gate-1): spending the points again does not finish
+            # the survey, so it does not settle the reminder. The ledger answers this directly
+            # because it is append-only — an earn row stays forever and a redeem arrives as its own
+            # negative row, so a member who spent everything still carries the credit that happened.
+            # `lifetime_activations` would answer a NEARBY question (how many activations), is
+            # maintained by a separate UPDATE, and says "yes" even where the cashback rounded to
+            # zero and nothing was actually credited.
+            #
+            # EXISTS rather than SUM: the question is whether one such row exists, so the scan can
+            # stop at the first — and a SUM would have to be compared against a threshold that is
+            # exactly the reading being rejected here.
+            #
+            # Asked inside the query, not after the page is fetched (the way `_loyalty_by_user_id`
+            # computes balances for display): filtering afterwards would hand back a short page
+            # while `total` counted a different, larger population.
             #
             # The survey rule is NOT restated here. `survey_complete_sql` is the same expression
             # `eligible_sql` is built from, so this filter cannot drift away from the definition
             # the draw itself uses; `not_` is exact because `IS NOT NULL` never yields NULL. It is
             # imported from `predicates`, not `lottery`: the latter reaches `src.auth` and would
             # make importing THIS module hit a package cycle (measured, not assumed).
-            has_points = (
-                select(func.coalesce(func.sum(PointLedger.amount), 0))
-                .where(PointLedger.user_id == CustomerProfile.user_id)
+            ever_earned = (
+                select(PointLedger.id)
+                .where(
+                    PointLedger.user_id == CustomerProfile.user_id,
+                    PointLedger.amount > 0,
+                )
                 # Correlate the profile only. Left to itself SQLAlchemy would also correlate away
                 # `point_ledger` if an enclosing query ever joined it, emitting a subquery with no
                 # FROM — the trap already paid for in `owed_survey_ticket_sql`.
                 .correlate(CustomerProfile)
-                .scalar_subquery()
-            ) > 0
+                .exists()
+            )
             no_survey = not_(survey_complete_sql())
-            query = query.where(no_survey, has_points)
-            count_query = count_query.where(no_survey, has_points)
+            query = query.where(no_survey, ever_earned)
+            count_query = count_query.where(no_survey, ever_earned)
 
     # Search filter
     if search:
