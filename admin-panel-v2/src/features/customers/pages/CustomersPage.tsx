@@ -12,13 +12,13 @@ import { Button } from "@/shared/components/ui/button"
 import { useCustomers, useCustomersStats } from "../hooks/useCustomers"
 import { StatsCards } from "../components/StatsCards"
 import { CustomerCard } from "../components/CustomerCard"
-import { PROBLEM_LABELS, type ProblemTag } from "../types/customer.types"
+import { PROBLEM_LABELS, type ClubFilter, type ProblemTag } from "../types/customer.types"
 
 export function CustomersPage() {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState("")
   const [problem, setProblem] = useState<ProblemTag | "all">("all")
-  const [club, setClub] = useState<"all" | "member" | "qr">("all")
+  const [club, setClub] = useState<ClubFilter | "all">("all")
 
   const { data: stats, isLoading: statsLoading } = useCustomersStats()
   const { data: customers, isLoading: customersLoading } = useCustomers({
@@ -78,7 +78,7 @@ export function CustomersPage() {
         <Select
           value={club}
           onValueChange={(value) => {
-            setClub(value as "all" | "member" | "qr")
+            setClub(value as ClubFilter | "all")
             setPage(1)
           }}
         >
@@ -89,6 +89,9 @@ export function CustomersPage() {
             <SelectItem value="all">Все клиенты</SelectItem>
             <SelectItem value="member">Участники Клуба</SelectItem>
             <SelectItem value="qr">Пришли по QR</SelectItem>
+            {/* Оба условия названы: без «есть баллы» пункт читался бы как «все без анкеты» —
+                а таких на порядок больше, и напоминать им не о чем. */}
+            <SelectItem value="no_survey">Без анкеты (есть баллы)</SelectItem>
           </SelectContent>
         </Select>
       </div>
