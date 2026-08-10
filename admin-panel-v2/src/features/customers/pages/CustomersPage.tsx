@@ -78,6 +78,8 @@ export function CustomersPage() {
         <Select
           value={club}
           onValueChange={(value) => {
+            // Assertion безопасен: Radix отдаёт string, но значение приходит из
+            // захардкоженных SelectItem ниже — других источников у него нет.
             setClub(value as ClubFilter | "all")
             setPage(1)
           }}
