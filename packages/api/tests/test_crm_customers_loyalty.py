@@ -282,6 +282,103 @@ async def test_customers_filtered_pagination_math(
     assert body["items"][0]["loyalty"] is not None
 
 
+# --------------------------------------------------------------------------- #
+# no-survey filter — members who earned points and never filled the survey in
+# --------------------------------------------------------------------------- #
+
+
+async def _seed_reminder_cohort(sm: async_sessionmaker[AsyncSession]) -> None:
+    """One member per branch the filter has to decide, plus a plain user that must not leak.
+
+    Both survey columns are seeded alone as well as together: a filter written with AND where the
+    rule needs OR would still answer correctly for the empty and the complete profile, and only a
+    half-filled one tells the two apart.
+    """
+    await _seed_admin(sm)
+    await _seed_customer(sm, 80201, "EarnedNoSurvey", member=True, source="qr", ledger=(500,))
+    await _seed_customer(
+        sm,
+        80202,
+        "EarnedWithSurvey",
+        member=True,
+        source="qr",
+        ledger=(500,),
+        gender=Gender.MALE,
+        city="Ташкент",
+    )
+    await _seed_customer(sm, 80203, "NoPointsNoSurvey", member=True, source="qr")
+    await _seed_customer(
+        sm, 80204, "EarnedCityOnly", member=True, source="qr", ledger=(300,), city="Ташкент"
+    )
+    await _seed_customer(
+        sm, 80205, "EarnedGenderOnly", member=True, source="qr", ledger=(300,), gender=Gender.MALE
+    )
+    await _seed_customer(sm, 80206, "PlainShopper")
+
+
+async def test_customers_filter_no_survey_lists_earners_with_an_unfinished_survey(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """club=no_survey → earned points AND survey not complete. Both halves are load-bearing.
+
+    A half-filled profile counts as unfinished: the survey is complete only when gender AND city
+    are both there (``has_survey``), so either one missing is a reason to remind.
+    """
+    await _seed_reminder_cohort(maker)
+
+    resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert {item["telegram_id"] for item in body["items"]} == {80201, 80204, 80205}
+    assert body["total"] == 3
+
+
+async def test_customers_filter_no_survey_excludes_a_member_who_spent_every_point(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """A balance spent back down to zero is not "has points" — the ratified reading of the filter.
+
+    Pinned on its own because it is a decision, not a consequence: the list reminds people who
+    still hold points, and a ledger summing to zero means they no longer do. Seeded through a
+    REDEEM row rather than an empty ledger so it also proves the condition reads the SUM.
+    """
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80211, "SpentEverything", member=True, ledger=(500, -500))
+
+    resp = await client.get(CUSTOMERS_URL, params={"club": "no_survey"}, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"] == []
+
+
+async def test_customers_filter_no_survey_pagination_math(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """13 matching members → page 2 holds exactly 1 and total counts the FILTERED set.
+
+    The count query has to carry the same conditions as the data query; if it does not, the page
+    is right while ``total``/``pages`` describe a different, larger population.
+    """
+    await _seed_admin(maker)
+    await _seed_customer(maker, 80250, "PlainAround")
+    await _seed_customer(
+        maker, 80251, "SurveyDone", member=True, ledger=(500,), gender=Gender.MALE, city="Ташкент"
+    )
+    for i in range(13):
+        await _seed_customer(maker, 80300 + i, f"Owed{i:02d}", member=True, ledger=(100,))
+
+    resp = await client.get(
+        CUSTOMERS_URL,
+        params={"club": "no_survey", "page": 2, "size": 12},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 13
+    assert body["pages"] == 2
+    assert len(body["items"]) == 1
+
+
 async def test_customer_negative_balance_is_serialized(
     client: AsyncClient, maker, admin_headers: dict[str, str]
 ) -> None:

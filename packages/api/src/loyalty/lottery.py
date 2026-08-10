@@ -77,18 +77,37 @@ def has_survey(profile: CustomerProfile) -> bool:
     return profile.gender is not None and profile.city is not None
 
 
-def eligible_sql() -> ColumnElement[bool]:
-    """``has_survey(p) and is_adult(p)``, as SQL over ``customer_profile``, for aggregates.
+def survey_complete_sql() -> ColumnElement[bool]:
+    """``has_survey(p)``, as SQL over ``customer_profile`` -- the survey half on its own.
 
-    An aggregate cannot call the two predicates row by row, so the rules have to exist here a
-    second time -- but they exist here ONCE, in one function with two callers (the dashboard's
-    detector and the holders list). The alternative, each caller writing its own WHERE, is how a
-    third copy appears and how the copies drift apart; ``tests/test_detector_agreement.py`` binds
-    this expression to the Python originals and reddens on a threshold moved by a single year.
+    Split out of :func:`eligible_sql` for a caller that needs the survey question WITHOUT the 18+
+    one: the CRM list of members who earned points and never filled the survey in. That list exists
+    to remind them, and adulthood decides nothing about whether a reminder is due -- taking
+    ``eligible_sql`` whole there would answer a question nobody asked.
+
+    A caller wanting the opposite writes ``not_(survey_complete_sql())`` rather than a second
+    function: ``IS NOT NULL`` never evaluates to NULL, so the negation is total and stays tied to
+    this definition, while a hand-written ``gender IS NULL OR city IS NULL`` twin is free to drift
+    away from it -- which is the very failure this split exists to prevent.
     """
     return and_(
         CustomerProfile.gender.is_not(None),
         CustomerProfile.city.is_not(None),
+    )
+
+
+def eligible_sql() -> ColumnElement[bool]:
+    """``has_survey(p) and is_adult(p)``, as SQL over ``customer_profile``, for aggregates.
+
+    An aggregate cannot call the two predicates row by row, so the rules have to exist here a
+    second time -- but each half exists here ONCE: the survey question in
+    :func:`survey_complete_sql` (shared with the CRM reminder list), the 18+ question in the
+    ``case`` below. The alternative, each caller writing its own WHERE, is how a third copy appears
+    and how the copies drift apart; ``tests/test_detector_agreement.py`` binds both halves to the
+    Python originals and reddens on a threshold moved by a single year.
+    """
+    return and_(
+        survey_complete_sql(),
         case(
             (CustomerProfile.age.is_not(None), CustomerProfile.age >= ADULT_AGE),
             else_=CustomerProfile.is_adult,

@@ -22,12 +22,12 @@ instead of quietly agreeing at zero.
 """
 
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import not_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.analytics.service import get_loyalty_stats
 from src.config import settings
-from src.loyalty.lottery import has_survey, is_adult
+from src.loyalty.lottery import has_survey, is_adult, survey_complete_sql
 from src.loyalty.models import (
     CustomerProfile,
     Gender,
@@ -142,6 +142,50 @@ async def test_sql_detector_counts_the_same_set_as_the_python_predicates(
     # "0 == 0" look like agreement while proving nothing about the rules.
     assert 0 < expected < seeded, f"matrix does not discriminate: {expected} of {seeded}"
     assert stats.eligible_without_survey_ticket == expected
+
+
+async def test_the_survey_half_selects_the_same_members_as_the_python_predicate(
+    test_db: AsyncSession, maker
+) -> None:
+    """``survey_complete_sql`` and ``has_survey`` agree member for member — negation included.
+
+    The survey rule now has a SQL form of its own because a second caller needs it without the 18+
+    half: the CRM reminder list filters with ``not_(survey_complete_sql())``. The negation is what
+    actually ships there, so it is asserted here rather than inferred from the positive form.
+
+    Compared as SETS, not counts. The detector above can only compare a COUNT — it reads an
+    aggregate — but this expression is queried per row, and a set comparison catches a drift that
+    swaps WHO qualifies while leaving HOW MANY untouched.
+    """
+    await _seed_matrix(maker)
+
+    async with maker() as s:
+        profiles = (await s.execute(select(CustomerProfile))).scalars().all()
+        expected_complete = {p.user_id for p in profiles if has_survey(p)}
+        expected_incomplete = {p.user_id for p in profiles if not has_survey(p)}
+
+        complete = set(
+            (await s.execute(select(CustomerProfile.user_id).where(survey_complete_sql())))
+            .scalars()
+            .all()
+        )
+        incomplete = set(
+            (await s.execute(select(CustomerProfile.user_id).where(not_(survey_complete_sql()))))
+            .scalars()
+            .all()
+        )
+
+    # Guard against a vacuous pass, same reasoning as the matrix test: if the seeding produced only
+    # complete (or only incomplete) profiles, equality would prove nothing about the rule.
+    assert expected_complete, "matrix seeded no complete survey — equality would prove nothing"
+    assert expected_incomplete, "matrix seeded no incomplete survey — equality would prove nothing"
+    assert complete == expected_complete
+    assert incomplete == expected_incomplete
+    # The halves must PARTITION the seeded set. A row falling out of both would mean the negation
+    # evaluated to NULL for it — the three-valued-logic leak that choosing `not_` over a
+    # hand-written `IS NULL OR IS NULL` twin is meant to make impossible.
+    assert complete | incomplete == {p.user_id for p in profiles}
+    assert not (complete & incomplete)
 
 
 async def _seed_one(

@@ -6,12 +6,13 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from jose import JWTError, jwt
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import settings
 from src.database import get_db
+from src.loyalty.lottery import survey_complete_sql
 from src.loyalty.models import CustomerProfile, PointLedger
 from src.loyalty.schemas import RegistrationSource
 from src.orders.models import Order
@@ -195,7 +196,7 @@ async def get_customers(
     size: int = Query(12, ge=1, le=100),
     search: str | None = Query(None),
     problem: str | None = Query(None),
-    club: Literal["member", "qr"] | None = Query(None),
+    club: Literal["member", "qr", "no_survey"] | None = Query(None),
 ) -> PaginatedCustomers:
     """Get all customers (leads) - everyone who pressed /start."""
 
@@ -213,6 +214,30 @@ async def get_customers(
             qr_source = RegistrationSource.QR.value
             query = query.where(CustomerProfile.registration_source == qr_source)
             count_query = count_query.where(CustomerProfile.registration_source == qr_source)
+        elif club == "no_survey":
+            # Members who earned points and never finished the survey — the list staff work
+            # through to remind them, not an analytics figure.
+            #
+            # "Earned points" is asked of the ledger, because a balance is SUM(point_ledger) and
+            # never a column: filtering after the page is fetched (the way `_loyalty_by_user_id`
+            # computes balances for display) would hand back a short page while `total` counted a
+            # different, larger population.
+            #
+            # The survey rule is NOT restated here. `survey_complete_sql` is the same expression
+            # `eligible_sql` is built from, so this filter cannot drift away from the definition
+            # the draw itself uses; `not_` is exact because `IS NOT NULL` never yields NULL.
+            has_points = (
+                select(func.coalesce(func.sum(PointLedger.amount), 0))
+                .where(PointLedger.user_id == CustomerProfile.user_id)
+                # Correlate the profile only. Left to itself SQLAlchemy would also correlate away
+                # `point_ledger` if an enclosing query ever joined it, emitting a subquery with no
+                # FROM — the trap already paid for in `owed_survey_ticket_sql`.
+                .correlate(CustomerProfile)
+                .scalar_subquery()
+            ) > 0
+            no_survey = not_(survey_complete_sql())
+            query = query.where(no_survey, has_points)
+            count_query = count_query.where(no_survey, has_points)
 
     # Search filter
     if search:
