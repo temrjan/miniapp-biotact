@@ -7,12 +7,13 @@ creation do not depend on ad-hoc imports scattered across routers.
 
 import importlib
 
-# ВАЖНО: порядок импорта моделей зафиксирован вручную. В пакетах есть пред-существующий
-# циклический импорт (src.users.router <-> src.auth.dependencies), который резолвится,
-# только если src.auth.* грузится ПОСЛЕ src.users / src.categories. Алфавитный порядок
-# (auth первым) ломает его: ImportError cannot import name 'CurrentUser'. Реальный фикс —
-# расшить цикл в роутерах (вне скоупа PR-0.1). Новый модуль моделей добавляй сюда,
-# после auth/users-ядра.
+# Порядок больше НЕ несущий. Он был зафиксирован вручную, пока в пакетах жил цикл
+# src.users.router <-> src.auth.dependencies: тот резолвился, только если src.auth.* грузился
+# ПОСЛЕ src.users, и алфавитный порядок ломал импорт с ImportError 'CurrentUser'. Цикл снят в
+# src/users/__init__.py (роутер больше не реэкспортируется), а
+# tests/test_modules_import_standalone.py следит, чтобы он не вернулся.
+# Порядок оставлен как есть намеренно: перестановка ничего не чинит и ничего не доказывает, а
+# трогать список, от которого зависит паритет миграций, без нужды не стоит.
 _MODEL_MODULES = (
     "src.categories.models",
     "src.products.models",

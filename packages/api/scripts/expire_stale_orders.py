@@ -25,10 +25,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-# Грузится ПЕРВЫМ среди src.* и не ради моделей: в пакетах есть пред-существующий цикл
-# src.users.router <-> src.auth.dependencies, который резолвится, только если src.auth.*
-# грузится ПОСЛЕ src.users (см. комментарий в src/models_registry.py). Приложение
-# выстраивает этот порядок само, отдельный скрипт — нет, и падает на первом же импорте.
+# Раньше эта строка стояла первой среди src.* не ради моделей, а ради порядка: в пакетах жил цикл
+# src.users.router <-> src.auth.dependencies, из-за которого этот скрипт умирал на первом же
+# импорте прямо на проде. Цикл снят (src/users/__init__.py), и подпорка больше не нужна — но
+# импорт оставлен: он регистрирует модели на Base.metadata, что для скрипта, ходящего по cron,
+# дешевле, чем зависеть от того, какие модули подтянет цепочка импортов сегодня.
 import src.models_registry  # noqa: F401
 from src.config import settings
 from src.orders.models import Order, OrderStatus
