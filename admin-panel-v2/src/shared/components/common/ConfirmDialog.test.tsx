@@ -91,6 +91,16 @@ describe('ConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 
+  it('with confirmValue does not reveal the expected value in the field itself', () => {
+    // The typed confirmation exists to make the administrator READ the number in the description
+    // and reproduce it consciously. A placeholder that spells the answer inside the very field they
+    // are typing into turns that into "retype what you see" — the reflex the guard is built against
+    // (Gate-2 МИНОР-1 on the winners dialog, 2026-08-17). An empty placeholder is acceptable; one
+    // equal to the answer is not.
+    render(<ConfirmDialog {...defaultProps} confirmValue="7" />);
+    expect(screen.getByRole('textbox')).not.toHaveAttribute('placeholder', '7');
+  });
+
   it('with confirmValue accepts the value with surrounding whitespace', async () => {
     const user = userEvent.setup();
     render(<ConfirmDialog {...defaultProps} confirmValue="7" />);
