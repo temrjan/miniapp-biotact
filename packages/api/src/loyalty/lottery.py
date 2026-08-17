@@ -101,10 +101,12 @@ def eligible_sql() -> ColumnElement[bool]:
 def owed_survey_ticket_sql() -> ColumnElement[bool]:
     """Eligible members holding no survey ticket -- the dashboard's third counter, as a condition.
 
-    Since the 2026-08-04 decision not to backfill, this is no longer expected to read zero: a
-    member who filled in the survey before issuance existed legitimately has no ticket until their
-    next action. That is why the number alone stopped being a verdict and the LIST became the
-    diagnosis -- see :func:`list_ticket_holders` for the ordering that carries the real signal.
+    Expected to read ZERO. The backfill was run on 2026-07-31 (batch ``initial-2026-08``) and the
+    production measurement of 2026-08-04 confirmed it: every eligible member holds their survey
+    ticket. So a non-zero here is an issuance defect, not an expected residue -- an earlier note
+    claiming the opposite rested on an unverified premise and was refuted by that measurement.
+    The LIST behind the number (:func:`list_ticket_holders`, filter ``owed``) is what turns the
+    alarm into a diagnosis of WHO was missed.
     """
     return and_(
         eligible_sql(),
@@ -200,6 +202,12 @@ _COUNT_MISMATCH = (
     "Подтверждение не совпало: вы указали {expected}, а к заморозке готово {actual} билетов. "
     "Ничего не заморожено — проверьте число и повторите."
 )
+# Deliberately NOT worded like _SNAPSHOT_TAMPERED: nothing was tampered with here — the freeze
+# itself fell short, and on the fairness core a wrong diagnosis is worse than the failure.
+_STAMP_INCOMPLETE = (
+    "Штамп лёг не на все билеты: к заморозке готовилось {expected}, заштамповано {actual}. "
+    "Список изменился, пока шла заморозка, — ничего не заморожено, повторите."
+)
 
 
 async def eligible_clean_tickets(
@@ -260,6 +268,8 @@ async def commit_draw(
     and a confirmation that does not match — happen BEFORE the draw row is inserted, because the
     number comes from a database identity and a rolled-back insert consumes it anyway. An
     administrator retrying a mistyped confirmation should not watch the draws jump from №1 to №3.
+    The one refusal that cannot come earlier — the stamp landing on fewer rows than were counted —
+    is checked after the stamp and explained there.
 
     **``expected_tickets`` is the mechanical protection ratified for the button.** It is verified
     here rather than only in the dialog: otherwise one client is protected and the endpoint is not,
@@ -351,6 +361,29 @@ async def commit_draw(
             for number, (ticket_id, _, _) in enumerate(candidates, start=1)
         ],
     )
+
+    # The stamp must have landed on every row that was counted: ``total_tickets`` and the hash are
+    # written from ``candidates``, so a row that vanished in between (the backfill revert deletes
+    # clean tickets) would leave a published hash over a snapshot the table does not hold — and the
+    # export would later call it "tampered". Counted with a query, not ``rowcount``: the asyncpg
+    # dialect leaves ``rowcount`` at -1 for executemany (``supports_sane_multi_rowcount = False``),
+    # so a rowcount check here would be a guard that never fires. The count is exact: this draw's id
+    # was born in this transaction and nothing else can stamp into it before we commit.
+    stamped = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(LotteryTicket)
+                .where(LotteryTicket.draw_id == draw.id)
+            )
+        ).scalar_one()
+    )
+    if stamped != len(candidates):
+        # Refused AFTER the draw row was inserted — this is the one refusal that cannot come earlier,
+        # because the shortfall is only knowable after the stamp. The rolled-back insert burns a
+        # draw number; accepted for a race this rare (a number burns on every cancellation too).
+        await db.rollback()
+        raise ConflictException(_STAMP_INCOMPLETE.format(expected=len(candidates), actual=stamped))
 
     draw.participant_hash = snapshot_hash(rows)
     await db.flush()
@@ -881,10 +914,6 @@ async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutc
     hide the result of the draw before it — the member would open the card after a cancellation and
     see nothing where their prize used to be.
 
-    ⚠️ Known gap until step 5 rewrites the card: while a draw is live the top block shows the stake
-    in it and NOT the tickets earned since the freeze, which do exist and are clean. Adding a field
-    for them here would ship a field nothing renders.
-
     No ``as_of`` any more: it existed to date the 30-day activation window, and with the window gone
     nothing in this read depends on the clock.
     """
@@ -1092,8 +1121,10 @@ async def list_ticket_holders(
 
     **Ordering carries the alarm.** ``owed`` is sorted by ``last_activation_at`` DESC **NULLS
     LAST**. Activating a QR calls issuance with every source, so a member who activated recently
-    and still holds no survey ticket is a genuine issuance failure, while a member who never came
-    back is merely the expected residue of not backfilling. PostgreSQL sorts NULLs FIRST on DESC,
+    and still holds no survey ticket is the loudest issuance failure -- the most complete call site
+    ran and wrote nothing. A member who never activated is owed a ticket just the same (the backfill
+    of 2026-07-31 covered everyone eligible, so no residue is expected), but the failure then lies on
+    the survey path alone, a weaker signal, and it sorts after. PostgreSQL sorts NULLs FIRST on DESC,
     and entry without a QR has existed since Stage 4 -- without ``nullslast()`` the never-activated
     would fill exactly the rows where the failure must show. The other filters sort by ticket count,
     where the question is "who holds the most", not "what broke".
