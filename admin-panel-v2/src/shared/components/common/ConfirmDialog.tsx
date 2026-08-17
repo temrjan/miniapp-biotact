@@ -71,7 +71,9 @@ const ConfirmDialogBody = ({
         <Input
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
-          placeholder={confirmValue}
+          // Never the answer itself: the guard exists to make the value be READ in the description
+          // and reproduced consciously, not retyped from inside the field.
+          placeholder="введите число из описания"
           autoFocus
           disabled={isLoading}
         />
