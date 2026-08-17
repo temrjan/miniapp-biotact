@@ -153,7 +153,7 @@
       "prize": "Sovrin: {prize}",
       "rank": "№{rank} sovrin",
       "won": "Siz yutdingiz!",
-      "lost": "Bu safar omad kulib boqmadi",
+      "lost": "Yutuq o'yini yakunlandi",
       "numbers": "Sizning raqamlaringiz: {numbers}",
       "waiting": "Keyingi o'yinni kutmoqda: {count} {unit}",
       "blockedSurvey": "Chipta o'ynashi uchun so'rovnomani to'ldiring",
