@@ -11,7 +11,7 @@ from hashlib import sha256
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -413,3 +413,48 @@ async def test_the_stamp_moment_is_recorded_as_given(test_db: AsyncSession, make
         ).one()
     assert row.committed_at == frozen_at
     assert row.hash_published_at == frozen_at
+
+
+# --------------------------------------------------------------------------- #
+# T10 — the stamp must land on every row it counted
+# --------------------------------------------------------------------------- #
+
+
+async def test_a_stamp_that_lands_on_fewer_rows_than_counted_freezes_nothing(
+    test_db: AsyncSession, maker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A candidate row vanishes between the count and the stamp → the whole freeze is refused.
+
+    The one real path into this: the backfill revert deletes clean tickets of its batch
+    (``WHERE draw_id IS NULL``), and it can commit in the gap after the candidates were read. The
+    conditional UPDATE then finds one row fewer than it numbered — but ``total_tickets`` and the
+    published hash describe the full list. Left alone, the export later refuses with "snapshot
+    tampered", which is the WRONG diagnosis: nothing was tampered, the freeze under-stamped. On the
+    fairness core a wrong diagnosis is worse than the failure itself, so the freeze has to notice
+    and say what actually happened.
+
+    The interleaving is made deterministic the same way ``has_survey`` is broken above: the count
+    is wrapped, and after the genuine count another session deletes one candidate.
+    """
+    kept = await _member_with_tickets(maker, 8_413_001)
+    vanishing = await _member_with_tickets(maker, 8_413_002)
+    genuine_count = lottery.eligible_clean_tickets
+
+    async def counted_then_one_vanishes(db: AsyncSession) -> list[tuple[int, int, str]]:
+        candidates = await genuine_count(db)
+        async with maker() as other, other.begin():
+            await other.execute(delete(LotteryTicket).where(LotteryTicket.user_id == vanishing))
+        return candidates
+
+    monkeypatch.setattr(lottery, "eligible_clean_tickets", counted_then_one_vanishes)
+
+    async with maker() as s:
+        with pytest.raises(ConflictException) as excinfo:
+            await commit_draw(s, expected_tickets=2)
+
+    detail = str(excinfo.value.detail)
+    assert "готовилось 2" in detail
+    assert "заштамповано 1" in detail
+    assert "не сходится с опубликованным хешем" not in detail, "must not read as tampering"
+    assert await _draw_count(maker) == 0
+    assert await _stamps(maker, kept) == [None], "nothing frozen: the survivor stays clean"
