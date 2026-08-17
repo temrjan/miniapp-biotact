@@ -149,7 +149,7 @@ describe('TicketsCard', () => {
     });
     renderCard(<TicketsCard />);
 
-    expect(await screen.findByTestId('tickets-result')).toHaveTextContent(/не повезло/);
+    expect(await screen.findByTestId('tickets-result')).toHaveTextContent(/Розыгрыш завершён/);
   });
 
   it('renders nothing while the program is dark (endpoint 404 / error)', async () => {
