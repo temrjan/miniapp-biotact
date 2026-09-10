@@ -98,6 +98,8 @@
     "useCurrentLocation": "Использовать текущее местоположение",
     "confirmAddress": "Подтвердить адрес",
     "addressSaved": "Адрес сохранён",
+    "acceptTermsPrefix": "Оформляя заказ, вы принимаете",
+    "acceptTermsLink": "Условия продажи",
     "redeem": {
       "title": "Оплатить баллами",
       "balance": "Баланс",
@@ -131,6 +133,8 @@
     "addressPlaceholder": "Город, улица, дом, квартира",
     "saved": "Сохранено",
     "save": "Сохранить",
+    "legalDocs": "Документы",
+    "legalDocsDescription": "Оферта, политика, условия продажи",
     "loyalty": {
       "title": "Biotact Club",
       "points": "баллов",
@@ -287,5 +291,13 @@
     "limitedOfferLabel": "Только в Рамадан",
     "promoNote": "Акция действует весь священный месяц Рамадан",
     "empty": "Скоро появятся..."
+  },
+  "legal": {
+    "title": "Документы",
+    "versionLabel": "Редакция от {date}",
+    "contentsTitle": "Содержание",
+    "contactsTitle": "Контакты",
+    "contactsSupport": "Сервис поддержки в Приложении {bot}",
+    "ruOnlyNotice": "Документ доступен на русском языке. Версия на узбекском языке будет опубликована позднее."
   }
 }

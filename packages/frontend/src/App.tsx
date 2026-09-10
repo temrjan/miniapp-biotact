@@ -8,6 +8,7 @@ import { LocationModal } from '@components/features/LocationModal';
 import { useClearCartOnPaidOrder } from '@hooks/useClearCartOnPaidOrder';
 import { useAppStore } from '@stores/appStore';
 import { ROUTES } from '@utils/constants';
+import { isLegalEnabled } from '@/legal/flag';
 
 // ═══════════════════════════════════════════════════════════════════
 // Lazy load pages
@@ -22,6 +23,8 @@ const PaymentSuccessPage = lazy(() => import('@pages/PaymentSuccessPage').then((
 const OrdersPage = lazy(() => import('@pages/OrdersPage').then((m) => ({ default: m.OrdersPage })));
 const RamadanPage = lazy(() => import('@pages/RamadanPage').then((m) => ({ default: m.RamadanPage })));
 const ActivationPage = lazy(() => import('@pages/ActivationPage').then((m) => ({ default: m.ActivationPage })));
+const LegalListPage = lazy(() => import('@pages/LegalListPage').then((m) => ({ default: m.LegalListPage })));
+const LegalDocPage = lazy(() => import('@pages/LegalDocPage').then((m) => ({ default: m.LegalDocPage })));
 
 // The bot QR launcher opens `/?code=<code>` (start_param is not delivered for web_app buttons),
 // so a code on the home path is routed to the dedicated activation screen; a bare `/` = home feed.
@@ -33,6 +36,26 @@ export function HomeOrActivate() {
     return <Navigate to={`${ROUTES.ACTIVATE}?code=${encodeURIComponent(code)}`} replace />;
   }
   return <HomePage />;
+}
+
+// Legal docs live behind the build-time flag VITE_LEGAL_DOCS. OFF = the screens are unreachable
+// even by direct URL (a pasted /legal/offer link lands on HOME, not on a draft text).
+// Exported for unit testing the flag gate in both states.
+export function LegalRoutes() {
+  if (!isLegalEnabled()) {
+    return (
+      <>
+        <Route path={ROUTES.LEGAL} element={<Navigate to={ROUTES.HOME} replace />} />
+        <Route path={ROUTES.LEGAL_DOC} element={<Navigate to={ROUTES.HOME} replace />} />
+      </>
+    );
+  }
+  return (
+    <>
+      <Route path={ROUTES.LEGAL} element={<LegalListPage />} />
+      <Route path={ROUTES.LEGAL_DOC} element={<LegalDocPage />} />
+    </>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -79,6 +102,7 @@ export function App() {
               <Route path={ROUTES.ORDERS} element={<OrdersPage />} />
               <Route path={ROUTES.RAMADAN} element={<RamadanPage />} />
               <Route path={ROUTES.PAYMENT_SUCCESS} element={<PaymentSuccessPage />} />
+              {LegalRoutes()}
             </Routes>
           </Suspense>
         </MainLayout>

@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { User, Package, Settings, LogOut, ChevronRight, Globe, Phone, MapPin, Check } from 'lucide-react';
+import { User, Package, Settings, LogOut, ChevronRight, Globe, Phone, MapPin, Check, FileText } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { LoyaltySection } from '@components/features/LoyaltySection';
 import { useUser } from '@stores/appStore';
 import { useLanguage, useSetLanguage, type Language } from '@stores/languageStore';
 import { useTranslation } from '@/i18n';
 import { useHaptic } from '@hooks/useTelegram';
+import { isLegalEnabled } from '@/legal/flag';
+import { ROUTES } from '@utils/constants';
 import WebApp from '@twa-dev/sdk';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -94,6 +96,20 @@ export function ProfilePage() {
         setShowSettings(!showSettings);
       },
     },
+    // Пункт «Документы» — только при включённом флаге VITE_LEGAL_DOCS.
+    ...(isLegalEnabled()
+      ? [
+          {
+            icon: FileText,
+            labelKey: 'profile.legalDocs',
+            descriptionKey: 'profile.legalDocsDescription',
+            onClick: () => {
+              haptic.light();
+              navigate(ROUTES.LEGAL);
+            },
+          },
+        ]
+      : []),
   ];
 
   const handleClose = () => {
