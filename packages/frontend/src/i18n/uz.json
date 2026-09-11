@@ -168,7 +168,11 @@
     "consentsTitle": "Roziliklar",
     "consentsMarketing": "Marketing xabarnomalari",
     "consentsMarketingHint": "Yangiliklar va maxsus takliflar",
-    "consentsRevokeHint": "Asosiy rozilikni bekor qilish — qo'llab-quvvatlash xizmati orqali:"
+    "consentsRevokeHint": "Asosiy rozilikni bekor qilish — qo'llab-quvvatlash xizmati orqali:",
+    "docsNoticeTitle": "Biotact Club hujjatlari yangilandi",
+    "docsNoticeBody": "Oferta, maxfiylik siyosati va sotish shartlari — «Hujjatlar» bo'limida. Klubdan foydalanishni davom ettirish orqali siz yangi tahrirni qabul qilasiz.",
+    "docsNoticeCta": "Tanishish",
+    "docsNoticeDismiss": "Yashirish"
   },
   "activation": {
     "title": "Kodni faollashtirish",

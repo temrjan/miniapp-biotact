@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { User, Package, Settings, LogOut, ChevronRight, Globe, Phone, MapPin, Check, FileText, MailCheck } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { LoyaltySection } from '@components/features/LoyaltySection';
+import { DocsNoticeBanner } from '@components/features/DocsNoticeBanner';
 import { useUser } from '@stores/appStore';
 import { useLanguage, useSetLanguage, type Language } from '@stores/languageStore';
 import { useTranslation } from '@/i18n';
@@ -163,6 +164,9 @@ export function ProfilePage() {
 
       {/* Loyalty (Biotact Club) — member card vs direct-join CTA; hidden while dark (404) */}
       <LoyaltySection />
+
+      {/* Баннер «документы обновлены» (legal-docs PR-3): члену, один раз на версию редакции. */}
+      {legalOn && loyalty?.isMember && <DocsNoticeBanner />}
 
       {/* Согласия (legal-docs PR-2): маркетинг-тоггл члена + строка про отзыв основного
           согласия. Только для члена Клуба и только при включённом флаге. */}
