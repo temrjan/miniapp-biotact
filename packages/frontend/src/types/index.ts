@@ -123,6 +123,14 @@ export type Platform = 'ios' | 'android' | 'web' | 'unknown';
 
 export type LoyaltyTier = 'newbie' | 'biotact_friend';
 
+// Active consent grants mirrored from GET /loyalty/me. The activation consent gate reads
+// `dataProcessing` (a member with an active grant skips the checkboxes), the profile
+// marketing toggle reads `marketing`.
+export interface ConsentsState {
+  dataProcessing: boolean;
+  marketing: boolean;
+}
+
 export interface LoyaltySummary {
   tier: LoyaltyTier;
   balance: number;
@@ -143,6 +151,14 @@ export interface LoyaltySummary {
   // 18+ self-confirmation (lottery entry). A boolean, not a nullable answer: "never asked" and
   // "declined" both read as false. Echoed so the checkbox renders as the member left it.
   isAdult: boolean;
+  // Active consent grants. False/false for non-members and for an older API (deploy window):
+  // the safe default shows the consent gate once more, never hides a consent not given.
+  consents: ConsentsState;
+}
+
+// Result of POST /loyalty/consent/marketing — the member's marketing state after the call.
+export interface MarketingConsentResult {
+  marketingActive: boolean;
 }
 
 // How a finished draw ended for this member.

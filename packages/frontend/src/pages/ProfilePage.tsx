@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { User, Package, Settings, LogOut, ChevronRight, Globe, Phone, MapPin, Check, FileText } from 'lucide-react';
+import { User, Package, Settings, LogOut, ChevronRight, Globe, Phone, MapPin, Check, FileText, MailCheck } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { LoyaltySection } from '@components/features/LoyaltySection';
 import { useUser } from '@stores/appStore';
 import { useLanguage, useSetLanguage, type Language } from '@stores/languageStore';
 import { useTranslation } from '@/i18n';
 import { useHaptic } from '@hooks/useTelegram';
+import { useLoyalty } from '@hooks/useLoyalty';
+import { useMarketingConsent } from '@hooks/useMarketingConsent';
 import { isLegalEnabled } from '@/legal/flag';
+import { LEGAL_CONTACTS } from '@/legal/contacts';
 import { ROUTES } from '@utils/constants';
 import WebApp from '@twa-dev/sdk';
 
@@ -62,6 +65,12 @@ export function ProfilePage() {
   const navigate = useNavigate();
   const haptic = useHaptic();
   const { t } = useTranslation();
+
+  // Блок «Согласия» — только за флагом VITE_LEGAL_DOCS и только для членов Клуба;
+  // при OFF запроса /me здесь нет (поведение страницы прежнее).
+  const legalOn = isLegalEnabled();
+  const { data: loyalty } = useLoyalty(legalOn);
+  const marketingConsent = useMarketingConsent();
 
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
@@ -154,6 +163,45 @@ export function ProfilePage() {
 
       {/* Loyalty (Biotact Club) — member card vs direct-join CTA; hidden while dark (404) */}
       <LoyaltySection />
+
+      {/* Согласия (legal-docs PR-2): маркетинг-тоггл члена + строка про отзыв основного
+          согласия. Только для члена Клуба и только при включённом флаге. */}
+      {legalOn && loyalty?.isMember && (
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+        >
+          <Card className="p-4 space-y-3">
+            <span className="font-semibold">{t('profile.consentsTitle')}</span>
+            <label className="flex items-center gap-4 cursor-pointer">
+              <div className="neumorphic-sm w-10 h-10 rounded-full flex items-center justify-center">
+                <MailCheck size={20} className="text-[var(--text-secondary)]" />
+              </div>
+              <div className="flex-1">
+                <span className="font-medium">{t('profile.consentsMarketing')}</span>
+                <p className="text-sm text-[var(--text-muted)]">
+                  {t('profile.consentsMarketingHint')}
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={loyalty.consents.marketing}
+                disabled={marketingConsent.isPending}
+                onChange={(e) => marketingConsent.mutate(e.target.checked)}
+                className="shrink-0"
+              />
+            </label>
+            {marketingConsent.isError && (
+              <p className="text-sm text-[var(--error)]">{t('activation.error.generic')}</p>
+            )}
+            <p className="text-xs text-[var(--text-muted)]">
+              {t('profile.consentsRevokeHint')} {LEGAL_CONTACTS.supportBot},{' '}
+              {LEGAL_CONTACTS.email}
+            </p>
+          </Card>
+        </motion.section>
+      )}
 
       {/* Language Selector */}
       <motion.section

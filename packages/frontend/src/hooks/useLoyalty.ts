@@ -10,11 +10,14 @@ import { loyaltyApi } from '@/api';
 // from drifting into invalidating something nobody reads.
 export const LOYALTY_ME_KEY = ['loyalty', 'me'] as const;
 
-export function useLoyalty() {
+export function useLoyalty(enabled = true) {
   return useQuery({
     queryKey: LOYALTY_ME_KEY,
     queryFn: () => loyaltyApi.getMe(),
     retry: false,
     staleTime: 60_000,
+    // `enabled: false` — the caller needs the shape but must not fire the request (the legal-docs
+    // flag OFF keeps the activation flow byte-identical to pre-PR-2: no extra /me call).
+    enabled,
   });
 }

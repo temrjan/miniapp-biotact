@@ -28,6 +28,8 @@ describe('loyaltyApi.getMe', () => {
       age: 47,
       city: 'Ташкент',
       is_adult: true,
+      // Distinct true/false catches a crossed consents mapping that would still typecheck.
+      consents: { data_processing: true, marketing: false },
     });
 
     const result = await loyaltyApi.getMe();
@@ -45,6 +47,7 @@ describe('loyaltyApi.getMe', () => {
       age: 47,
       city: 'Ташкент',
       isAdult: true,
+      consents: { dataProcessing: true, marketing: false },
     });
     expect(getMock).toHaveBeenCalledWith('/loyalty/me');
   });
@@ -67,6 +70,8 @@ describe('loyaltyApi.getMe', () => {
     // `is_adult` is a bool, not a nullable answer: absent degrades to "not confirmed", which asks
     // the member once more rather than displaying a confirmation they never gave.
     expect(result.isAdult).toBe(false);
+    // Same rule for `consents`: false/false re-shows the consent gate rather than hiding it.
+    expect(result.consents).toEqual({ dataProcessing: false, marketing: false });
   });
 
   it('falls back to the full balance when an older API omits `available` (deploy window)', async () => {
@@ -111,13 +116,61 @@ describe('loyaltyApi.consent', () => {
     postMock.mockReset();
   });
 
-  it('posts the source and maps the response to camelCase', async () => {
+  it('posts the source WITHOUT a version key when none is given (flag-OFF shape, M2)', async () => {
     postMock.mockResolvedValue({ consent_recorded: true, joined: true, phone_shared: false });
 
     const result = await loyaltyApi.consent('qr');
 
+    // The key must stay absent, not `undefined` — a present-but-empty key would not be the
+    // pre-PR-2 request the server's "1.0" default is built around.
     expect(postMock).toHaveBeenCalledWith('/loyalty/consent', { source: 'qr' });
     expect(result).toEqual({ consentRecorded: true, joined: true, phoneShared: false });
+  });
+
+  it('posts doc_version verbatim when the caller passes one (flag-ON shape)', async () => {
+    postMock.mockResolvedValue({ consent_recorded: true, joined: true, phone_shared: false });
+
+    await loyaltyApi.consent('direct', 'offer:draft-2026-08-20+policy:draft-2026-08-20');
+
+    expect(postMock).toHaveBeenCalledWith('/loyalty/consent', {
+      source: 'direct',
+      doc_version: 'offer:draft-2026-08-20+policy:draft-2026-08-20',
+    });
+  });
+});
+
+describe('loyaltyApi.setMarketingConsent', () => {
+  beforeEach(() => {
+    postMock.mockReset();
+  });
+
+  it('posts granted and maps marketing_active to camelCase', async () => {
+    postMock.mockResolvedValue({ marketing_active: true });
+
+    const result = await loyaltyApi.setMarketingConsent(true);
+
+    expect(postMock).toHaveBeenCalledWith('/loyalty/consent/marketing', { granted: true });
+    expect(result).toEqual({ marketingActive: true });
+  });
+
+  it('sends granted false on revoke (false is a value, not an absence)', async () => {
+    postMock.mockResolvedValue({ marketing_active: false });
+
+    const result = await loyaltyApi.setMarketingConsent(false);
+
+    expect(postMock).toHaveBeenCalledWith('/loyalty/consent/marketing', { granted: false });
+    expect(result).toEqual({ marketingActive: false });
+  });
+
+  it('includes doc_version only when given (same rule as consent)', async () => {
+    postMock.mockResolvedValue({ marketing_active: true });
+
+    await loyaltyApi.setMarketingConsent(true, 'offer:draft-2026-08-20+policy:draft-2026-08-20');
+
+    expect(postMock).toHaveBeenCalledWith('/loyalty/consent/marketing', {
+      granted: true,
+      doc_version: 'offer:draft-2026-08-20+policy:draft-2026-08-20',
+    });
   });
 });
 
