@@ -13,7 +13,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
-from src.loyalty.models import CustomerProfile, Gender, LedgerReason, LoyaltyStatus, PointLedger
+from src.loyalty.models import (
+    Consent,
+    ConsentPurpose,
+    CustomerProfile,
+    Gender,
+    LedgerReason,
+    LoyaltyStatus,
+    PointLedger,
+)
 from src.loyalty.service import InsufficientPointsError, get_loyalty_summary, reserve_points
 from src.orders.models import Order, OrderStatus
 from src.orders.service import REDEEM_RESERVE_TIMEOUT
@@ -509,3 +517,81 @@ async def test_reserve_points_still_withholds_an_expired_reservation(maker) -> N
             await reserve_points(
                 s, user_id=user_id, order_id=new_order_id, amount=5_000, settle_now=False
             )
+
+
+# --------------------------------------------------------------------------- #
+# consents (legal-docs PR-2): active grants mirrored into the summary
+# --------------------------------------------------------------------------- #
+
+
+async def _seed_consent(
+    sm: async_sessionmaker[AsyncSession],
+    *,
+    user_id: int,
+    purpose: ConsentPurpose,
+    granted: bool,
+) -> None:
+    """Commit one consent row (append-style history is built by repeated calls)."""
+    async with sm() as s, s.begin():
+        s.add(Consent(user_id=user_id, purpose=purpose, granted=granted, version="1.0"))
+
+
+async def test_summary_reports_active_consents_for_member(test_db: AsyncSession, maker) -> None:
+    """A member with an active data_processing grant and no marketing rows → True/False."""
+    user_id = await _seed_profile(maker, 70030, lifetime=1)
+    await _seed_consent(
+        maker, user_id=user_id, purpose=ConsentPurpose.DATA_PROCESSING, granted=True
+    )
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70030)
+    assert summary.is_member is True
+    assert summary.consents.data_processing is True
+    assert summary.consents.marketing is False
+
+
+async def test_summary_reports_marketing_active_after_grant(test_db: AsyncSession, maker) -> None:
+    """A member with both grants → consents True/True."""
+    user_id = await _seed_profile(maker, 70031, lifetime=1)
+    await _seed_consent(
+        maker, user_id=user_id, purpose=ConsentPurpose.DATA_PROCESSING, granted=True
+    )
+    await _seed_consent(maker, user_id=user_id, purpose=ConsentPurpose.MARKETING, granted=True)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70031)
+    assert (summary.consents.data_processing, summary.consents.marketing) == (True, True)
+
+
+async def test_summary_marketing_reads_the_latest_row(test_db: AsyncSession, maker) -> None:
+    """grant → revoke: the LATEST marketing row is granted=False → inactive, despite the older grant."""
+    user_id = await _seed_profile(maker, 70032, lifetime=1)
+    await _seed_consent(maker, user_id=user_id, purpose=ConsentPurpose.MARKETING, granted=True)
+    await _seed_consent(maker, user_id=user_id, purpose=ConsentPurpose.MARKETING, granted=False)
+    async with maker() as s:
+        summary = await get_loyalty_summary(s, 70032)
+    assert summary.consents.marketing is False
+
+
+async def test_summary_consents_false_for_non_member(test_db: AsyncSession, maker) -> None:
+    """Both non-member states (unknown user / bare user without profile) → consents false/false."""
+    await _seed_user(maker, 70033)
+    async with maker() as s:
+        unknown = await get_loyalty_summary(s, 79997)
+        bare = await get_loyalty_summary(s, 70033)
+    assert (unknown.consents.data_processing, unknown.consents.marketing) == (False, False)
+    assert (bare.consents.data_processing, bare.consents.marketing) == (False, False)
+
+
+async def test_me_wire_carries_consents(client, maker, monkeypatch) -> None:
+    """HTTP: the /me body carries `consents` with the member's active grants."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    user_id = await _seed_profile(maker, 70034, lifetime=1)
+    await _seed_consent(
+        maker, user_id=user_id, purpose=ConsentPurpose.DATA_PROCESSING, granted=True
+    )
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70034, "first_name": "Cons"})
+    }
+    resp = await client.get("/api/v1/loyalty/me", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["consents"] == {"data_processing": True, "marketing": False}

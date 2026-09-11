@@ -59,14 +59,33 @@ class ActivateResponse(BaseModel):
     lifetime_activations: int = Field(ge=0, description="Lifetime activations after this one")
 
 
+# Legal-docs edition sent with a consent call (М1). Composite form: the offer and policy
+# versions from the frontend content registry, each ≤18 chars (Finding 5 — the composite must
+# fit the String(50) column). "1.0" is the legacy value old clients effectively record.
+DocVersion = Annotated[
+    str,
+    StringConstraints(
+        max_length=50,
+        pattern=r"^(offer:[A-Za-z0-9._-]{1,18}\+policy:[A-Za-z0-9._-]{1,18}|1\.0)$",
+    ),
+]
+
+
 class ConsentRequest(BaseModel):
     """Body of ``POST /loyalty/consent`` — the mini-app records data-processing consent.
 
     ``source`` reflects how the user entered: ``qr`` when a box code was scanned, ``direct``
     otherwise. The mini-app knows this from the presence of ``?code=`` in its launch URL.
+
+    ``doc_version`` is the edition of the legal documents the user just accepted, built by the
+    client from its content registry (the backend stores it verbatim and knows no versions).
+    Optional (M2): old clients from the Telegram cache send none and are recorded as "1.0";
+    an explicit "1.0" is exactly as legal (Finding 4 — no sent/rejected vs omitted/stored
+    asymmetry).
     """
 
     source: RegistrationSource
+    doc_version: DocVersion | None = None
 
 
 class ConsentResponse(BaseModel):
@@ -79,6 +98,29 @@ class ConsentResponse(BaseModel):
     consent_recorded: bool = Field(description="A new data_processing consent row was written")
     joined: bool = Field(description="The customer profile was created by this call")
     phone_shared: bool = Field(description="A phone_shared timeline event was written by this call")
+
+
+class MarketingConsentRequest(BaseModel):
+    """Body of ``POST /loyalty/consent/marketing`` — grant or revoke marketing consent.
+
+    Same ``doc_version`` rule as :class:`ConsentRequest` (same validation, same "1.0" default).
+    """
+
+    granted: bool
+    doc_version: DocVersion | None = None
+
+
+class MarketingConsentResponse(BaseModel):
+    """The member's marketing-consent state after the call."""
+
+    marketing_active: bool = Field(description="Whether a marketing grant is active now")
+
+
+class ConsentsStateResponse(BaseModel):
+    """Active consent grants mirrored into ``GET /loyalty/me`` (false/false for non-members)."""
+
+    data_processing: bool = Field(description="An active data_processing grant exists")
+    marketing: bool = Field(description="The latest marketing row is a grant")
 
 
 class LoyaltySummaryResponse(BaseModel):
@@ -116,6 +158,9 @@ class LoyaltySummaryResponse(BaseModel):
     # "declined" both read as false. Echoed so the mini-app renders the checkbox as the member left
     # it — a legal self-confirmation must never look un-given after a reload.
     is_adult: bool = Field(description="18+ self-confirmation (lottery entry); false until ticked")
+    consents: ConsentsStateResponse = Field(
+        description="Active consent grants; false/false for non-members"
+    )
 
 
 SurveyAge = Annotated[int, Field(ge=1, le=120)]

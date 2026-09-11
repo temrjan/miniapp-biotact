@@ -24,8 +24,11 @@ from src.loyalty.schemas import (
     ActivateResponse,
     ConsentRequest,
     ConsentResponse,
+    ConsentsStateResponse,
     DrawResultResponse,
     LoyaltySummaryResponse,
+    MarketingConsentRequest,
+    MarketingConsentResponse,
     MyTicketsResponse,
     SurveyRequest,
     SurveyResponse,
@@ -136,6 +139,10 @@ async def get_loyalty_me(
         age=summary.age,
         city=summary.city,
         is_adult=summary.is_adult,
+        consents=ConsentsStateResponse(
+            data_processing=summary.consents.data_processing,
+            marketing=summary.consents.marketing,
+        ),
     )
 
 
@@ -148,6 +155,7 @@ async def submit_consent(
     payload: ConsentRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     telegram_user: Annotated[TelegramUser, Depends(get_init_data_user)],
+    user_agent: Annotated[str | None, Header()] = None,
 ) -> ConsentResponse:
     """Record data-processing consent + entry lifecycle events (idempotent, race-safe).
 
@@ -155,13 +163,51 @@ async def submit_consent(
     money path (``/qr/activate``) does NOT hard-block on consent; the happy-path mini-app calls this
     first (writes ``data_processing`` + ``joined``/``phone_shared``, sets ``registration_source``),
     then activates. Idempotent: a repeat call by the same user writes nothing and returns all-False.
+
+    ``doc_version`` (optional) is the legal-docs edition the client accepted, stored verbatim; the
+    User-Agent header rides into the ``consent_recorded`` event payload (policy §9.3) and may be
+    absent — it is recorded as null then.
     """
-    outcome = await service.record_consent(db, telegram_user=telegram_user, source=payload.source)
+    outcome = await service.record_consent(
+        db,
+        telegram_user=telegram_user,
+        source=payload.source,
+        doc_version=payload.doc_version,
+        user_agent=user_agent,
+    )
     return ConsentResponse(
         consent_recorded=outcome.consent_recorded,
         joined=outcome.joined,
         phone_shared=outcome.phone_shared,
     )
+
+
+@summary_router.post(
+    "/consent/marketing",
+    response_model=MarketingConsentResponse,
+    dependencies=[Depends(require_loyalty_enabled)],
+)
+async def submit_marketing_consent(
+    payload: MarketingConsentRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    telegram_user: Annotated[TelegramUser, Depends(get_init_data_user)],
+    user_agent: Annotated[str | None, Header()] = None,
+) -> MarketingConsentResponse:
+    """Grant or revoke marketing consent (append-style, idempotent, race-safe).
+
+    Same dark gate and initData HMAC auth as the rest of the loyalty surface. Member-only: a
+    caller without a ``customer_profile`` gets a 404 — the toggle exists only inside the club,
+    and the ``customer_profile`` FOR UPDATE serializer needs the row to lock. The response
+    mirrors the resulting active state, so the profile toggle can render straight from it.
+    """
+    marketing_active = await service.set_marketing_consent(
+        db,
+        telegram_user=telegram_user,
+        granted=payload.granted,
+        doc_version=payload.doc_version,
+        user_agent=user_agent,
+    )
+    return MarketingConsentResponse(marketing_active=marketing_active)
 
 
 @summary_router.post(
