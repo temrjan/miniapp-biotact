@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, Sparkles } from 'lucide-react';
 
 import { ApiError } from '@/api';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { ProgramDarkError, useActivation } from '@hooks/useActivation';
+import { useLoyalty } from '@hooks/useLoyalty';
 import { useTranslation } from '@/i18n';
+import { isLegalEnabled } from '@/legal/flag';
+import { useConsentStore } from '@/stores/consentStore';
 import { ROUTES } from '@utils/constants';
 
 type ActivationErrorKey =
@@ -43,10 +46,19 @@ export function ActivationPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  // Flag OFF: локальный useState, поведение пиксель-в-пиксель прежнее. Flag ON: галочки живут
+  // в consentStore, чтобы пережить переход на экран документа и возврат (Finding 2).
+  const legalOn = isLegalEnabled();
   const [agreed, setAgreed] = useState(false);
+  const { dataProcessing, marketing, setDataProcessing, setMarketing } = useConsentStore();
+  // /me нужен только при флаге ON (гейт по me.consents.dataProcessing); при OFF запроса нет.
+  const { data: me } = useLoyalty(legalOn);
   const activation = useActivation();
 
   const code = searchParams.get('code');
+
+  // Член с активным грантом (повторный QR) видит кнопку сразу, без чекбоксов.
+  const hasActiveConsent = me?.consents.dataProcessing === true;
 
   // No code in the URL — this screen is only reachable via a QR launch (PR-4.4a covers no-code).
   if (!code) {
@@ -117,7 +129,11 @@ export function ActivationPage() {
         <AlertCircle className="mx-auto text-[var(--text-muted)]" size={48} aria-hidden />
         <p className="text-[var(--text-secondary)]">{t(messageKey)}</p>
         {canRetry && (
-          <Button fullWidth isLoading={activation.isPending} onClick={() => activation.mutate(code)}>
+          <Button
+            fullWidth
+            isLoading={activation.isPending}
+            onClick={() => activation.mutate({ code, marketing })}
+          >
             {t('activation.error.retry')}
           </Button>
         )}
@@ -136,23 +152,81 @@ export function ActivationPage() {
         <p className="text-sm text-[var(--text-muted)]">{t('activation.subtitle')}</p>
       </header>
       <Card className="p-4 space-y-4">
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={agreed}
-            onChange={(e) => setAgreed(e.target.checked)}
-            className="mt-1 shrink-0"
-          />
-          <span className="text-sm text-[var(--text-secondary)]">{t('activation.consentLabel')}</span>
-        </label>
-        <Button
-          fullWidth
-          disabled={!agreed}
-          isLoading={activation.isPending}
-          onClick={() => activation.mutate(code)}
-        >
-          {t('activation.activateButton')}
-        </Button>
+        {legalOn ? (
+          hasActiveConsent ? (
+            // Member with an active grant (repeat QR): straight to activation, no checkboxes.
+            <Button
+              fullWidth
+              isLoading={activation.isPending}
+              onClick={() => activation.mutate({ code, marketing: false })}
+            >
+              {t('activation.activateButton')}
+            </Button>
+          ) : (
+            <>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={dataProcessing}
+                  onChange={(e) => setDataProcessing(e.target.checked)}
+                  className="mt-1 shrink-0"
+                />
+                <span className="text-sm text-[var(--text-secondary)]">
+                  {t('activation.consentRequiredBefore')}{' '}
+                  <Link to={`${ROUTES.LEGAL}/offer`} className="text-[var(--primary)] underline">
+                    {t('activation.consentOfferLink')}
+                  </Link>{' '}
+                  {t('activation.consentRequiredMiddle')}{' '}
+                  <Link to={`${ROUTES.LEGAL}/policy`} className="text-[var(--primary)] underline">
+                    {t('activation.consentPolicyLink')}
+                  </Link>{' '}
+                  {t('activation.consentRequiredAfter')}
+                </span>
+              </label>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={marketing}
+                  onChange={(e) => setMarketing(e.target.checked)}
+                  className="mt-1 shrink-0"
+                />
+                <span className="text-sm text-[var(--text-secondary)]">
+                  {t('activation.consentMarketing')}
+                </span>
+              </label>
+              <Button
+                fullWidth
+                disabled={!dataProcessing}
+                isLoading={activation.isPending}
+                onClick={() => activation.mutate({ code, marketing })}
+              >
+                {t('activation.activateButton')}
+              </Button>
+            </>
+          )
+        ) : (
+          <>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-1 shrink-0"
+              />
+              <span className="text-sm text-[var(--text-secondary)]">
+                {t('activation.consentLabel')}
+              </span>
+            </label>
+            <Button
+              fullWidth
+              disabled={!agreed}
+              isLoading={activation.isPending}
+              onClick={() => activation.mutate({ code, marketing: false })}
+            >
+              {t('activation.activateButton')}
+            </Button>
+          </>
+        )}
       </Card>
     </section>
   );

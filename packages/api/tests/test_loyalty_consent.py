@@ -468,3 +468,209 @@ async def test_endpoint_writes_phone_shared_for_verified_user(client, maker, mon
     resp = await client.post("/api/v1/loyalty/consent", json={"source": "qr"}, headers=headers)
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"consent_recorded": True, "joined": True, "phone_shared": True}
+
+
+# --------------------------------------------------------------------------- #
+# doc_version (legal-docs PR-2): client-sent edition, legacy default, 422 on garbage
+# --------------------------------------------------------------------------- #
+
+# The composite form the frontend registry produces: `offer:<v>+policy:<v>`, each part ≤18 chars.
+VALID_COMPOSITE = "offer:draft-2026-08-20+policy:draft-2026-08-20"  # 43 chars, parts of 15
+
+
+async def test_consent_stores_sent_doc_version_verbatim(test_db: AsyncSession, maker) -> None:
+    """A client-sent composite version lands in `consent.version` exactly as sent."""
+    async with maker() as s:
+        await record_consent(
+            s,
+            telegram_user=TelegramUser(id=70030, first_name="Versioned"),
+            source=RegistrationSource.QR,
+            doc_version=VALID_COMPOSITE,
+        )
+    async with maker() as s:
+        consent = (await s.execute(select(Consent))).scalar_one()
+        assert consent.version == VALID_COMPOSITE
+
+
+async def test_consent_without_doc_version_defaults_to_1_0(test_db: AsyncSession, maker) -> None:
+    """No doc_version (old client from the Telegram cache) → the legacy "1.0" is recorded (M2)."""
+    async with maker() as s:
+        await record_consent(
+            s,
+            telegram_user=TelegramUser(id=70031, first_name="Legacy"),
+            source=RegistrationSource.DIRECT,
+        )
+    async with maker() as s:
+        consent = (await s.execute(select(Consent))).scalar_one()
+        assert consent.version == "1.0"
+
+
+async def test_endpoint_accepts_valid_doc_version(client, maker, monkeypatch) -> None:
+    """HTTP: a well-formed composite doc_version → 200 and the row stores it verbatim."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70032, "first_name": "Doc"})
+    }
+    resp = await client.post(
+        "/api/v1/loyalty/consent",
+        json={"source": "qr", "doc_version": VALID_COMPOSITE},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    async with maker() as s:
+        consent = (await s.execute(select(Consent))).scalar_one()
+        assert consent.version == VALID_COMPOSITE
+
+
+async def test_endpoint_explicit_1_0_is_stored(client, maker, monkeypatch) -> None:
+    """An explicit "1.0" is as legal as an omitted field (Finding 4 — no asymmetry) → stored."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70033, "first_name": "One"})
+    }
+    resp = await client.post(
+        "/api/v1/loyalty/consent",
+        json={"source": "qr", "doc_version": "1.0"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    async with maker() as s:
+        consent = (await s.execute(select(Consent))).scalar_one()
+        assert consent.version == "1.0"
+
+
+async def test_endpoint_rejects_malformed_doc_version(client, monkeypatch) -> None:
+    """A doc_version matching neither the composite form nor "1.0" → 422 (M1)."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70034, "first_name": "Bad"})
+    }
+    resp = await client.post(
+        "/api/v1/loyalty/consent",
+        json={"source": "qr", "doc_version": "garbage"},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+async def test_endpoint_rejects_doc_version_over_50_chars(client, monkeypatch) -> None:
+    """doc_version longer than the consent.version column (String(50)) → 422."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70035, "first_name": "Long"})
+    }
+    too_long = "offer:" + "a" * 18 + "+policy:" + "b" * 18 + "x"  # 51 chars
+    resp = await client.post(
+        "/api/v1/loyalty/consent",
+        json={"source": "qr", "doc_version": too_long},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+async def test_endpoint_rejects_doc_component_over_18_chars(client, monkeypatch) -> None:
+    """A single document version over its 18-char budget (Finding 5) → 422, even when ≤50 total."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70036, "first_name": "Wide"})
+    }
+    overlong_part = "offer:" + "a" * 19 + "+policy:b"  # 34 chars total, but offer part is 19
+    resp = await client.post(
+        "/api/v1/loyalty/consent",
+        json={"source": "qr", "doc_version": overlong_part},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# consent_recorded event (legal-docs PR-2): real writes only, policy §9.3 payload
+# --------------------------------------------------------------------------- #
+
+
+async def _consent_recorded_events(s: AsyncSession) -> list[CustomerEvent]:
+    return list(
+        (
+            await s.execute(
+                select(CustomerEvent).where(
+                    CustomerEvent.event_type == CustomerEventType.CONSENT_RECORDED
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def test_consent_writes_consent_recorded_event_with_payload(
+    test_db: AsyncSession, maker
+) -> None:
+    """A real consent write also writes `consent_recorded` with the policy §9.3 payload."""
+    async with maker() as s:
+        await record_consent(
+            s,
+            telegram_user=TelegramUser(id=70040, first_name="Evented"),
+            source=RegistrationSource.QR,
+            doc_version=VALID_COMPOSITE,
+            user_agent="MiniApp/2.0",
+        )
+    async with maker() as s:
+        events = await _consent_recorded_events(s)
+        assert len(events) == 1
+        assert events[0].payload == {
+            "purpose": "data_processing",
+            "granted": True,
+            "doc_version": VALID_COMPOSITE,
+            "source": "qr",
+            "user_agent": "MiniApp/2.0",
+        }
+
+
+async def test_consent_no_event_on_idempotent_repeat(test_db: AsyncSession, maker) -> None:
+    """An idempotent no-op (consent already active) writes NO second consent_recorded event."""
+    tg = TelegramUser(id=70041, first_name="Repeater")
+    async with maker() as s:
+        await record_consent(s, telegram_user=tg, source=RegistrationSource.QR)
+    async with maker() as s:
+        await record_consent(s, telegram_user=tg, source=RegistrationSource.QR)
+    async with maker() as s:
+        events = await _consent_recorded_events(s)
+        assert len(events) == 1  # only the first, real write
+
+
+async def test_consent_event_user_agent_null_when_absent(test_db: AsyncSession, maker) -> None:
+    """No User-Agent (Finding 7) → payload carries null, not an error and not a fabricated string."""
+    async with maker() as s:
+        await record_consent(
+            s,
+            telegram_user=TelegramUser(id=70042, first_name="NoAgent"),
+            source=RegistrationSource.DIRECT,
+        )
+    async with maker() as s:
+        events = await _consent_recorded_events(s)
+        assert len(events) == 1
+        assert events[0].payload is not None
+        assert events[0].payload["user_agent"] is None
+        assert events[0].payload["doc_version"] == "1.0"  # legacy default surfaces in the event too
+
+
+async def test_endpoint_records_user_agent_header(client, maker, monkeypatch) -> None:
+    """HTTP: the User-Agent header travels into the consent_recorded payload."""
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-bot-token-123")
+    headers = {
+        "X-Init-Data": _make_init_data("test-bot-token-123", {"id": 70043, "first_name": "UA"}),
+        "User-Agent": "MiniAppTest/9.9",
+    }
+    resp = await client.post("/api/v1/loyalty/consent", json={"source": "qr"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    async with maker() as s:
+        events = await _consent_recorded_events(s)
+        assert len(events) == 1
+        assert events[0].payload is not None
+        assert events[0].payload["user_agent"] == "MiniAppTest/9.9"

@@ -23,3 +23,5 @@ export {
   useInitLanguage,
   type Language,
 } from './languageStore';
+
+export { useConsentStore } from './consentStore';

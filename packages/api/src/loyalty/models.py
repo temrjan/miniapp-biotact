@@ -147,6 +147,7 @@ class CustomerEventType(enum.StrEnum):
     ORDER_PLACED = "order_placed"
     POINTS_SPENT = "points_spent"
     POINTS_EXPIRED = "points_expired"
+    CONSENT_RECORDED = "consent_recorded"
 
 
 class CustomerEvent(Base):

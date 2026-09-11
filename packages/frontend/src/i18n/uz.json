@@ -164,7 +164,11 @@
       "blockedAge": "Chipta o'ynashi uchun 18 yoshga to'lganingizni tasdiqlang",
       "blockedOther": "Chipta hozircha o'yinda qatnashmaydi",
       "resultDraw": "№{number} o'yini"
-    }
+    },
+    "consentsTitle": "Roziliklar",
+    "consentsMarketing": "Marketing xabarnomalari",
+    "consentsMarketingHint": "Yangiliklar va maxsus takliflar",
+    "consentsRevokeHint": "Asosiy rozilikni bekor qilish — qo'llab-quvvatlash xizmati orqali:"
   },
   "activation": {
     "title": "Kodni faollashtirish",
@@ -191,7 +195,13 @@
       "retry": "Qayta urinish",
       "toHome": "Bosh sahifaga"
     },
-    "noCode": "Havola yaroqsiz: kod topilmadi."
+    "noCode": "Havola yaroqsiz: kod topilmadi.",
+    "consentRequiredBefore": "Men",
+    "consentOfferLink": "Ommaviy oferta",
+    "consentRequiredMiddle": "va",
+    "consentPolicyLink": "Maxfiylik siyosati",
+    "consentRequiredAfter": "bilan tanishdim va ularga roziman, shuningdek shaxsiy ma'lumotlarim qayta ishlanishiga rozilik beraman.",
+    "consentMarketing": "Yangiliklar va maxsus takliflarni olishni xohlayman. Ixtiyoriy."
   },
   "join": {
     "title": "Biotact Club'ga qo'shiling",

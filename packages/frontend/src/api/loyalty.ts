@@ -6,6 +6,7 @@ import type {
   Gender,
   LoyaltySummary,
   LoyaltyTier,
+  MarketingConsentResult,
   MyTickets,
   RegistrationSource,
   SurveyPayload,
@@ -29,6 +30,7 @@ interface LoyaltySummaryDto {
   age: number | null;
   city: string | null;
   is_adult?: boolean;
+  consents?: { data_processing: boolean; marketing: boolean };
 }
 
 interface ConsentResponseDto {
@@ -112,6 +114,13 @@ export const loyaltyApi = {
       // it asks an already-confirmed member once more rather than showing a confirmation they
       // never gave.
       isAdult: dto.is_adult ?? false,
+      // Same deploy-window reasoning: an older API omits the key. false/false is the safe
+      // default — it re-shows the consent gate to someone who already consented rather than
+      // hiding a consent gate from someone who never did.
+      consents: {
+        dataProcessing: dto.consents?.data_processing ?? false,
+        marketing: dto.consents?.marketing ?? false,
+      },
     };
   },
 
@@ -147,13 +156,28 @@ export const loyaltyApi = {
   },
 
   // POST /loyalty/consent — record data-processing consent + entry events (idempotent). 404 while dark.
-  consent: async (source: RegistrationSource): Promise<ConsentResult> => {
-    const dto = await api.post<ConsentResponseDto>('/loyalty/consent', { source });
+  // `docVersion` is the legal-docs edition from the client registry (buildConsentVersion); the key
+  // stays ABSENT when undefined — the flag-OFF request must be byte-identical to the pre-PR-2 one
+  // (М2: the server records "1.0" for a version-less body).
+  consent: async (source: RegistrationSource, docVersion?: string): Promise<ConsentResult> => {
+    const body = docVersion === undefined ? { source } : { source, doc_version: docVersion };
+    const dto = await api.post<ConsentResponseDto>('/loyalty/consent', body);
     return {
       consentRecorded: dto.consent_recorded,
       joined: dto.joined,
       phoneShared: dto.phone_shared,
     };
+  },
+
+  // POST /loyalty/consent/marketing — grant/revoke marketing consent (append-style, member-only).
+  // Same doc_version rule as `consent` above. The response IS the state to render from.
+  setMarketingConsent: async (
+    granted: boolean,
+    docVersion?: string
+  ): Promise<MarketingConsentResult> => {
+    const body = docVersion === undefined ? { granted } : { granted, doc_version: docVersion };
+    const dto = await api.post<{ marketing_active: boolean }>('/loyalty/consent/marketing', body);
+    return { marketingActive: dto.marketing_active };
   },
 
   // POST /qr/activate — claim a scanned code, accrue cashback (idempotent replay). 404 while dark.

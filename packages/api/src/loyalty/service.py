@@ -300,6 +300,14 @@ async def commit_redeem(db: AsyncSession, *, user_id: int, order_id: int, amount
 
 
 @dataclass(frozen=True)
+class ConsentsState:
+    """Active consent grants of a member (both False for non-members)."""
+
+    data_processing: bool
+    marketing: bool
+
+
+@dataclass(frozen=True)
 class LoyaltySummary:
     """Read-only loyalty snapshot for the mini-app profile card (Stage 3)."""
 
@@ -325,6 +333,9 @@ class LoyaltySummary:
     # is a bool with a server_default, so "never asked" and "declined" are indistinguishable here —
     # eligibility grandfathers age>=18 rather than reading a missing answer into this flag.
     is_adult: bool
+    # Active consent grants (legal-docs PR-2): the activation gate reads data_processing, the
+    # profile toggle reads marketing. False/False for non-members by construction.
+    consents: ConsentsState
 
 
 def _non_member_summary(balance: int) -> LoyaltySummary:
@@ -346,6 +357,7 @@ def _non_member_summary(balance: int) -> LoyaltySummary:
         age=None,
         city=None,
         is_adult=False,
+        consents=ConsentsState(data_processing=False, marketing=False),
     )
 
 
@@ -400,6 +412,15 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     available = max(0, balance - reserved)
     reserved_until = None if earliest is None else earliest + REDEEM_RESERVE_TIMEOUT
 
+    consents = ConsentsState(
+        data_processing=await _is_consent_active(
+            session, user_id=user.id, purpose=ConsentPurpose.DATA_PROCESSING
+        ),
+        marketing=await _is_consent_active(
+            session, user_id=user.id, purpose=ConsentPurpose.MARKETING
+        ),
+    )
+
     return LoyaltySummary(
         tier=tier,
         balance=balance,
@@ -412,11 +433,18 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
         age=profile.age,
         city=profile.city,
         is_adult=bool(profile.is_adult),
+        consents=consents,
     )
 
 
-# Consent policy version recorded for `data_processing`; bump when the consent wording changes.
-DATA_PROCESSING_CONSENT_VERSION = "1.0"
+# Fallback recorded when a consent call carries no doc_version (М2): old mini-app clients
+# from the Telegram cache send none and must keep working indefinitely. NOT a "current
+# version" — the backend knows no editions; the frontend content registry owns them.
+DOC_VERSION_DEFAULT = "1.0"
+
+# Provenance written to `consent.source` / the event payload for marketing writes: the toggle
+# lives in the mini-app profile (unlike data_processing, which arrives with qr/direct entry).
+MARKETING_CONSENT_SOURCE = "profile"
 
 
 @dataclass(frozen=True)
@@ -433,6 +461,8 @@ async def record_consent(
     *,
     telegram_user: TelegramUser,
     source: RegistrationSource,
+    doc_version: str | None = None,
+    user_agent: str | None = None,
 ) -> ConsentOutcome:
     """Record data-processing consent + entry lifecycle events, idempotently and race-safely.
 
@@ -444,6 +474,11 @@ async def record_consent(
     transaction — a rollback leaves no orphan event.
 
     Idempotent on repeat: a second call by the same user writes nothing and returns all-False.
+
+    ``doc_version`` is the legal-docs edition the client accepted, stored verbatim; ``None``
+    (an old client) records :data:`DOC_VERSION_DEFAULT`. A real consent write also appends the
+    ``consent_recorded`` timeline event (policy §9.3); ``user_agent`` may be absent and is
+    stored as null then (Finding 7).
     """
     async with db.begin():
         user = await get_or_create_user(db, telegram_user)
@@ -492,13 +527,27 @@ async def record_consent(
             )
         ).first()
         if active_consent is None:
+            version = doc_version if doc_version is not None else DOC_VERSION_DEFAULT
             db.add(
                 Consent(
                     user_id=user_id,
                     purpose=ConsentPurpose.DATA_PROCESSING,
                     granted=True,
-                    version=DATA_PROCESSING_CONSENT_VERSION,
+                    version=version,
                     source=source.value,
+                )
+            )
+            db.add(
+                CustomerEvent(
+                    user_id=user_id,
+                    event_type=CustomerEventType.CONSENT_RECORDED,
+                    payload={
+                        "purpose": ConsentPurpose.DATA_PROCESSING.value,
+                        "granted": True,
+                        "doc_version": version,
+                        "source": source.value,
+                        "user_agent": user_agent,
+                    },
                 )
             )
             consent_recorded = True
@@ -543,6 +592,84 @@ async def record_consent(
         return ConsentOutcome(
             consent_recorded=consent_recorded, joined=joined, phone_shared=phone_shared
         )
+
+
+async def _is_consent_active(db: AsyncSession, *, user_id: int, purpose: ConsentPurpose) -> bool:
+    """Whether the LATEST consent row for (user, purpose) is a grant.
+
+    The consent table is append-style (a new row per grant/revoke), so "active" is a property
+    of the newest row, not of any row — a superseded grant must not resurrect the consent.
+    """
+    granted = (
+        await db.execute(
+            select(Consent.granted)
+            .where(Consent.user_id == user_id, Consent.purpose == purpose)
+            .order_by(Consent.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return granted is True
+
+
+async def set_marketing_consent(
+    db: AsyncSession,
+    *,
+    telegram_user: TelegramUser,
+    granted: bool,
+    doc_version: str | None = None,
+    user_agent: str | None = None,
+) -> bool:
+    """Grant or revoke marketing consent, append-style and race-safe; return the active state.
+
+    Member-only (404 otherwise): the toggle lives behind the member-only profile block, and the
+    ``customer_profile`` ``FOR UPDATE`` serializer needs a row to lock — the same one that
+    serializes :func:`record_consent` (Finding 3: no unique constraint exists, so this lock is
+    the sole protection against two active rows from concurrent grants). Grant inserts a
+    ``granted=True`` row only when none is active; revoke inserts ``granted=False`` only when
+    one is — repeat calls are no-ops and write no ``consent_recorded`` event.
+    """
+    async with db.begin():
+        user = await get_user_by_telegram_id(db, telegram_user.id)
+        if user is None:
+            raise NotFoundException("Not a loyalty member")
+        profile_id = (
+            await db.execute(
+                select(CustomerProfile.id)
+                .where(CustomerProfile.user_id == user.id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if profile_id is None:
+            raise NotFoundException("Not a loyalty member")
+
+        active = await _is_consent_active(db, user_id=user.id, purpose=ConsentPurpose.MARKETING)
+        if granted != active:
+            version = doc_version if doc_version is not None else DOC_VERSION_DEFAULT
+            db.add(
+                Consent(
+                    user_id=user.id,
+                    purpose=ConsentPurpose.MARKETING,
+                    granted=granted,
+                    version=version,
+                    source=MARKETING_CONSENT_SOURCE,
+                )
+            )
+            db.add(
+                CustomerEvent(
+                    user_id=user.id,
+                    event_type=CustomerEventType.CONSENT_RECORDED,
+                    payload={
+                        "purpose": ConsentPurpose.MARKETING.value,
+                        "granted": granted,
+                        "doc_version": version,
+                        "source": MARKETING_CONSENT_SOURCE,
+                        "user_agent": user_agent,
+                    },
+                )
+            )
+
+        await db.flush()
+        return granted
 
 
 @dataclass(frozen=True)

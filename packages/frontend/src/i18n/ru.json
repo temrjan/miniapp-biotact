@@ -164,7 +164,11 @@
       "blockedAge": "Чтобы билет сыграл — подтвердите, что вам есть 18",
       "blockedOther": "Билет пока не участвует в розыгрыше",
       "resultDraw": "Розыгрыш №{number}"
-    }
+    },
+    "consentsTitle": "Согласия",
+    "consentsMarketing": "Маркетинговые рассылки",
+    "consentsMarketingHint": "Новости и специальные предложения",
+    "consentsRevokeHint": "Отзыв основного согласия — через поддержку:"
   },
   "activation": {
     "title": "Активация кода",
@@ -191,7 +195,13 @@
       "retry": "Повторить",
       "toHome": "На главную"
     },
-    "noCode": "Ссылка недействительна: код не найден."
+    "noCode": "Ссылка недействительна: код не найден.",
+    "consentRequiredBefore": "Я согласен с",
+    "consentOfferLink": "Публичной офертой",
+    "consentRequiredMiddle": "и",
+    "consentPolicyLink": "Политикой конфиденциальности",
+    "consentRequiredAfter": "и даю согласие на обработку персональных данных.",
+    "consentMarketing": "Хочу получать новости и специальные предложения. Необязательно."
   },
   "join": {
     "title": "Присоединяйтесь к Biotact Club",
