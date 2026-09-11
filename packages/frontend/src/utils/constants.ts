@@ -58,4 +58,6 @@ export const ROUTES = {
   ORDER: '/orders/:orderId',
   PAYMENT_SUCCESS: "/payment/success",
   RAMADAN: "/ramadan",
+  LEGAL: '/legal',
+  LEGAL_DOC: '/legal/:slug',
 } as const;

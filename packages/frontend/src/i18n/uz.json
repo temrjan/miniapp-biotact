@@ -98,6 +98,8 @@
     "useCurrentLocation": "Joriy joylashuvdan foydalanish",
     "confirmAddress": "Manzilni tasdiqlash",
     "addressSaved": "Manzil saqlandi",
+    "acceptTermsPrefix": "Buyurtmani rasmiylashtirib, siz qabul qilasiz",
+    "acceptTermsLink": "Sotish shartlari",
     "redeem": {
       "title": "Ballar bilan to'lash",
       "balance": "Balans",
@@ -131,6 +133,8 @@
     "addressPlaceholder": "Shahar, ko'cha, uy, xonadon",
     "saved": "Saqlandi",
     "save": "Saqlash",
+    "legalDocs": "Hujjatlar",
+    "legalDocsDescription": "Oferta, maxfiylik siyosati, sotish shartlari",
     "loyalty": {
       "title": "Biotact Club",
       "points": "ball",
@@ -287,5 +291,13 @@
     "limitedOfferLabel": "Faqat Ramazonda",
     "promoNote": "Aksiya butun muqaddas Ramazon oyi davomida amal qiladi",
     "empty": "Tez kunda..."
+  },
+  "legal": {
+    "title": "Hujjatlar",
+    "versionLabel": "{date} dagi tahrir",
+    "contentsTitle": "Mundarija",
+    "contactsTitle": "Kontaktlar",
+    "contactsSupport": "Ilovadagi qo'llab-quvvatlash xizmati {bot}",
+    "ruOnlyNotice": "Hujjat rus tilida mavjud. O'zbek tilidagi versiyasi keyinroq e'lon qilinadi."
   }
 }

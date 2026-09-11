@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Phone, MapPin, Truck, Store, Check, ChevronRight, Loader2, Pencil } from 'lucide-react';
 import { Card } from '@components/ui/Card';
@@ -16,6 +16,8 @@ import { usePayment } from '@hooks/usePayment';
 import { RedeemStepper } from '@components/features/RedeemStepper';
 import { RedeemReserveNotice } from '@components/features/RedeemReserveNotice';
 import { maxRedeemable } from '@/utils/redeem';
+import { isLegalEnabled } from '@/legal/flag';
+import { ROUTES } from '@utils/constants';
 
 type CheckoutStep = 'phone' | 'delivery' | 'address' | 'confirm';
 type DeliveryType = 'delivery' | 'pickup';
@@ -490,6 +492,20 @@ export function CheckoutPage() {
                     <span>{t('cart.total')}</span>
                     <span className="text-[var(--primary)]">{formatPrice(totalAmount)}</span>
                   </div>
+                  {/* Акцепт Условий продажи (п. 3.1 Условий: доступ к тексту ДО оформления) —
+                      строка живёт в видимом блоке итога: нативная MainButton вне DOM.
+                      Только при включённом флаге VITE_LEGAL_DOCS. */}
+                  {isLegalEnabled() && (
+                    <p className="text-xs text-[var(--text-muted)] text-center">
+                      {t('checkout.acceptTermsPrefix')}{' '}
+                      <Link
+                        to={`${ROUTES.LEGAL}/terms`}
+                        className="text-[var(--primary)] underline"
+                      >
+                        {t('checkout.acceptTermsLink')}
+                      </Link>
+                    </p>
+                  )}
                 </div>
 
                 {/* Web button INSIDE Card - same as CartPage */}
