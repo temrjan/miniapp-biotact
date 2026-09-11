@@ -168,7 +168,11 @@
     "consentsTitle": "Согласия",
     "consentsMarketing": "Маркетинговые рассылки",
     "consentsMarketingHint": "Новости и специальные предложения",
-    "consentsRevokeHint": "Отзыв основного согласия — через поддержку:"
+    "consentsRevokeHint": "Отзыв основного согласия — через поддержку:",
+    "docsNoticeTitle": "Документы Biotact Club обновлены",
+    "docsNoticeBody": "Оферта, политика и условия продажи — в разделе «Документы». Продолжая пользоваться Клубом, вы принимаете новую редакцию.",
+    "docsNoticeCta": "Ознакомиться",
+    "docsNoticeDismiss": "Скрыть"
   },
   "activation": {
     "title": "Активация кода",
