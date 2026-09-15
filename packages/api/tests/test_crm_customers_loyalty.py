@@ -3,9 +3,12 @@
 First tests of the CRM router at all. Seeding commits through a second sessionmaker on the
 same test DB (READ COMMITTED visibility), mirroring test_loyalty_summary.py; the admin JWT
 comes from the shared ``admin_headers`` conftest fixture (sub=1 → a committed admin user).
+Also covers ``purchased_products``: the regression guard for the explicit OrderItem join
+(the pre-fix relationship select produced a cartesian product and broke the endpoint).
 """
 
 import time
+from decimal import Decimal
 
 import pytest_asyncio
 from httpx import AsyncClient
@@ -15,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.config import settings
 from src.loyalty.models import CustomerProfile, Gender, LedgerReason, LoyaltyStatus, PointLedger
+from src.orders.models import Order, OrderItem, OrderStatus
 from src.users.models import User
 
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
@@ -432,6 +436,86 @@ async def test_customer_negative_balance_is_serialized(
     resp = await client.get(CUSTOMER_URL.format(80060), headers=admin_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["loyalty"]["balance"] == -500
+
+
+# --------------------------------------------------------------------------- #
+# purchased_products — explicit OrderItem join, not a cartesian product
+# --------------------------------------------------------------------------- #
+
+
+async def _seed_order(
+    sm: async_sessionmaker[AsyncSession],
+    user_id: int,
+    status: OrderStatus,
+    items: list[str],
+) -> None:
+    """Commit an order with one item row per name; ``product_id`` is nullable — names only."""
+    async with sm() as s, s.begin():
+        order = Order(
+            order_number=f"CRM-{user_id}-{status.value}-{len(items)}",
+            user_id=user_id,
+            status=status,
+            subtotal=Decimal("0"),
+            total=Decimal("0"),
+        )
+        s.add(order)
+        await s.flush()
+        for name in items:
+            s.add(
+                OrderItem(
+                    order_id=order.id,
+                    product_name=name,
+                    product_price=Decimal("0"),
+                    quantity=1,
+                    total=Decimal("0"),
+                )
+            )
+
+
+async def _seed_purchase_cohort(sm: async_sessionmaker[AsyncSession]) -> None:
+    """A: delivered order with 2 items + a cancelled order with an item; B: delivered with 1; C: none."""
+    await _seed_admin(sm)
+    buyer_a = await _seed_customer(sm, 80401, "BuyerA")
+    buyer_b = await _seed_customer(sm, 80402, "BuyerB")
+    await _seed_customer(sm, 80403, "NoOrders")
+    await _seed_order(sm, buyer_a, OrderStatus.DELIVERED, ["Витамин C", "Омега-3"])
+    await _seed_order(sm, buyer_a, OrderStatus.CANCELLED, ["Отменённый"])
+    await _seed_order(sm, buyer_b, OrderStatus.DELIVERED, ["Магний"])
+
+
+async def test_customers_purchased_products_come_from_their_own_completed_orders(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """purchased_products = names from the customer's own delivered/shipped/processing orders only.
+
+    Exact-set assertions are load-bearing in both directions: the cancelled order's item must NOT
+    leak in (filter), and each buyer must see ONLY their own names (no cross-user contamination —
+    the failure mode of the pre-fix cartesian product, which mixed rows across the whole page).
+    """
+    await _seed_purchase_cohort(maker)
+
+    resp = await client.get(CUSTOMERS_URL, headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert set(_by_telegram_id(body, 80401)["purchased_products"]) == {"Витамин C", "Омега-3"}
+    assert set(_by_telegram_id(body, 80402)["purchased_products"]) == {"Магний"}
+    assert _by_telegram_id(body, 80403)["purchased_products"] == []
+
+
+async def test_customer_single_purchased_products_match_the_list_endpoint(
+    client: AsyncClient, maker, admin_headers: dict[str, str]
+) -> None:
+    """The single-customer endpoint resolves the same names as the list — through its own query."""
+    await _seed_purchase_cohort(maker)
+
+    resp = await client.get(CUSTOMER_URL.format(80401), headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()["purchased_products"]) == {"Витамин C", "Омега-3"}
+
+    resp = await client.get(CUSTOMER_URL.format(80403), headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["purchased_products"] == []
 
 
 # --------------------------------------------------------------------------- #

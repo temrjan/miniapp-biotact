@@ -15,7 +15,7 @@ from src.database import get_db
 from src.loyalty.models import CustomerProfile, PointLedger
 from src.loyalty.predicates import survey_complete_sql
 from src.loyalty.schemas import RegistrationSource
-from src.orders.models import Order
+from src.orders.models import Order, OrderItem
 from src.users.models import User
 
 router = APIRouter()
@@ -288,18 +288,21 @@ async def get_customers(
     purchased_products: dict[int, set[str]] = {}
 
     if user_ids:
-        # Get products from completed orders
-        orders_query = select(Order.user_id, Order.items).where(
-            Order.user_id.in_(user_ids), Order.status.in_(["delivered", "shipped", "processing"])
+        # Get products from completed orders. ``OrderItem`` joins explicitly — selecting the
+        # ``Order.items`` relationship here puts both tables in FROM with no join condition
+        # (SAWarning: cartesian product), and the items column of each row comes back as a
+        # boolean, not item dicts.
+        orders_query = (
+            select(Order.user_id, OrderItem.product_name)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .where(
+                Order.user_id.in_(user_ids),
+                Order.status.in_(["delivered", "shipped", "processing"]),
+            )
         )
         orders_result = await db.execute(orders_query)
         for row in orders_result.all():
-            if row.user_id not in purchased_products:
-                purchased_products[row.user_id] = set()
-            if row.items:
-                for item in row.items:
-                    if isinstance(item, dict) and "name" in item:
-                        purchased_products[row.user_id].add(item["name"])
+            purchased_products.setdefault(row.user_id, set()).add(row.product_name)
 
     # Biotact Club data for the page (2 queries total, not N+1)
     loyalty_by_user_id = await _loyalty_by_user_id(db, user_ids)
@@ -414,18 +417,16 @@ async def get_customer(
             detail="Customer not found",
         )
 
-    # Get purchased products
+    # Get purchased products (explicit join — see the customers-list query above)
     orders_result = await db.execute(
-        select(Order.items).where(
-            Order.user_id == user.id, Order.status.in_(["delivered", "shipped", "processing"])
+        select(OrderItem.product_name)
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(
+            Order.user_id == user.id,
+            Order.status.in_(["delivered", "shipped", "processing"]),
         )
     )
-    purchased_products = set()
-    for row in orders_result.all():
-        if row.items:
-            for item in row.items:
-                if isinstance(item, dict) and "name" in item:
-                    purchased_products.add(item["name"])
+    purchased_products = {row.product_name for row in orders_result.all()}
 
     family = [
         FamilyMemberSchema(
