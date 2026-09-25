@@ -40,6 +40,8 @@ export interface Product {
   description_uz?: string
   price: number
   old_price?: number
+  is_sale: boolean
+  sale_price: number | string | null
   currency: string
   stock_quantity: number
   is_in_stock: boolean

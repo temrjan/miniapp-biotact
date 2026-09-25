@@ -19,6 +19,8 @@ export interface ProductCreateData {
   description?: string | null | undefined
   description_uz?: string | null | undefined
   price: number
+  is_sale?: boolean | undefined
+  sale_price?: number | null | undefined
   old_price?: number | null | undefined
   currency?: string | undefined
   stock_quantity?: number | undefined
