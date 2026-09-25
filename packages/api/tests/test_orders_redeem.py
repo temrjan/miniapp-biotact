@@ -1312,15 +1312,25 @@ async def test_full_coverage_writes_timezone_aware_paid_at(
 
 
 @pytest.mark.parametrize('points', [0, 100_000, 330_000])
-async def test_sale_effective_price_settlement(client, maker, monkeypatch, points):
+async def test_sale_effective_price_settlement(client, maker, monkeypatch, points, admin_headers):
     uid = await _seed_user(maker, 80901)
     await _seed_points(maker, user_id=uid, amount=500_000)
     async with maker() as session, session.begin():
-        sale = Product(name='Sale', slug='sale', price=Decimal('200000'), is_sale=True, sale_price=Decimal('150000'))
+        sale = Product(name='Sale', slug='sale', price=Decimal('200000'))
         regular = Product(name='Regular', slug='regular', price=Decimal('30000'))
         session.add_all([sale, regular])
         await session.flush()
         ids = (sale.id, regular.id)
+    sale_url = f'/api/v1/products/{ids[0]}'
+    enabled = await client.patch(sale_url, headers=admin_headers, json={
+        'is_sale': True, 'sale_price': '150000.00',
+    })
+    assert enabled.status_code == 200
+    public = await client.get('/api/v1/products?on_sale=true')
+    assert public.status_code == 200
+    assert [(p['id'], p['price'], p['sale_price']) for p in public.json()['items']] == [
+        (ids[0], '200000.00', '150000.00'),
+    ]
     captured = []
     async def invoice(data):
         captured.append(data)
@@ -1347,8 +1357,16 @@ async def test_sale_effective_price_settlement(client, maker, monkeypatch, point
         assert len(captured) == 1
         assert captured[0].amount == (330_000 - points) * 100
         assert sum(i.price * i.qty for i in captured[0].ofd) == captured[0].amount
-    async with maker() as session, session.begin():
-        product = await session.get(Product, ids[0])
-        product.is_sale = False
+    disabled = await client.patch(sale_url, headers=admin_headers, json={'is_sale': False})
+    assert disabled.status_code == 200
+    current = (await client.get(sale_url)).json()
+    assert current['is_sale'] is False
+    assert current['sale_price'] == '150000.00'
+    assert (await client.get('/api/v1/products?on_sale=true')).json()['items'] == []
+    fresh = await client.post('/api/v1/orders/quote', headers=_headers(80901), json={
+        'items': payload['items'], 'points_to_apply': 0,
+    })
+    assert fresh.status_code == 200
+    assert fresh.json()['total'] == '430000.00'
     persisted = await _committed_order(maker, order['id'])
     assert persisted.total == Decimal('330000')

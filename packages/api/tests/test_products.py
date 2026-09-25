@@ -194,3 +194,30 @@ async def test_sale_patch_keeps_other_integrity_conflicts(client, admin_headers,
     await test_db.rollback()
     data = (await client.get(f'/api/v1/products/{products[1]}')).json()
     assert data['slug'] == 'second'
+
+
+@pytest.mark.parametrize("identity", ["missing", "user"])
+async def test_sale_patch_requires_admin_and_preserves_product(
+    client: AsyncClient, admin_headers: dict[str, str], identity: str
+) -> None:
+    from src.config import settings
+    from tests.test_admin_auth_boundary import _user_access_token
+
+    created = await client.post("/api/v1/products", headers=admin_headers, json={
+        "name": "Protected sale", "slug": "protected-sale", "price": "200.00",
+    })
+    assert created.status_code == 201
+    url = f"/api/v1/products/{created.json()['id']}"
+    before = (await client.get(url)).json()
+    headers = {} if identity == "missing" else {
+        "Authorization": f"Bearer {_user_access_token(secret=settings.secret_key.get_secret_value())}",
+    }
+    patch = {"is_sale": True, "sale_price": "150.00"}
+    denied = await client.patch(url, headers=headers, json=patch)
+    assert denied.status_code == 401
+    assert (await client.get(url)).json() == before
+    allowed = await client.patch(url, headers=admin_headers, json=patch)
+    assert allowed.status_code == 200
+    after = (await client.get(url)).json()
+    assert after["is_sale"] is True
+    assert after["sale_price"] == "150.00"
