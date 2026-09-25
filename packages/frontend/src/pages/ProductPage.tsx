@@ -235,7 +235,7 @@ export function ProductPage() {
         {/* Product info — right column on desktop */}
         <div className="p-4 md:p-6 lg:p-0 space-y-4">
           <h1 className="text-2xl font-bold">{product.name}</h1>
-          {product.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
+          {product.isSale && <span className="sale-badge">{t('product.sale')}</span>}
           <div className="flex items-baseline gap-3">
             <div className="text-3xl font-bold text-[var(--primary)]">{formatPrice(effectivePrice(product))}</div>
             {originalPrice(product) != null && (
@@ -303,7 +303,7 @@ export function ProductPage() {
                     </div>
                     <div className="p-2">
                       <p className="text-sm font-medium line-clamp-2 mb-1">{item.name}</p>
-                      {item.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
+                      {item.isSale && <span className="sale-badge">{t('product.sale')}</span>}
                       <p className="text-[var(--primary)] font-bold text-sm">{formatPrice(effectivePrice(item))}</p>
                       {item.isSale && <span className="text-[var(--text-muted)] text-xs line-through">{formatPrice(item.price)}</span>}
                     </div>

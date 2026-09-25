@@ -147,7 +147,7 @@ function ProductCard({
           <div className="p-2.5 pb-2">
             {/* Цена */}
             <div className="text-center mb-1">
-              {product.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
+              {product.isSale && <span className="sale-badge">{t('product.sale')}</span>}
               <div className="text-[var(--primary)] font-bold text-sm">
                 {formatPrice(effectivePrice(product))}
               </div>
