@@ -119,7 +119,7 @@ export function CartPage() {
               {/* Product Info */}
               <div className="flex-1 min-w-0">
                 <h3 className="font-medium truncate">{item.product.name}</h3>
-                {item.product.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
+                {item.product.isSale && <span className="sale-badge">{t('product.sale')}</span>}
                 {item.product.isSale && <p className="text-[var(--text-muted)] text-sm line-through">{formatPrice(item.product.price)}</p>}
                 <p className="text-[var(--primary)] font-bold">
                   {formatPrice(effectivePrice(item.product))}

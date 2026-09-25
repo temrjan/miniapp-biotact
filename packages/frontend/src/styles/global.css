@@ -126,6 +126,16 @@ body {
    Components - Neumorphic Design System
    ═══════════════════════════════════════════════════════════════════ */
 @layer components {
+  .sale-badge {
+    display: inline-block;
+    border-radius: 9999px;
+    background-color: #b91c1c;
+    color: #fff;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
   .neumorphic {
     background: var(--bg-surface);
     border-radius: var(--radius-md);

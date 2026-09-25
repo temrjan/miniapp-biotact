@@ -177,7 +177,7 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
               {product.name}
             </h2>
 
-            {product.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
+            {product.isSale && <span className="sale-badge">{t('product.sale')}</span>}
             <div className="flex items-baseline gap-3">
               <span className="text-2xl font-bold text-[var(--primary)]">
                 {formatPrice(effectivePrice(product))}
