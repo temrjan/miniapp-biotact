@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { api } from '@/api/client';
 import { effectivePrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { create } from 'zustand';
@@ -125,16 +125,20 @@ export const useCartItemQuantity = (productId: string) =>
 
 // Refresh only pricing; keep the current cart membership and quantities while requests are in flight.
 export function useRefreshCartPrices() {
+  const requestVersion = useRef(0);
+  // A received checkout quote supersedes every catalog request started before it.
+  const cancelRefresh = useCallback(() => { requestVersion.current += 1; }, []);
   const productIds = useCartStore((state) => JSON.stringify(state.items.map((item) => item.productId)));
   useEffect(() => {
     let active = true;
+    const version = requestVersion.current;
     const ids: string[] = JSON.parse(productIds);
     if (ids.length === 0) return;
     void Promise.allSettled(ids.map(async (id) => ({
       id,
       price: mapProductPrice(await api.get<ApiProductPrice>(`/products/${id}`)),
     }))).then((results) => {
-      if (!active) return;
+      if (!active || version !== requestVersion.current) return;
       const prices = new Map(results.flatMap((result) =>
         result.status === 'fulfilled' ? [[result.value.id, result.value.price] as const] : []
       ));
@@ -152,4 +156,5 @@ export function useRefreshCartPrices() {
     });
     return () => { active = false; };
   }, [productIds]);
+  return cancelRefresh;
 }

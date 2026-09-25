@@ -353,3 +353,124 @@ describe('CheckoutPage — current catalog prices', () => {
     expect(orders()[0]?.[1]).toMatchObject({ quote_fingerprint: 'quote-8000.5-0' });
   });
 });
+
+// Regression coverage for step-6 Reviewer B1/B2. Deferred network promises fix
+// response ordering without timing sleeps; the real page/payment/store execute.
+describe('CheckoutPage — delayed catalog regressions', () => {
+  function delayCatalog() {
+    const network = vi.mocked(api.get).getMockImplementation();
+    if (!network) throw new Error('Missing GET fixture');
+    let resolveCatalog: ((value: typeof catalogPrice) => void) | undefined;
+    vi.mocked(api.get).mockImplementation((url) => url === '/products/1'
+      ? new Promise(resolve => { resolveCatalog = resolve; }) : network(url));
+    return async (price: typeof catalogPrice) => {
+      await act(async () => {
+        if (!resolveCatalog) throw new Error('Catalog request was not started');
+        resolveCatalog(price);
+      });
+    };
+  }
+
+  it.each([
+    [10000, 8000, 0],
+    [10000, 12000, 0],
+    [5000, 8000, 0],
+    [10000, 10000, 10000],
+    [10000, 16000, 10000],
+    [5000, 5000, 5000],
+  ])('should keep selection and submitted points valid when %s points meet a delayed total %s', async (selected, total, expectedPoints) => {
+    const finishCatalog = delayCatalog();
+    const network = postMock.getMockImplementation();
+    if (!network) throw new Error('Missing POST fixture');
+    postMock.mockImplementation((url, data) => {
+      const points = (data as { points_to_apply: number }).points_to_apply;
+      const remainder = serverTotal - points;
+      if (url === '/orders/quote' && points > 0 && (points > serverMax || (remainder !== 0 && remainder < 5000))) {
+        return Promise.reject(new ApiError('invalid', 422, { detail: { max_redeemable: serverMax } }));
+      }
+      return network(url, data);
+    });
+    await walkToConfirmStep();
+    fireEvent.change(screen.getByRole('slider'), { target: { value: String(selected) } });
+    expect(screen.getByRole('slider')).toHaveValue(String(selected));
+    serverTotal = total;
+    serverMax = total;
+    await finishCatalog({ price: 20000, old_price: null, is_sale: true, sale_price: total });
+    expect(screen.getByRole('slider')).toHaveValue(String(expectedPoints));
+    expect(screen.queryByText(/-2\s000 сум/)).not.toBeInTheDocument();
+    fireEvent.click(payButton());
+    await waitFor(() => expect(orders()).toHaveLength(1));
+    expect(quotes()[0]?.[1]).toMatchObject({ points_to_apply: expectedPoints });
+    expect(orders()[0]?.[1]).toMatchObject({ points_to_apply: expectedPoints });
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it('should not restore reset points when the cart grows after repricing', async () => {
+    const finishCatalog = delayCatalog();
+    await walkToConfirmStep();
+    fireEvent.click(screen.getByRole('button', { name: ru.checkout.redeem.max }));
+    await finishCatalog({ price: 10000, old_price: null, is_sale: true, sale_price: 8000 });
+    expect(screen.getByRole('slider')).toHaveValue('0');
+    act(() => useCartStore.getState().updateQuantity('1', 2));
+    expect(screen.getByRole('slider')).toHaveValue('0');
+    expect(orders()).toHaveLength(0);
+    expect(quotes()).toHaveLength(0);
+  });
+
+  it.each(['quote_mismatch', 'quote_required'] as const)(
+    'should preserve fresh %s terms when an older catalog request finishes', async (code) => {
+      const finishCatalog = delayCatalog();
+      const network = postMock.getMockImplementation();
+      if (!network) throw new Error('Missing POST fixture');
+      postMock.mockImplementation((url, data) => {
+        if (url === '/orders') {
+          serverTotal = 8000;
+          serverMax = 8000;
+          conflict = code;
+        }
+        return network(url, data);
+      });
+      await walkToConfirmStep();
+      fireEvent.click(payButton());
+      await waitFor(() => expect(window.alert).toHaveBeenCalledOnce());
+      expect(screen.getAllByText('8 000 сум').length).toBeGreaterThan(0);
+      await finishCatalog({ price: 10000, old_price: null, is_sale: false, sale_price: null });
+      expect(screen.getAllByText('8 000 сум').length).toBeGreaterThan(0);
+      expect(payButton()).toHaveTextContent('Оплатить 8 000 сум');
+      expect(orders()).toHaveLength(1);
+      expect(quotes()).toHaveLength(1);
+      // Actual points edits still require a new quote and an explicit pay click.
+      fireEvent.click(screen.getByRole('button', { name: ru.checkout.redeem.max }));
+      expect(orders()).toHaveLength(1);
+      conflict = null;
+      postMock.mockImplementation(network);
+      fireEvent.click(payButton());
+      await waitFor(() => expect(orders()).toHaveLength(2));
+      expect(quotes()).toHaveLength(2);
+      expect(orders()[1]?.[1]).toMatchObject({ points_to_apply: 8000, quote_fingerprint: 'quote-8000-8000' });
+    }
+  );
+
+  it('should preserve a declined fresh quote then invalidate it when the buyer changes cart quantity', async () => {
+    const finishCatalog = delayCatalog();
+    serverTotal = 8000;
+    serverMax = 8000;
+    await walkToConfirmStep();
+    fireEvent.click(payButton());
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledOnce());
+    expect(orders()).toHaveLength(0);
+    expect(screen.getAllByText('8 000 сум').length).toBeGreaterThan(0);
+    await finishCatalog({ price: 12000, old_price: null, is_sale: false, sale_price: null });
+    expect(screen.getAllByText('8 000 сум').length).toBeGreaterThan(0);
+    act(() => useCartStore.getState().updateQuantity('1', 2));
+    expect(screen.queryByText('8 000 сум')).not.toBeInTheDocument();
+    expect(orders()).toHaveLength(0);
+    serverTotal = 16000;
+    serverMax = 16000;
+    vi.mocked(window.confirm).mockReturnValue(true);
+    fireEvent.click(payButton());
+    await waitFor(() => expect(orders()).toHaveLength(1));
+    expect(quotes()).toHaveLength(2);
+    expect(orders()[0]?.[1]).toMatchObject({ items: [{ product_id: 1, quantity: 2 }], quote_fingerprint: 'quote-16000-0' });
+  });
+});

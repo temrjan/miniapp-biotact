@@ -61,7 +61,7 @@ export function CheckoutPage() {
   const { t } = useTranslation();
   const { profile, isLoading, fetchProfile, updatePhone } = useUserStore();
   const items = useCartItems();
-  useRefreshCartPrices();
+  const cancelPriceRefresh = useRefreshCartPrices();
   const cartTotal = useCartTotalAmount();
   const [quoted, setQuoted] = useState<{ items: CartItem[]; quote: OrderQuote } | null>(null);
   const quote = quoted?.items === items ? quoted.quote : null;
@@ -150,7 +150,12 @@ export function CheckoutPage() {
   // temporary kill-switch that hid this stepper after the burn incident is removed with that fix.)
   const isMember = loyalty?.isMember ?? false;
   const canRedeem = isMember && maxRedeemable(money) > 0;
-  const redeemPoints = canRedeem ? pointsToApply : 0;
+  const redeemPoints = canRedeem && clampRedeem(pointsToApply, money) === pointsToApply
+    ? pointsToApply
+    : 0;
+  // Repricing can invalidate an existing selection without a slider event. Reset before
+  // rendering the stepper or handing an amount to pay; do not revive it on later repricing.
+  if (pointsToApply !== redeemPoints) setPointsToApply(0);
   const amountDue = totalAmount - redeemPoints;
 
   const deliveryAddress =
@@ -160,6 +165,7 @@ export function CheckoutPage() {
   }, []);
   const handleQuote = useCallback(
     (freshQuote: OrderQuote) => {
+      cancelPriceRefresh();
       setQuoted({ items, quote: freshQuote });
       setPointsToApply((points) =>
         clampRedeem(points, {
@@ -171,7 +177,7 @@ export function CheckoutPage() {
           : 0
       );
     },
-    [items]
+    [items, cancelPriceRefresh]
   );
   const { pay, isProcessing } = usePayment({
     items,
@@ -470,7 +476,7 @@ export function CheckoutPage() {
                   maxPoints={quote?.max_redeemable ?? maxRedeemable(money)}
                   subtotal={subtotal}
                   total={totalAmount}
-                  value={pointsToApply}
+                  value={redeemPoints}
                   onChange={setPointsToApply}
                   formatPrice={formatPrice}
                 />
