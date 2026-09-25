@@ -4,7 +4,18 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +32,11 @@ class Product(Base):
     # GIN-индексы существуют на проде (созданы вне цепочки) — объявлены здесь, чтобы
     # модель == прод и автоген против прода их не дропал (см. reconcile-миграцию).
     __table_args__ = (
+        CheckConstraint(
+            "price > 0 AND (NOT is_sale OR (sale_price IS NOT NULL AND "
+            "sale_price > 0 AND sale_price < price))",
+            name="products_sale_ck",
+        ),
         Index("idx_products_images_gin", "images", postgresql_using="gin"),
         Index("idx_products_advantages_gin", "advantages", postgresql_using="gin"),
     )
@@ -39,6 +55,8 @@ class Product(Base):
     # Pricing
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    is_sale: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    sale_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     currency: Mapped[str] = mapped_column(String(3), default="UZS")
 
     # Stock

@@ -16,6 +16,8 @@ class ProductBase(BaseModel):
     description_uz: str | None = None
     price: Decimal = Field(..., gt=0, decimal_places=2)
     old_price: Decimal | None = Field(None, gt=0, decimal_places=2)
+    is_sale: bool = False
+    sale_price: Decimal | None = Field(None, gt=0, decimal_places=2)
     currency: str = Field(default="UZS", max_length=3)
     stock_quantity: int = Field(default=0, ge=0)
     is_in_stock: bool = True
@@ -67,6 +69,8 @@ class ProductUpdate(BaseModel):
     description_uz: str | None = None
     price: Decimal | None = Field(None, gt=0)
     old_price: Decimal | None = Field(None, gt=0)
+    is_sale: bool = False
+    sale_price: Decimal | None = Field(None, gt=0, decimal_places=2)
     currency: str | None = Field(None, max_length=3)
     stock_quantity: int | None = Field(None, ge=0)
     is_in_stock: bool | None = None
@@ -118,6 +122,8 @@ class ProductLocalizedResponse(BaseModel):
     slug: str
     description: str | None = None
     price: Decimal
+    is_sale: bool = False
+    sale_price: Decimal | None = None
     old_price: Decimal | None = None
     currency: str
     stock_quantity: int

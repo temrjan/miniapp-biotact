@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -9,19 +9,61 @@ import { useLanguageStore } from '@/stores/languageStore';
 import { isLegalEnabled } from '@/legal/flag';
 import { translations } from '@/i18n';
 import type { Product } from '@/types';
+import WebApp from '@twa-dev/sdk';
+import { api, ApiError } from '@/api/client';
 import { CheckoutPage } from './CheckoutPage';
 
-// The payment and loyalty hooks sit on the API boundary — stubbed there, not in the stores
-// (zustand stores run real, per project testing rules).
-vi.mock('@hooks/usePayment', () => ({
-  usePayment: () => ({ pay: vi.fn(), isProcessing: false }),
-}));
-vi.mock('@hooks/useLoyalty', () => ({
-  useLoyalty: () => ({ data: undefined }),
-}));
+// Only the network and browser dialogs are replaced; hooks and stores run real.
+vi.mock('@/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/client')>();
+  return { ...actual, api: { ...actual.api, get: vi.fn(), post: vi.fn() } };
+});
+const postMock = vi.mocked(api.post);
+const orders = () => postMock.mock.calls.filter(([url]) => url === '/orders');
+const quotes = () => postMock.mock.calls.filter(([url]) => url === '/orders/quote');
+let serverTotal: number;
+let serverMax: number;
+let loyaltyBalance: number;
+let conflict: 'quote_mismatch' | 'quote_required' | null;
+let quoteFailure: Error | null;
+
+function quote(points = 0) {
+  return {
+    lines: [
+      {
+        product_id: 1,
+        product_name: 'Test Product',
+        quantity: 1,
+        unit_price: serverTotal.toFixed(2),
+        line_total: serverTotal.toFixed(2),
+      },
+    ],
+    subtotal: serverTotal.toFixed(2),
+    delivery_fee: '0.00',
+    total: serverTotal.toFixed(2),
+    max_redeemable: serverMax,
+    points_to_apply: points,
+    quote_fingerprint: `quote-${serverTotal}-${points}`,
+  };
+}
+const profile = {
+  id: 1,
+  telegram_id: 123,
+  username: 'test',
+  first_name: 'Test',
+  last_name: null,
+  phone: '+998901234567',
+  language_code: 'ru',
+  is_active: true,
+  address: null,
+};
+
+function payButton() {
+  return screen.getAllByRole('button', { name: /Оплатить/ })[0];
+}
 
 const product: Product = {
-  id: 'p1',
+  id: '1',
   name: 'Test Product',
   description: '',
   price: 10000,
@@ -41,6 +83,7 @@ function renderCheckout() {
       <MemoryRouter initialEntries={['/checkout']}>
         <Routes>
           <Route path="/checkout" element={<CheckoutPage />} />
+          <Route path="/payment/success" element={<div>PAYMENT_SUCCESS</div>} />
           <Route path="/cart" element={<div>CART_SCREEN</div>} />
         </Routes>
       </MemoryRouter>
@@ -64,26 +107,58 @@ async function walkToConfirmStep() {
   expect(await screen.findByText(ru.checkout.orderConfirmation)).toBeInTheDocument();
 }
 
-describe('CheckoutPage — accept-terms line (VITE_LEGAL_DOCS)', () => {
-  beforeEach(() => {
-    useLanguageStore.setState({ language: 'ru' });
-    useCartStore.setState({ items: [{ productId: product.id, product, quantity: 1 }] });
-    useUserStore.setState({
-      profile: {
-        id: 1,
-        telegram_id: 123,
-        username: 'test',
-        first_name: 'Test',
-        last_name: null,
-        phone: '+998901234567',
-        language_code: 'ru',
-        is_active: true,
-        address: null,
-      },
-      fetchProfile: vi.fn().mockResolvedValue(undefined),
-    });
+beforeEach(() => {
+  serverTotal = 10000;
+  serverMax = 10000;
+  loyaltyBalance = 20000;
+  conflict = null;
+  quoteFailure = null;
+  useLanguageStore.setState({ language: 'ru' });
+  useCartStore.setState({ items: [{ productId: product.id, product, quantity: 1 }] });
+  useUserStore.setState({ profile, isLoading: false });
+  vi.spyOn(window, 'alert')
+    .mockReset()
+    .mockImplementation(() => {});
+  vi.spyOn(window, 'confirm').mockReset().mockReturnValue(false);
+  vi.mocked(WebApp.openLink).mockClear();
+  vi.mocked(api.get).mockImplementation(async (url) => {
+    if (url === '/users/me') return profile;
+    if (url === '/loyalty/me')
+      return {
+        balance: loyaltyBalance,
+        available: loyaltyBalance,
+        is_member: true,
+        tier: 'friend',
+        lifetime_activations: 1,
+        activations_to_friend: 0,
+      };
+    throw new Error(`Unexpected GET ${url}`);
   });
+  postMock.mockReset();
+  postMock.mockImplementation(async (url, data) => {
+    const points = (data as { points_to_apply?: number }).points_to_apply ?? 0;
+    if (url === '/orders/quote') {
+      if (quoteFailure) throw quoteFailure;
+      return quote(points);
+    }
+    if (url === '/orders') {
+      if (conflict)
+        throw new ApiError('changed', 409, { detail: { code: conflict, quote: quote(points) } });
+      return {
+        id: 1,
+        order_number: 'ORD-1',
+        total: serverTotal,
+        payment_status: points === serverTotal ? 'paid' : 'unpaid',
+        points_applied: points,
+      };
+    }
+    if (url === '/payments/create')
+      return { payment_url: 'https://pay.test/1', payment_uuid: 'p1', order_id: 1 };
+    throw new Error(`Unexpected POST ${url}`);
+  });
+});
 
+describe('CheckoutPage — accept-terms line (VITE_LEGAL_DOCS)', () => {
   // The suite runs twice: default (OFF) asserts the line does NOT leak into the current
   // checkout; the ON run (VITE_LEGAL_DOCS=true) asserts it renders above the pay button.
   it('shows the terms-acceptance line in the totals block exactly when the flag is on', async () => {
@@ -100,4 +175,162 @@ describe('CheckoutPage — accept-terms line (VITE_LEGAL_DOCS)', () => {
       ).not.toBeInTheDocument();
     }
   });
+});
+
+describe('CheckoutPage — quote agreement', () => {
+  it.each([12000, 8000, 10000.5])(
+    'should require confirmation when total changes to %s',
+    async (total) => {
+      serverTotal = total;
+      await walkToConfirmStep();
+      const before = useCartStore.getState().items;
+      fireEvent.click(payButton());
+      await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+      expect(window.confirm).toHaveBeenCalledWith(
+        expect.stringContaining(total.toLocaleString('ru-RU'))
+      );
+      expect(orders()).toHaveLength(0);
+      expect(WebApp.openLink).not.toHaveBeenCalled();
+      expect(useCartStore.getState().items).toEqual(before);
+      expect(
+        screen.getAllByText(
+          `${total.toLocaleString('ru-RU')} ${ru.currency.sum}`.replace(/\u00a0/g, ' ')
+        ).length
+      ).toBeGreaterThan(0);
+      // A new explicit click accepts the now-visible price, after a fresh quote.
+      fireEvent.click(payButton());
+      await waitFor(() => expect(WebApp.openLink).toHaveBeenCalled());
+      expect(quotes()).toHaveLength(2);
+      expect(orders()).toHaveLength(1);
+      expect(orders()[0]?.[1]).toMatchObject({ quote_fingerprint: `quote-${total}-0` });
+    }
+  );
+
+  it('should settle only after the buyer accepts the changed price', async () => {
+    serverTotal = 12000;
+    vi.mocked(window.confirm).mockImplementation(() => {
+      expect(orders()).toHaveLength(0);
+      return true;
+    });
+    await walkToConfirmStep();
+    fireEvent.click(payButton());
+    await waitFor(() => expect(WebApp.openLink).toHaveBeenCalled());
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(orders()[0]?.[1]).toMatchObject({ quote_fingerprint: 'quote-12000-0' });
+  });
+
+  it('should not create a full-points order or navigate when changed price is declined', async () => {
+    await walkToConfirmStep();
+    fireEvent.click(await screen.findByRole('button', { name: ru.checkout.redeem.max }));
+    serverTotal = 16000; // 10,000 points still leaves a valid card remainder.
+    serverMax = 16000;
+    fireEvent.click(payButton());
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    expect(orders()).toHaveLength(0);
+    expect(screen.queryByText('PAYMENT_SUCCESS')).not.toBeInTheDocument();
+    expect(WebApp.openLink).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['quote_mismatch', 8000, 8000],
+    ['quote_required', 8000, 8000],
+    ['quote_mismatch', 10000, 2000],
+    ['quote_mismatch', 12000, 12000],
+  ] as const)(
+    'should show fresh terms after %s (total %s, ceiling %s) without an automatic retry',
+    async (code, newTotal, newMax) => {
+      await walkToConfirmStep();
+      fireEvent.click(await screen.findByRole('button', { name: ru.checkout.redeem.max }));
+      // The price changes only AFTER the quote, before order creation.
+      const network = postMock.getMockImplementation();
+      if (!network) throw new Error('Missing API fixture');
+      postMock.mockImplementation(async (url, data) => {
+        if (url === '/orders') {
+          serverTotal = newTotal;
+          serverMax = newMax;
+          conflict = code;
+        }
+        return network(url, data);
+      });
+      fireEvent.click(payButton());
+      await waitFor(() => expect(window.alert).toHaveBeenCalled());
+      expect(orders()).toHaveLength(1);
+      expect(quotes()).toHaveLength(1);
+      expect(screen.queryByText('PAYMENT_SUCCESS')).not.toBeInTheDocument();
+      expect(screen.getByRole('slider')).toHaveAttribute('max', String(newMax));
+      expect(screen.getByRole('slider')).toHaveValue('0');
+      expect(
+        screen.getAllByText(
+          `${newTotal.toLocaleString('ru-RU')} ${ru.currency.sum}`.replace(/\u00a0/g, ' ')
+        ).length
+      ).toBeGreaterThan(0);
+      expect(screen.getByText(/Баланс: 20\s000/)).toBeInTheDocument();
+      expect(WebApp.openLink).not.toHaveBeenCalled();
+      conflict = null;
+      postMock.mockImplementation((url, data) => network(url, data));
+      fireEvent.click(payButton());
+      await waitFor(() => expect(WebApp.openLink).toHaveBeenCalled());
+      expect(orders()).toHaveLength(2);
+      expect(quotes()).toHaveLength(2);
+      expect(orders()[1]?.[1]).toMatchObject({
+        points_to_apply: 0,
+        quote_fingerprint: `quote-${newTotal}-0`,
+      });
+    }
+  );
+
+  it.each([new ApiError('timeout', 408), new Error('offline')])(
+    'should preserve the cart and refuse settlement when quote fails: %s',
+    async (error) => {
+      quoteFailure = error;
+      await walkToConfirmStep();
+      const before = useCartStore.getState().items;
+      fireEvent.click(payButton());
+      await waitFor(() => expect(window.alert).toHaveBeenCalled());
+      expect(quotes()).toHaveLength(1);
+      expect(orders()).toHaveLength(0);
+      expect(useCartStore.getState().items).toEqual(before);
+      quoteFailure = null;
+      fireEvent.click(payButton());
+      await waitFor(() => expect(WebApp.openLink).toHaveBeenCalled());
+      expect(orders()).toHaveLength(1);
+    }
+  );
+
+  it.each(['cart', 'points'] as const)(
+    'should discard an in-flight quote when %s changes',
+    async (change) => {
+      let resolveQuote: ((value: ReturnType<typeof quote>) => void) | undefined;
+      postMock.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveQuote = resolve;
+          })
+      );
+      await walkToConfirmStep();
+      fireEvent.click(payButton());
+      if (change === 'cart') {
+        act(() => useCartStore.getState().updateQuantity('1', 2));
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: ru.checkout.redeem.max }));
+      }
+      await act(async () => {
+        resolveQuote?.(quote());
+      });
+      expect(orders()).toHaveLength(0);
+      expect(WebApp.openLink).not.toHaveBeenCalled();
+      if (change === 'cart') {
+        serverTotal = 20000;
+        serverMax = 20000;
+      }
+      fireEvent.click(payButton());
+      await waitFor(() => expect(orders()).toHaveLength(1));
+      expect(quotes()).toHaveLength(2);
+      expect(orders()[0]?.[1]).toMatchObject({
+        items: [{ product_id: 1, quantity: change === 'cart' ? 2 : 1 }],
+        points_to_apply: change === 'points' ? 10000 : 0,
+        quote_fingerprint: change === 'points' ? 'quote-10000-10000' : 'quote-20000-0',
+      });
+    }
+  );
 });

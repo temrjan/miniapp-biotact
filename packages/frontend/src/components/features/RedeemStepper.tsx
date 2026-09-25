@@ -12,6 +12,8 @@ interface RedeemStepperProps {
    * Ползунок считается отсюда, иначе он предложит сумму, которую сервер отобьёт 409-м.
    */
   available: number;
+  /** Latest quote ceiling, when the server has repriced this checkout. */
+  maxPoints?: number;
   /** Сумма товаров — то, что можно погасить баллами. */
   subtotal: number;
   /** Итог заказа (subtotal + доставка). Остаток картой = total − value. */
@@ -30,6 +32,7 @@ interface RedeemStepperProps {
 export function RedeemStepper({
   balance,
   available,
+  maxPoints,
   subtotal,
   total,
   value,
@@ -37,7 +40,11 @@ export function RedeemStepper({
   formatPrice,
 }: RedeemStepperProps) {
   const { t } = useTranslation();
-  const money: OrderMoney = { balance: available, subtotal, total };
+  const money: OrderMoney = {
+    balance: Math.min(available, maxPoints ?? available),
+    subtotal,
+    total,
+  };
   const max = maxRedeemable(money);
   const cardDue = total - value;
   // Часть баллов удерживает незавершённый заказ — тогда показанное число уже НЕ баланс, и называть

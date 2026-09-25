@@ -1,13 +1,48 @@
 """Product service layer."""
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from src.products.models import Product
 from src.products.schemas import ProductCreate, ProductUpdate
+
+
+class SaleInvariantError(Exception):
+    """The merged product violates the sale price invariant."""
+
+
+def _validate_sale(price: Decimal | None, is_sale: bool, sale_price: Decimal | None) -> None:
+    if (
+        price is None
+        or price <= 0
+        or (is_sale and (sale_price is None or not 0 < sale_price < price))
+    ):
+        raise SaleInvariantError
+
+
+def _constraint_name(exc: IntegrityError) -> str | None:
+    current: BaseException | None = exc.orig
+    while current is not None:
+        name = getattr(current, "constraint_name", None)
+        if isinstance(name, str) and name:
+            return name
+        current = current.__cause__
+    return None
+
+
+async def _flush_product(db: AsyncSession) -> None:
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if _constraint_name(exc) != "products_sale_ck":
+            raise
+        await db.rollback()
+        raise SaleInvariantError from exc
 
 
 @dataclass
@@ -52,6 +87,7 @@ async def create_product(
     JSONB fields (images, advantages) are automatically converted by SQLAlchemy.
     No need for json.dumps anymore!
     """
+    _validate_sale(product_data.price, product_data.is_sale, product_data.sale_price)
     data = product_data.model_dump()
     # JSONB automatically handles Python lists - no json.dumps needed!
     # SQLAlchemy will convert List[str] -> JSONB automatically
@@ -62,7 +98,7 @@ async def create_product(
 
     product = Product(**data)
     db.add(product)
-    await db.flush()
+    await _flush_product(db)
     await db.refresh(product)
     return product
 
@@ -82,6 +118,11 @@ async def update_product(
         return None
 
     update_dict = update_data.model_dump(exclude_unset=True)
+    _validate_sale(
+        update_dict.get("price", product.price),
+        update_dict.get("is_sale", product.is_sale),
+        update_dict.get("sale_price", product.sale_price),
+    )
     # JSONB automatically handles Python lists - no json.dumps needed!
     # SQLAlchemy will convert List[str] -> JSONB automatically
 
@@ -98,7 +139,7 @@ async def update_product(
     for field, value in update_dict.items():
         setattr(product, field, value)
 
-    await db.flush()
+    await _flush_product(db)
     await db.refresh(product)
     return product
 
@@ -123,6 +164,7 @@ async def get_products_paginated(
     category_id: int | None = None,
     active_only: bool = True,
     featured_only: bool = False,
+    on_sale: bool = False,
     search: str | None = None,
     sort_by: str | None = None,
 ) -> PaginatedResult:
@@ -131,9 +173,13 @@ async def get_products_paginated(
     count_query = select(func.count(Product.id))
 
     # Apply filters
-    if active_only:
+    if active_only or on_sale:
         query = query.where(Product.is_active.is_(True))
         count_query = count_query.where(Product.is_active.is_(True))
+
+    if on_sale:
+        query = query.where(Product.is_sale.is_(True))
+        count_query = count_query.where(Product.is_sale.is_(True))
 
     if category_id:
         query = query.where(Product.category_id == category_id)

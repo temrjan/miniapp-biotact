@@ -1,6 +1,8 @@
 """Order service layer."""
 
 import asyncio
+import hashlib
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -13,7 +15,13 @@ from sqlalchemy.orm import selectinload
 
 from src.loyalty import service as loyalty_service
 from src.orders.models import Order, OrderItem, OrderStatus
-from src.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
+from src.orders.schemas import (
+    OrderCreate,
+    OrderItemCreate,
+    OrderListResponse,
+    OrderQuote,
+    QuoteLine,
+)
 from src.payments.service import multicard_client
 from src.products.models import Product
 
@@ -184,7 +192,7 @@ async def get_order_by_payment_uuid(
 async def _price_lines(
     db: AsyncSession,
     lines: list[OrderItemCreate],
-) -> tuple[list[OrderItem], Decimal]:
+) -> tuple[list[OrderItem], Decimal, bool]:
     """Turn requested (product_id, quantity) lines into priced ``OrderItem`` rows + the subtotal.
 
     Every money value is read from ``products`` in a single query — the client's numbers never
@@ -222,18 +230,82 @@ async def _price_lines(
     subtotal = Decimal("0")
     for line in lines:
         product = by_id[line.product_id]
-        line_total = product.price * line.quantity
+        price = product.sale_price if product.is_sale else product.price
+        assert price is not None  # products_sale_ck guarantees a price for active sales.
+        line_total = price * line.quantity
         subtotal += line_total
         items.append(
             OrderItem(
                 product_id=product.id,
                 product_name=product.name,
-                product_price=product.price,
+                product_price=price,
                 quantity=line.quantity,
                 total=line_total,
             )
         )
-    return items, subtotal
+    return items, subtotal, any(product.is_sale for product in products)
+
+
+class QuoteAgreementError(Exception):
+    def __init__(self, code: str, quote: OrderQuote) -> None:
+        self.code = code
+        self.quote = quote
+        super().__init__(code)
+
+
+def _quote_from_priced(
+    items: list[OrderItem], subtotal: Decimal, *, balance: int, points: int
+) -> OrderQuote:
+    total = subtotal + DELIVERY_FEE
+    lines = []
+    for item in items:
+        assert item.product_id is not None  # Newly priced lines all originate in the catalogue.
+        lines.append(
+            QuoteLine(
+                product_id=item.product_id,
+                product_name=item.product_name,
+                quantity=item.quantity,
+                unit_price=item.product_price,
+                line_total=item.total,
+            )
+        )
+    ceiling = max_redeemable(balance=balance, subtotal=subtotal, total=total)
+    canonical = {
+        "lines": sorted(
+            (line.model_dump(mode="json", exclude={"product_name"}) for line in lines),
+            key=lambda line: (line["product_id"], line["quantity"]),
+        ),
+        "subtotal": f"{subtotal:.2f}",
+        "delivery_fee": f"{DELIVERY_FEE:.2f}",
+        "total": f"{total:.2f}",
+        "max_redeemable": ceiling,
+        "points_to_apply": points,
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return OrderQuote(
+        lines=lines,
+        subtotal=subtotal,
+        delivery_fee=DELIVERY_FEE,
+        total=total,
+        max_redeemable=ceiling,
+        points_to_apply=points,
+        quote_fingerprint=fingerprint,
+    )
+
+
+async def build_quote(db: AsyncSession, order_data: OrderCreate, user_id: int) -> OrderQuote:
+    items, subtotal, _ = await _price_lines(db, order_data.items)
+    balance = await loyalty_service.get_balance(db, user_id)
+    if order_data.points_to_apply > 0:
+        _validate_redeem_amount(
+            order_data.points_to_apply,
+            balance=balance,
+            subtotal=subtotal,
+            total=subtotal + DELIVERY_FEE,
+        )
+    return _quote_from_priced(items, subtotal, balance=balance, points=order_data.points_to_apply)
 
 
 async def create_order(
@@ -257,14 +329,20 @@ async def create_order(
     — the router maps it to 422 — and :class:`~src.loyalty.service.InsufficientPointsError` —
     mapped to 409, nothing persisted.
     """
-    items, subtotal = await _price_lines(db, order_data.items)
+    items, subtotal, has_sale = await _price_lines(db, order_data.items)
     total = subtotal + DELIVERY_FEE
 
     points = order_data.points_to_apply
-    if points > 0:
-        # Form-level UX guard on an UNLOCKED balance read; reserve_points re-checks the same balance
-        # under FOR UPDATE, so a concurrent drain becomes a truthful 409, never a negative balance.
+    balance = 0
+    if points > 0 or order_data.quote_fingerprint is not None or has_sale:
         balance = await loyalty_service.get_balance(db, user_id)
+    if order_data.quote_fingerprint is not None or has_sale:
+        quote = _quote_from_priced(items, subtotal, balance=balance, points=points)
+        if order_data.quote_fingerprint is None:
+            raise QuoteAgreementError("quote_required", quote)
+        if order_data.quote_fingerprint != quote.quote_fingerprint:
+            raise QuoteAgreementError("quote_mismatch", quote)
+    if points > 0:
         _validate_redeem_amount(points, balance=balance, subtotal=subtotal, total=total)
 
     order = Order(
