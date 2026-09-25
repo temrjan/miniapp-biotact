@@ -3,6 +3,7 @@ import { generateSlug } from '@/shared/utils/slugify'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { isAxiosError } from 'axios'
 import { useNavigate } from 'react-router-dom'
 import { Save, X } from 'lucide-react'
 import type { Product } from '@/shared/types'
@@ -27,6 +28,11 @@ const productSchema = z.object({
   description: z.string().optional().nullable(),
   description_uz: z.string().optional().nullable(),
   old_price: z.number().min(0).optional().nullable(),
+  is_sale: z.boolean(),
+  sale_price: z.number()
+    .positive('Цена по акции должна быть больше 0')
+    .multipleOf(0.01, 'Цена по акции: не более двух знаков после запятой')
+    .nullable(),
   currency: z.string().max(3).optional(),
   stock_quantity: z.number().min(0).optional(),
   category_id: z.number().optional().nullable(),
@@ -54,7 +60,16 @@ const productSchema = z.object({
   is_active: z.boolean().optional(),
   is_featured: z.boolean().optional(),
   is_in_stock: z.boolean().optional(),
+}).superRefine((data, ctx) => {
+  if (!data.is_sale) return
+  if (data.sale_price === null) {
+    ctx.addIssue({ code: 'custom', path: ['sale_price'], message: 'Введите цену по акции' })
+  } else if (data.sale_price >= data.price) {
+    ctx.addIssue({ code: 'custom', path: ['sale_price'], message: 'Цена по акции должна быть меньше обычной цены' })
+  }
 })
+
+const saleErrorResponse = z.object({ detail: z.object({ code: z.literal('sale_invariant_violation') }) })
 
 export type ProductFormData = z.infer<typeof productSchema>
 
@@ -62,9 +77,10 @@ interface ProductFormProps {
   product?: Product
   onSubmit: (data: ProductFormData) => void
   isLoading?: boolean
+  submitError?: unknown
 }
 
-export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) => {
+export const ProductForm = ({ product, onSubmit, isLoading, submitError }: ProductFormProps) => {
   const navigate = useNavigate()
 
   const { data: categoriesData } = useCategories({ page: 1, size: 100, active_only: false })
@@ -85,6 +101,8 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
           description: product.description,
           description_uz: product.description_uz,
           price: Number(product.price),
+          is_sale: product.is_sale,
+          sale_price: product.sale_price == null ? null : Number(product.sale_price),
           old_price: product.old_price ? Number(product.old_price) : null,
           currency: product.currency || 'UZS',
           stock_quantity: product.stock_quantity,
@@ -107,6 +125,8 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
           is_featured: product.is_featured,
         }
       : {
+          is_sale: false,
+          sale_price: null,
           currency: 'UZS',
           stock_quantity: 0,
           is_active: true,
@@ -125,12 +145,20 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
     }
   }, [name, product, setValue])
 
+  const isSale = watch('is_sale')
+  const serverSaleError = isAxiosError<unknown>(submitError)
+    && submitError.response?.status === 422
+    && saleErrorResponse.safeParse(submitError.response.data).success
+      ? 'Цена по акции должна быть больше 0 и меньше обычной цены. Проверьте обе цены.'
+      : undefined
+  const saleError = errors.sale_price?.message ?? serverSaleError
+
   const isActive = watch('is_active')
   const isFeatured = watch('is_featured')
   const isInStock = watch('is_in_stock')
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       {/* Basic Information */}
       <Card>
         <CardHeader>
@@ -214,6 +242,28 @@ export const ProductForm = ({ product, onSubmit, isLoading }: ProductFormProps) 
               <Label htmlFor="currency">Валюта</Label>
               <Input id="currency" {...register('currency')} maxLength={3} />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="is_sale"
+                checked={isSale}
+                onCheckedChange={(checked) => setValue('is_sale', checked === true, { shouldValidate: true, shouldDirty: true })}
+              />
+              <Label htmlFor="is_sale">Акция</Label>
+            </div>
+            <Label htmlFor="sale_price">Цена по акции{isSale ? ' *' : ''}</Label>
+            <Input
+              id="sale_price"
+              type="number"
+              step="0.01"
+              aria-required={isSale}
+              aria-invalid={!!saleError}
+              aria-describedby={saleError ? 'sale_price_error' : undefined}
+              {...register('sale_price', { setValueAs: (value) => value === '' || value == null ? null : Number(value) })}
+            />
+            {saleError && <p id="sale_price_error" role="alert" className="text-sm text-destructive">{saleError}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

@@ -9,13 +9,15 @@ import { useMainButton } from '@hooks/useMainButton';
 import { useHaptic, usePlatform } from '@hooks/useTelegram';
 import { useTranslation } from '@/i18n';
 import { useUserStore } from '@stores/userStore';
-import { useCartItems, useCartTotalAmount } from '@stores/cartStore';
+import { useCartItems, useCartTotalAmount, useRefreshCartPrices } from '@stores/cartStore';
 import { useLocationStore, getDisplayAddress } from '@stores/locationStore';
 import { useLoyalty } from '@hooks/useLoyalty';
 import { usePayment } from '@hooks/usePayment';
 import { RedeemStepper } from '@components/features/RedeemStepper';
 import { RedeemReserveNotice } from '@components/features/RedeemReserveNotice';
-import { maxRedeemable } from '@/utils/redeem';
+import type { OrderQuote } from '@/utils/order';
+import type { CartItem } from '@/types';
+import { clampRedeem, maxRedeemable } from '@/utils/redeem';
 import { isLegalEnabled } from '@/legal/flag';
 import { ROUTES } from '@utils/constants';
 
@@ -59,7 +61,12 @@ export function CheckoutPage() {
   const { t } = useTranslation();
   const { profile, isLoading, fetchProfile, updatePhone } = useUserStore();
   const items = useCartItems();
-  const totalAmount = useCartTotalAmount();
+  const cancelPriceRefresh = useRefreshCartPrices();
+  const cartTotal = useCartTotalAmount();
+  const [quoted, setQuoted] = useState<{ items: CartItem[]; quote: OrderQuote } | null>(null);
+  const quote = quoted?.items === items ? quoted.quote : null;
+  const totalAmount = quote ? Number(quote.total) : cartTotal;
+  const subtotal = quote ? Number(quote.subtotal) : cartTotal;
   const { address, openModal, isModalOpen } = useLocationStore();
 
   const [step, setStep] = useState<CheckoutStep>('phone');
@@ -74,7 +81,7 @@ export function CheckoutPage() {
 
   const formatPrice = useCallback(
     (price: number): string => {
-      return Math.floor(price).toLocaleString('ru-RU').replace(/,/g, ' ') + ' ' + t('currency.sum');
+      return price.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ' + t('currency.sum');
     },
     [t]
   );
@@ -136,13 +143,19 @@ export function CheckoutPage() {
   const available = loyalty?.available ?? 0;
   const reservedUntil = loyalty?.reservedUntil ?? null;
   const reservedPoints = Math.max(0, balance - available);
-  const money = { balance: available, subtotal: totalAmount, total: totalAmount };
+  const quoteAvailable = quote ? Math.min(available, quote.max_redeemable) : available;
+  const money = { balance: quoteAvailable, subtotal, total: totalAmount };
   // Points redemption is safe since Model-1 (backend): a partial spend RESERVES points and the real
   // debit lands only when the card settles, so an abandoned payment can no longer burn points. (The
   // temporary kill-switch that hid this stepper after the burn incident is removed with that fix.)
   const isMember = loyalty?.isMember ?? false;
   const canRedeem = isMember && maxRedeemable(money) > 0;
-  const redeemPoints = canRedeem ? pointsToApply : 0;
+  const redeemPoints = canRedeem && clampRedeem(pointsToApply, money) === pointsToApply
+    ? pointsToApply
+    : 0;
+  // Repricing can invalidate an existing selection without a slider event. Reset before
+  // rendering the stepper or handing an amount to pay; do not revive it on later repricing.
+  if (pointsToApply !== redeemPoints) setPointsToApply(0);
   const amountDue = totalAmount - redeemPoints;
 
   const deliveryAddress =
@@ -150,12 +163,30 @@ export function CheckoutPage() {
   const handleInvalidAmount = useCallback((max: number | null) => {
     if (max !== null) setPointsToApply(max);
   }, []);
+  const handleQuote = useCallback(
+    (freshQuote: OrderQuote) => {
+      cancelPriceRefresh();
+      setQuoted({ items, quote: freshQuote });
+      setPointsToApply((points) =>
+        clampRedeem(points, {
+          balance: freshQuote.max_redeemable,
+          subtotal: Number(freshQuote.subtotal),
+          total: Number(freshQuote.total),
+        }) === points
+          ? points
+          : 0
+      );
+    },
+    [items, cancelPriceRefresh]
+  );
   const { pay, isProcessing } = usePayment({
     items,
     deliveryAddress,
     name: profile?.first_name || null,
     phone,
     redeemPoints,
+    displayedTotal: totalAmount,
+    onQuote: handleQuote,
     onInvalidAmount: handleInvalidAmount,
   });
 
@@ -442,9 +473,10 @@ export function CheckoutPage() {
                 <RedeemStepper
                   balance={balance}
                   available={available}
-                  subtotal={totalAmount}
+                  maxPoints={quote?.max_redeemable ?? maxRedeemable(money)}
+                  subtotal={subtotal}
                   total={totalAmount}
-                  value={pointsToApply}
+                  value={redeemPoints}
                   onChange={setPointsToApply}
                   formatPrice={formatPrice}
                 />

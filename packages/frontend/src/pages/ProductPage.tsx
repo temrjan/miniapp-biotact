@@ -1,3 +1,4 @@
+import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { useState, useEffect, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,15 +23,13 @@ function parseBold(text: string): ReactNode[] {
   });
 }
 
-interface ApiProduct {
+interface ApiProduct extends ApiProductPrice {
   id: number;
   name: string;
   name_uz: string | null;
   slug: string;
   description: string | null;
   description_uz: string | null;
-  price: number;
-  old_price: number | null;
   image_url: string | null;
   images: string[] | null;
   category_id: number;
@@ -58,8 +57,7 @@ function mapProduct(api: ApiProduct, lang: string): ExtendedProduct {
     id: String(api.id),
     name: isUz && api.name_uz ? api.name_uz : api.name,
     description: isUz && api.description_uz ? api.description_uz : (api.description || ''),
-    price: api.price,
-    oldPrice: api.old_price || undefined,
+    ...mapProductPrice(api),
     imageUrl: api.image_url || '',
     images: api.images || undefined,
     categoryId: String(api.category_id),
@@ -237,10 +235,11 @@ export function ProductPage() {
         {/* Product info — right column on desktop */}
         <div className="p-4 md:p-6 lg:p-0 space-y-4">
           <h1 className="text-2xl font-bold">{product.name}</h1>
+          {product.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
           <div className="flex items-baseline gap-3">
-            <div className="text-3xl font-bold text-[var(--primary)]">{formatPrice(product.price)}</div>
-            {product.oldPrice && (
-              <div className="text-lg text-[var(--text-secondary)] line-through">{formatPrice(product.oldPrice)}</div>
+            <div className="text-3xl font-bold text-[var(--primary)]">{formatPrice(effectivePrice(product))}</div>
+            {originalPrice(product) != null && (
+              <div className="text-lg text-[var(--text-secondary)] line-through">{formatPrice(originalPrice(product) ?? 0)}</div>
             )}
           </div>
           {product.isPurchasable !== false && (
@@ -304,7 +303,9 @@ export function ProductPage() {
                     </div>
                     <div className="p-2">
                       <p className="text-sm font-medium line-clamp-2 mb-1">{item.name}</p>
-                      <p className="text-[var(--primary)] font-bold text-sm">{formatPrice(item.price)}</p>
+                      {item.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
+                      <p className="text-[var(--primary)] font-bold text-sm">{formatPrice(effectivePrice(item))}</p>
+                      {item.isSale && <span className="text-[var(--text-muted)] text-xs line-through">{formatPrice(item.price)}</span>}
                     </div>
                   </div>
                 </motion.div>

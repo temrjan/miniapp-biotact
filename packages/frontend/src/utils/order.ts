@@ -22,6 +22,16 @@ export interface CreateOrderRequest {
   customer_note: string | null;
 }
 
+/** Server-calculated checkout terms; money stays in the wire decimal format. */
+export interface OrderQuote {
+  subtotal: string;
+  delivery_fee: string;
+  total: string;
+  max_redeemable: number;
+  points_to_apply: number;
+  quote_fingerprint: string;
+}
+
 export interface DeliveryDetails {
   deliveryAddress: string | null;
   phone: string | null;

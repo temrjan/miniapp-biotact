@@ -29,7 +29,7 @@ export const ProductCreatePage = () => {
         <h1 className="text-3xl font-bold">Создать товар</h1>
       </div>
 
-      <ProductForm onSubmit={handleSubmit} isLoading={createProduct.isPending} />
+      <ProductForm onSubmit={handleSubmit} isLoading={createProduct.isPending} submitError={createProduct.error} />
 
       {createProduct.isError && (
         <div className="p-4 border border-destructive bg-destructive/10 rounded text-destructive">

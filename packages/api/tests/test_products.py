@@ -125,3 +125,99 @@ async def test_search_products(client: AsyncClient, admin_headers: dict[str, str
     data = response.json()
     assert data["total"] >= 1
     assert any("Apple" in item["name"] for item in data["items"])
+
+
+@pytest.mark.parametrize('sale_price', [None, '0', '-1', '100', '101', '80.001'])
+@pytest.mark.parametrize('method', ['create', 'patch'])
+async def test_reject_invalid_sale(client, admin_headers, sale_price, method):
+    payload = {'name': 'Sale', 'slug': 'sale', 'price': '100.00'}
+    sale = {'is_sale': True, 'sale_price': sale_price}
+    if method == 'create':
+        response = await client.post('/api/v1/products', json=payload | sale, headers=admin_headers)
+    else:
+        created = (await client.post('/api/v1/products', json=payload, headers=admin_headers)).json()
+        response = await client.patch(f"/api/v1/products/{created['id']}", json=sale, headers=admin_headers)
+        current = (await client.get(f"/api/v1/products/{created['id']}")).json()
+        assert current['price'] == '100.00'
+    assert response.status_code == 422
+
+
+async def test_sale_merged_validation_and_dormant_price(client, admin_headers):
+    created = await client.post('/api/v1/products', headers=admin_headers, json={
+        'name': 'Sale', 'slug': 'sale', 'price': '200.00', 'old_price': '250.00',
+        'is_sale': True, 'sale_price': '150.00',
+    })
+    assert created.status_code == 201
+    pid = created.json()['id']
+    for patch in [{'price': '100.00'}, {'sale_price': None}]:
+        response = await client.patch(f'/api/v1/products/{pid}', headers=admin_headers, json=patch)
+        assert response.status_code == 422
+        assert response.json()['detail']['code'] == 'sale_invariant_violation'
+    response = await client.patch(f'/api/v1/products/{pid}', headers=admin_headers, json={'is_sale': False})
+    assert response.status_code == 200
+    assert response.json()['sale_price'] == '150.00'
+    response = await client.patch(f'/api/v1/products/{pid}', headers=admin_headers, json={'is_sale': True, 'price': '160.00'})
+    assert response.status_code == 200
+    assert response.json()['old_price'] == '250.00'
+
+
+async def test_public_sale_fields_and_filter(client, admin_headers):
+    for slug, sale, active in [('sale', True, True), ('regular', False, True), ('inactive', True, False)]:
+        response = await client.post('/api/v1/products', headers=admin_headers, json={
+            'name': slug, 'slug': slug, 'price': '200.00', 'old_price': '250.00',
+            'is_sale': sale, 'sale_price': '150.00', 'is_active': active,
+        })
+        assert response.status_code == 201
+    response = await client.get('/api/v1/products?on_sale=true&active_only=false')
+    assert [p['slug'] for p in response.json()['items']] == ['sale']
+    assert response.json()['total'] == 1
+    sale = response.json()['items'][0]
+    for url in [f"/api/v1/products/{sale['id']}", '/api/v1/products/slug/sale']:
+        data = (await client.get(url)).json()
+        assert data['is_sale'] is True
+        assert data['sale_price'] == '150.00'
+        assert data['price'] == '200.00'
+        assert data['old_price'] == '250.00'
+    assert (await client.get('/api/v1/products')).json()['total'] == 2
+
+
+async def test_sale_patch_keeps_other_integrity_conflicts(client, admin_headers, test_db):
+    products = []
+    for slug in ['first', 'second']:
+        data = (await client.post('/api/v1/products', headers=admin_headers, json={
+            'name': slug, 'slug': slug, 'price': '200.00',
+        })).json()
+        products.append(data['id'])
+    await test_db.commit()
+    response = await client.patch(f'/api/v1/products/{products[1]}', headers=admin_headers, json={'slug': 'first'})
+    assert response.status_code == 409
+    await test_db.rollback()
+    data = (await client.get(f'/api/v1/products/{products[1]}')).json()
+    assert data['slug'] == 'second'
+
+
+@pytest.mark.parametrize("identity", ["missing", "user"])
+async def test_sale_patch_requires_admin_and_preserves_product(
+    client: AsyncClient, admin_headers: dict[str, str], identity: str
+) -> None:
+    from src.config import settings
+    from tests.test_admin_auth_boundary import _user_access_token
+
+    created = await client.post("/api/v1/products", headers=admin_headers, json={
+        "name": "Protected sale", "slug": "protected-sale", "price": "200.00",
+    })
+    assert created.status_code == 201
+    url = f"/api/v1/products/{created.json()['id']}"
+    before = (await client.get(url)).json()
+    headers = {} if identity == "missing" else {
+        "Authorization": f"Bearer {_user_access_token(secret=settings.secret_key.get_secret_value())}",
+    }
+    patch = {"is_sale": True, "sale_price": "150.00"}
+    denied = await client.patch(url, headers=headers, json=patch)
+    assert denied.status_code == 401
+    assert (await client.get(url)).json() == before
+    allowed = await client.patch(url, headers=admin_headers, json=patch)
+    assert allowed.status_code == 200
+    after = (await client.get(url)).json()
+    assert after["is_sale"] is True
+    assert after["sale_price"] == "150.00"

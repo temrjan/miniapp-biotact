@@ -52,6 +52,8 @@ def localize_product(product: Product, lang: Language) -> dict[str, Any]:
             else product.description
         ),
         "price": product.price,
+        "is_sale": product.is_sale,
+        "sale_price": product.sale_price,
         "old_price": product.old_price,
         "currency": product.currency,
         "stock_quantity": product.stock_quantity,
@@ -97,6 +99,7 @@ async def get_products(
     category_id: int | None = Query(None),
     active_only: bool = Query(True),
     featured_only: bool = Query(False),
+    on_sale: bool = Query(False),
     search: str | None = Query(None, min_length=1),
     include_all_translations: bool = Query(
         False, description="Return all translation fields (for admin)"
@@ -113,6 +116,7 @@ async def get_products(
         category_id=category_id,
         active_only=active_only,
         featured_only=featured_only,
+        on_sale=on_sale,
         search=search,
         sort_by=sort_by,
     )
@@ -215,7 +219,10 @@ async def create_product(
             status_code=status.HTTP_409_CONFLICT,
             detail="Product with this slug already exists",
         )
-    return await service.create_product(db, product_data)
+    try:
+        return await service.create_product(db, product_data)
+    except service.SaleInvariantError as exc:
+        raise HTTPException(status_code=422, detail={"code": "sale_invariant_violation"}) from exc
 
 
 @router.patch(
@@ -227,7 +234,10 @@ async def update_product(
     db: DbSession,
 ) -> Product:
     """Update product."""
-    product = await service.update_product(db, product_id, update_data)
+    try:
+        product = await service.update_product(db, product_id, update_data)
+    except service.SaleInvariantError as exc:
+        raise HTTPException(status_code=422, detail={"code": "sale_invariant_violation"}) from exc
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

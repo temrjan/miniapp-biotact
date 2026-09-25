@@ -74,3 +74,12 @@ describe('cartStore', () => {
     expect(totalAmount).toBe(200000)
   })
 })
+
+
+it('should replace a stale product snapshot when adding it again from the catalog', () => {
+  useCartStore.getState().clearCart();
+  useCartStore.getState().addItem(mockProduct);
+  const current = { ...mockProduct, isSale: true, salePrice: 80000 };
+  useCartStore.getState().addItem(current);
+  expect(useCartStore.getState().items).toEqual([{ productId: '1', product: current, quantity: 2 }]);
+});

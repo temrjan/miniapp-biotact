@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import WebApp from '@twa-dev/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +8,7 @@ import { LOYALTY_ME_KEY } from '@hooks/useLoyalty';
 import { usePendingOrderStore } from '@stores/pendingOrderStore';
 import { useTranslation } from '@/i18n';
 import { api, ApiError } from '@/api/client';
-import { buildOrderRequest } from '@/utils/order';
+import { buildOrderRequest, type OrderQuote } from '@/utils/order';
 import { ROUTES } from '@/utils/constants';
 import type { CartItem } from '@/types';
 
@@ -37,6 +37,39 @@ function readMaxRedeemable(data: unknown): number | null {
   return typeof max === 'number' ? max : null;
 }
 
+function readConflictQuote(data: unknown): OrderQuote | null {
+  if (typeof data !== 'object' || data === null || !('detail' in data)) return null;
+  const detail = data.detail;
+  if (typeof detail !== 'object' || detail === null || !('code' in detail)) return null;
+  if (detail.code !== 'quote_mismatch' && detail.code !== 'quote_required') return null;
+  if (!('quote' in detail) || typeof detail.quote !== 'object' || detail.quote === null)
+    return null;
+  const quote = detail.quote;
+  if (
+    !('subtotal' in quote) ||
+    typeof quote.subtotal !== 'string' ||
+    !('delivery_fee' in quote) ||
+    typeof quote.delivery_fee !== 'string' ||
+    !('total' in quote) ||
+    typeof quote.total !== 'string' ||
+    !('max_redeemable' in quote) ||
+    typeof quote.max_redeemable !== 'number' ||
+    !('points_to_apply' in quote) ||
+    typeof quote.points_to_apply !== 'number' ||
+    !('quote_fingerprint' in quote) ||
+    typeof quote.quote_fingerprint !== 'string'
+  )
+    return null;
+  return {
+    subtotal: quote.subtotal,
+    delivery_fee: quote.delivery_fee,
+    total: quote.total,
+    max_redeemable: quote.max_redeemable,
+    points_to_apply: quote.points_to_apply,
+    quote_fingerprint: quote.quote_fingerprint,
+  };
+}
+
 interface UsePaymentOptions {
   items: CartItem[];
   deliveryAddress: string | null;
@@ -44,6 +77,8 @@ interface UsePaymentOptions {
   phone: string;
   /** Points to spend on this order — already gated/clamped by the caller (0 = card-only). */
   redeemPoints: number;
+  displayedTotal: number;
+  onQuote: (quote: OrderQuote) => void;
   /** Called with the server's ``max_redeemable`` when a 422 clamps the amount (null if unreadable). */
   onInvalidAmount: (max: number | null) => void;
 }
@@ -64,6 +99,8 @@ export function usePayment({
   name,
   phone,
   redeemPoints,
+  displayedTotal,
+  onQuote,
   onInvalidAmount,
 }: UsePaymentOptions) {
   const navigate = useNavigate();
@@ -72,6 +109,15 @@ export function usePayment({
   const { t } = useTranslation();
   const [isProcessing, setIsProcessing] = useState(false);
   const isProcessingRef = useRef(false);
+  // Every change invalidates even an in-flight quote, including A → B → A edits.
+  const requestVersion = useRef(0);
+  const requestKey = JSON.stringify({ items, deliveryAddress, name, phone, redeemPoints });
+  useLayoutEffect(() => {
+    requestVersion.current += 1;
+    return () => {
+      requestVersion.current += 1;
+    };
+  }, [requestKey]);
   const rememberOrder = usePendingOrderStore((state) => state.rememberOrder);
 
   const pay = useCallback(async () => {
@@ -79,9 +125,28 @@ export function usePayment({
     isProcessingRef.current = true;
     setIsProcessing(true);
     haptic.success();
+    const version = requestVersion.current;
+    let settled = false;
+    const formatQuoteTotal = (quote: OrderQuote) =>
+      Number(quote.total).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) +
+      ' ' +
+      t('currency.sum');
     try {
       const orderRequest = buildOrderRequest(items, { deliveryAddress, phone, name }, redeemPoints);
-      const order = await api.post<OrderResponse>('/orders', orderRequest);
+      const quote = await api.post<OrderQuote>('/orders/quote', orderRequest);
+      if (version !== requestVersion.current) return;
+      onQuote(quote);
+      if (
+        Number(quote.total) !== displayedTotal &&
+        !window.confirm(t('checkout.priceChanged', { total: formatQuoteTotal(quote) }))
+      )
+        return;
+      if (version !== requestVersion.current) return;
+      const order = await api.post<OrderResponse>('/orders', {
+        ...orderRequest,
+        quote_fingerprint: quote.quote_fingerprint,
+      });
+      settled = true;
 
       // Full points coverage is settled server-side (paid + confirmed) — no Multicard leg. Reuse the
       // existing success page (it clears the cart on mount); calling /payments/create would 400.
@@ -107,9 +172,8 @@ export function usePayment({
       rememberOrder(order.id);
       WebApp.openLink(payment.payment_url);
     } catch (error) {
-      // Failed — release the guard so the customer can retry.
-      isProcessingRef.current = false;
-      setIsProcessing(false);
+      settled = false;
+      if (version !== requestVersion.current) return;
       haptic.error();
       // 422 = the amount broke a redeem rule (e.g. balance drained since the form read): clamp the
       // stepper to the server's max so the customer can retry. 409 = live-balance shortfall.
@@ -119,6 +183,12 @@ export function usePayment({
         return;
       }
       if (error instanceof ApiError && error.status === 409) {
+        const freshQuote = readConflictQuote(error.data);
+        if (freshQuote) {
+          onQuote(freshQuote);
+          alert(t('checkout.quoteChanged', { total: formatQuoteTotal(freshQuote) }));
+          return;
+        }
         // The server refused against a reserve-aware balance the cache does not know about — refresh
         // so the stepper clamps to the truth and the reserve notice appears instead of a bare alert.
         void queryClient.invalidateQueries({ queryKey: LOYALTY_ME_KEY });
@@ -127,6 +197,11 @@ export function usePayment({
       }
       console.error('Payment error:', error);
       alert(error instanceof Error ? error.message : t('common.error'));
+    } finally {
+      if (!settled) {
+        isProcessingRef.current = false;
+        setIsProcessing(false);
+      }
     }
   }, [
     items,
@@ -134,6 +209,8 @@ export function usePayment({
     name,
     phone,
     redeemPoints,
+    displayedTotal,
+    onQuote,
     onInvalidAmount,
     navigate,
     haptic,

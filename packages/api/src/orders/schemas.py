@@ -3,7 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 # Order Item schemas
@@ -74,6 +74,7 @@ class OrderCreate(BaseModel):
     # they depend on the server-priced subtotal and the caller's live balance, which a schema
     # cannot see. ``ge=0`` only rejects a negative request outright.
     points_to_apply: int = Field(0, ge=0)
+    quote_fingerprint: str | None = Field(None, max_length=64)
     delivery_address: str | None = None
     delivery_phone: str | None = None
     delivery_name: str | None = None
@@ -135,3 +136,29 @@ class OrderStatusUpdate(BaseModel):
     """Update order status schema."""
 
     status: str = Field(..., pattern="^(pending|confirmed|processing|shipped|delivered|cancelled)$")
+
+
+class QuoteLine(BaseModel):
+    product_id: int
+    product_name: str
+    quantity: int
+    unit_price: Decimal
+    line_total: Decimal
+
+    @field_serializer("unit_price", "line_total")
+    def serialize_money(self, value: Decimal) -> str:
+        return f"{value:.2f}"
+
+
+class OrderQuote(BaseModel):
+    lines: list[QuoteLine]
+    subtotal: Decimal
+    delivery_fee: Decimal
+    total: Decimal
+    max_redeemable: int
+    points_to_apply: int
+    quote_fingerprint: str
+
+    @field_serializer("subtotal", "delivery_fee", "total")
+    def serialize_money(self, value: Decimal) -> str:
+        return f"{value:.2f}"

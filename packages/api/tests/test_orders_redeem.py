@@ -1309,3 +1309,64 @@ async def test_full_coverage_writes_timezone_aware_paid_at(
     assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5), (
         f"отметка уехала: paid_at={order.paid_at}, момент операции={before}"
     )
+
+
+@pytest.mark.parametrize('points', [0, 100_000, 330_000])
+async def test_sale_effective_price_settlement(client, maker, monkeypatch, points, admin_headers):
+    uid = await _seed_user(maker, 80901)
+    await _seed_points(maker, user_id=uid, amount=500_000)
+    async with maker() as session, session.begin():
+        sale = Product(name='Sale', slug='sale', price=Decimal('200000'))
+        regular = Product(name='Regular', slug='regular', price=Decimal('30000'))
+        session.add_all([sale, regular])
+        await session.flush()
+        ids = (sale.id, regular.id)
+    sale_url = f'/api/v1/products/{ids[0]}'
+    enabled = await client.patch(sale_url, headers=admin_headers, json={
+        'is_sale': True, 'sale_price': '150000.00',
+    })
+    assert enabled.status_code == 200
+    public = await client.get('/api/v1/products?on_sale=true')
+    assert public.status_code == 200
+    assert [(p['id'], p['price'], p['sale_price']) for p in public.json()['items']] == [
+        (ids[0], '200000.00', '150000.00'),
+    ]
+    captured = []
+    async def invoice(data):
+        captured.append(data)
+        return MultiCardPaymentResponse(uuid='sale-invoice', pay_url='https://pay.uz/stub')
+    monkeypatch.setattr(multicard_client, 'create_invoice', invoice)
+    payload = {'items': [{'product_id': ids[0], 'quantity': 2}, {'product_id': ids[1], 'quantity': 1}], 'points_to_apply': points}
+    quote = await client.post('/api/v1/orders/quote', headers=_headers(80901), json=payload)
+    assert quote.status_code == 200
+    payload['quote_fingerprint'] = quote.json()['quote_fingerprint']
+    response = await client.post(ORDERS_URL, headers=_headers(80901), json=payload)
+    assert response.status_code == 201, response.text
+    order = response.json()
+    assert Decimal(order['subtotal']) == Decimal('330000')
+    assert Decimal(order['total']) == sum(Decimal(i['total']) for i in order['items'])
+    assert Decimal(order['items'][0]['product_price']) == Decimal('150000')
+    if points == 330_000:
+        assert order['payment_status'] == 'paid'
+        assert order['status'] == 'confirmed'
+        assert captured == []
+        assert await _committed_balance(maker, uid) == 170_000
+    else:
+        payment = await client.post(PAYMENTS_URL, headers=_headers(80901), json={'order_id': order['id'], 'return_url': 'https://x.uz'})
+        assert payment.status_code == 200, payment.text
+        assert len(captured) == 1
+        assert captured[0].amount == (330_000 - points) * 100
+        assert sum(i.price * i.qty for i in captured[0].ofd) == captured[0].amount
+    disabled = await client.patch(sale_url, headers=admin_headers, json={'is_sale': False})
+    assert disabled.status_code == 200
+    current = (await client.get(sale_url)).json()
+    assert current['is_sale'] is False
+    assert current['sale_price'] == '150000.00'
+    assert (await client.get('/api/v1/products?on_sale=true')).json()['items'] == []
+    fresh = await client.post('/api/v1/orders/quote', headers=_headers(80901), json={
+        'items': payload['items'], 'points_to_apply': 0,
+    })
+    assert fresh.status_code == 200
+    assert fresh.json()['total'] == '430000.00'
+    persisted = await _committed_order(maker, order['id'])
+    assert persisted.total == Decimal('330000')

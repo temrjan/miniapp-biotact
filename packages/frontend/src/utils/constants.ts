@@ -48,6 +48,7 @@ export const STORAGE_KEYS = {
 export const ROUTES = {
   HOME: '/',
   CATALOG: '/catalog',
+  SALES: '/sales',
   CATEGORY: '/catalog/:slug',
   PRODUCT: '/product/:productId',
   CART: '/cart',

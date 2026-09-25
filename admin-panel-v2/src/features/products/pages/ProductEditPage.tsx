@@ -51,6 +51,7 @@ export const ProductEditPage = () => {
         product={product}
         onSubmit={handleSubmit}
         isLoading={updateProduct.isPending}
+        submitError={updateProduct.error}
       />
 
       {updateProduct.isError && (

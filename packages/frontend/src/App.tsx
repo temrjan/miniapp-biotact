@@ -14,6 +14,7 @@ import { isLegalEnabled } from '@/legal/flag';
 // Lazy load pages
 // ═══════════════════════════════════════════════════════════════════
 const HomePage = lazy(() => import('@pages/HomePage').then((m) => ({ default: m.HomePage })));
+const SalesPage = lazy(() => import('@pages/SalesPage').then((m) => ({ default: m.SalesPage })));
 const CatalogPage = lazy(() => import('@pages/CatalogPage').then((m) => ({ default: m.CatalogPage })));
 const ProductPage = lazy(() => import('@pages/ProductPage').then((m) => ({ default: m.ProductPage })));
 const CartPage = lazy(() => import('@pages/CartPage').then((m) => ({ default: m.CartPage })));
@@ -94,6 +95,7 @@ export function App() {
               <Route path={ROUTES.HOME} element={<HomeOrActivate />} />
               <Route path={ROUTES.ACTIVATE} element={<ActivationPage />} />
               <Route path={ROUTES.CATALOG} element={<CatalogPage />} />
+              <Route path={ROUTES.SALES} element={<SalesPage />} />
               <Route path={ROUTES.CATEGORY} element={<CatalogPage />} />
               <Route path={ROUTES.PRODUCT} element={<ProductPage />} />
               <Route path={ROUTES.CART} element={<CartPage />} />

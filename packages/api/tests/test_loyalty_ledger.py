@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.loyalty.codes import generate_batch
 from src.loyalty.models import LedgerReason, PointLedger
 from src.loyalty.pricing import (
-    NonPositivePriceError,
     UnknownProductError,
     compute_cashback,
     get_unit_price,
@@ -94,28 +93,22 @@ async def test_get_unit_price_rejects_fractional(test_db: AsyncSession) -> None:
         await get_unit_price(test_db, pid)
 
 
-async def test_get_unit_price_rejects_zero(test_db: AsyncSession) -> None:
-    """A zero price is rejected — a burned QR must never silently accrue 0 points."""
-    pid = await _make_product(test_db, price="0")
-    with pytest.raises(NonPositivePriceError):
-        await get_unit_price(test_db, pid)
-
-
-async def test_get_unit_price_rejects_negative(test_db: AsyncSession) -> None:
-    """A negative price is rejected before a negative amount can corrupt the append-only ledger."""
-    pid = await _make_product(test_db, price="-100")
-    with pytest.raises(NonPositivePriceError) as exc:
-        await get_unit_price(test_db, pid)
-    assert exc.value.product_id == pid  # product_id stays available for the ops log
-
-
-async def test_get_unit_price_negative_fractional_is_nonpositive_not_fractional(
-    test_db: AsyncSession,
+@pytest.mark.parametrize("price", ["0", "-100", "-5.50"])
+async def test_nonpositive_product_price_cannot_reach_cashback(
+    test_db: AsyncSession, price: str
 ) -> None:
-    """A negative fractional price is non-positive, not fractional — pins the ≤0-before-fractional order."""
-    pid = await _make_product(test_db, price="-5.50")
-    with pytest.raises(NonPositivePriceError):
-        await get_unit_price(test_db, pid)
+    """Block A rejects invalid prices at storage, before cashback can read them.
+
+    The former fixtures inserted these values to exercise get_unit_price's
+    defensive guard. products_sale_ck now makes that setup impossible.
+    The positive lookup control remains test_get_unit_price_known_and_unknown.
+    """
+    with pytest.raises(IntegrityError) as exc:
+        await _make_product(test_db, price=price)
+    original = exc.value.orig.__cause__
+    assert getattr(original, "constraint_name", None) == "products_sale_ck"
+    await test_db.rollback()
+    assert (await test_db.scalars(select(Product))).all() == []
 
 
 # --------------------------------------------------------------------------- #

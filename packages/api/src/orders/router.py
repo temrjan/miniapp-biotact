@@ -16,6 +16,7 @@ from src.orders.models import Order
 from src.orders.schemas import (
     OrderCreate,
     OrderListResponse,
+    OrderQuote,
     OrderResponse,
     OrderStatusUpdate,
     ReleaseReservationsResponse,
@@ -61,6 +62,10 @@ async def create_order(
 
     try:
         order = await service.create_order(db, order_data, user_id=user.id)
+    except service.QuoteAgreementError as exc:
+        raise HTTPException(
+            status_code=409, detail={"code": exc.code, "quote": exc.quote.model_dump(mode="json")}
+        ) from exc
     except InsufficientPointsError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -144,6 +149,24 @@ async def create_order(
             logger.error("Failed to send Telegram notification: %s", exc)
 
     return order
+
+
+@router.post("/quote", response_model=OrderQuote)
+async def quote_order(order_data: OrderCreate, db: DbSession, user: CurrentUser) -> OrderQuote:
+    """Preview authoritative terms without creating an order or changing reservations."""
+    try:
+        return await service.build_quote(db, order_data, user_id=user.id)
+    except service.InvalidRedeemAmountError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid_redeem_amount",
+                "points_to_apply": exc.points,
+                "max_redeemable": exc.max_redeemable,
+            },
+        ) from exc
+    except service.OrderValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/reservations/release", response_model=ReleaseReservationsResponse)

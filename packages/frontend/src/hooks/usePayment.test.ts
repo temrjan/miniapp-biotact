@@ -53,6 +53,20 @@ function wrapper({ children }: { children: ReactNode }) {
 type Options = Parameters<typeof usePayment>[0];
 function renderPay(overrides: Partial<Options> = {}) {
   const onInvalidAmount = vi.fn();
+  const network = postMock.getMockImplementation();
+  postMock.mockImplementation((endpoint, data) => {
+    if (endpoint === '/orders/quote')
+      return Promise.resolve({
+        subtotal: '30000.00',
+        delivery_fee: '0.00',
+        total: '30000.00',
+        max_redeemable: 30000,
+        points_to_apply: overrides.redeemPoints ?? 5000,
+        quote_fingerprint: 'current-quote',
+      });
+    if (!network) throw new Error('Missing API fixture');
+    return network(endpoint, data);
+  });
   const { result } = renderHook(
     () =>
       usePayment({
@@ -61,6 +75,8 @@ function renderPay(overrides: Partial<Options> = {}) {
         name: 'Тест',
         phone: '+998900000000',
         redeemPoints: 5000,
+        displayedTotal: 30000,
+        onQuote: vi.fn(),
         onInvalidAmount,
         ...overrides,
       }),
@@ -70,7 +86,8 @@ function renderPay(overrides: Partial<Options> = {}) {
 }
 
 const callsTo = (endpoint: string) => postMock.mock.calls.filter((c) => c[0] === endpoint);
-const bodyOf = (endpoint: string) => callsTo(endpoint)[0]?.[1] as Record<string, unknown> | undefined;
+const bodyOf = (endpoint: string) =>
+  callsTo(endpoint)[0]?.[1] as Record<string, unknown> | undefined;
 
 beforeEach(() => {
   postMock.mockReset();
@@ -172,9 +189,11 @@ describe('usePayment', () => {
   // клиент читал бы кэш, снятый ДО того, как его заказ зарезервировал баллы.
   it('уход на оплату → снимок лояльности инвалидируется (резерв уже создан заказом)', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    postMock
-      .mockResolvedValueOnce({ id: 5, order_number: 'ORD-5', payment_status: 'unpaid' })
-      .mockResolvedValueOnce({ payment_url: 'https://pay/5' });
+    postMock.mockImplementation(async (endpoint) =>
+      endpoint === '/orders'
+        ? { id: 5, order_number: 'ORD-5', payment_status: 'unpaid' }
+        : { payment_url: 'https://pay/5' }
+    );
 
     const { result } = renderPay();
     await act(async () => {
