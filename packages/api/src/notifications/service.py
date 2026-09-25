@@ -4,6 +4,7 @@ import html
 import logging
 from collections.abc import Sequence
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -29,6 +30,12 @@ logger = logging.getLogger(__name__)
 def esc(value: object) -> str:
     """Escape a value for Telegram's HTML parse mode."""
     return html.escape(str(value), quote=False)
+
+
+def _format_sale_money(price: Decimal) -> str:
+    whole, cents = f"{price:,.2f}".split(".")
+    whole = whole.replace(",", " ")
+    return whole if cents == "00" else f"{whole},{cents}"
 
 
 # Форма выпуска отдельным полем не хранится — она закодирована в служебном slug'е товара
@@ -125,7 +132,19 @@ class TelegramNotifier:
             # `name` — снимок названия из каталога: им управляет администратор, а `&` в названии
             # товара вполне реален. `form` из нашей таблицы и `qty`/`price` числовые, но правило
             # «экранируем всё неконстантное» держим без исключений.
-            lines.append(f"{i}. {esc(name)}{form} - {esc(qty)} шт × {price:,.0f} сум")
+            if (
+                item.get("is_sale_at_order") is True
+                and item.get("regular_price_at_order") is not None
+            ):
+                regular_price = item["regular_price_at_order"]
+                sale_price_text = esc(_format_sale_money(price))
+                lines.append(
+                    f"{i}. {esc(name)}{form}\n"
+                    f"Акция: {esc(_format_sale_money(regular_price))} → {sale_price_text} сум\n"
+                    f"{esc(qty)} шт. × {sale_price_text} сум"
+                )
+            else:
+                lines.append(f"{i}. {esc(name)}{form} - {esc(qty)} шт × {price:,.0f} сум")
         return "\n".join(lines)
 
     def _format_price(self, price: float) -> str:

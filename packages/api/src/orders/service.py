@@ -239,6 +239,8 @@ async def _price_lines(
                 product_id=product.id,
                 product_name=product.name,
                 product_price=price,
+                is_sale_at_order=product.is_sale,
+                regular_price_at_order=product.price,
                 quantity=line.quantity,
                 total=line_total,
             )

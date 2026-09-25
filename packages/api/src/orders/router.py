@@ -121,6 +121,8 @@ async def create_order(
                     "product_name": item.product_name,
                     "quantity": item.quantity,
                     "product_price": item.product_price,
+                    "is_sale_at_order": item.is_sale_at_order,
+                    "regular_price_at_order": item.regular_price_at_order,
                     # Форма выпуска для отдела продаж. Заказ, покрытый баллами целиком, до
                     # платёжного роутера не доходит вовсе — если не отдать slug здесь, отгрузка
                     # такого заказа готовится вслепую, в отличие от карточных.

@@ -117,6 +117,8 @@ async def create_payment(
                     "product_name": item.product_name,
                     "quantity": item.quantity,
                     "product_price": item.product_price,
+                    "is_sale_at_order": item.is_sale_at_order,
+                    "regular_price_at_order": item.regular_price_at_order,
                     # Форма выпуска для отдела продаж — выводится из slug'а в уведомителе.
                     # Товар загружен вместе с заказом (`get_order_with_items` → `selectinload`),
                     # лишнего запроса здесь нет.
@@ -170,6 +172,8 @@ async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) ->
             "product_name": item.product_name,
             "quantity": item.quantity,
             "product_price": item.product_price,
+            "is_sale_at_order": item.is_sale_at_order,
+            "regular_price_at_order": item.regular_price_at_order,
             # Как и в create-пути: товар приехал вместе с заказом, запрос не добавляется.
             "slug": item.product.slug if item.product else None,
         }

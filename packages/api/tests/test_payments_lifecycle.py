@@ -20,7 +20,7 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -144,6 +144,7 @@ async def _seed_order(
     points_balance: int = 0,
     product_slug: str | None = None,
     orphan_item: bool = False,
+    sale_regular_price: Decimal | None = None,
 ) -> int:
     """Seed an order. ``payment_uuid`` "arms" a Multicard attempt on it (as /payments/create does);
     an event applies only if its uuid matches this active attempt. ``points_balance`` (> 0) also
@@ -194,7 +195,12 @@ async def _seed_order(
             # (форма выпуска выводится из slug'а). По умолчанию заказ по-прежнему без позиций —
             # остальные тесты этого файла не меняются.
             product = Product(
-                name="BIFOLAK® ACTIVE", slug=product_slug, price=total, is_in_stock=True
+                name="BIFOLAK® ACTIVE",
+                slug=product_slug,
+                price=sale_regular_price if sale_regular_price is not None else total,
+                is_sale=sale_regular_price is not None,
+                sale_price=total if sale_regular_price is not None else None,
+                is_in_stock=True,
             )
             session.add(product)
             await session.flush()
@@ -203,7 +209,9 @@ async def _seed_order(
                     order_id=order.id,
                     product_id=product.id,
                     product_name=product.name,
-                    product_price=product.price,
+                    product_price=total,
+                    is_sale_at_order=True if sale_regular_price is not None else None,
+                    regular_price_at_order=sale_regular_price,
                     quantity=1,
                     total=total,
                 )
@@ -437,6 +445,88 @@ async def test_paid_notification_survives_a_deleted_product(
     assert len(sent_messages) == 1  # уведомление ушло, несмотря на удалённый товар
     assert "Снятый с продажи товар" in sent_messages[0]
     assert "(капсулы)" not in sent_messages[0]
+
+
+@pytest.mark.parametrize("change", ["edit", "delete"])
+async def test_paid_notice_uses_saved_sale_terms_after_catalog_change(
+    client: AsyncClient,
+    maker: async_sessionmaker[AsyncSession],
+    sent_messages: list[str],
+    change: str,
+) -> None:
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-SALE-SNAPSHOT",
+        total=Decimal("313500.00"),
+        payment_uuid="u-sale-snapshot",
+        payment_status="pending",
+        product_slug="snapshot-vest",
+        sale_regular_price=Decimal("330000.00"),
+    )
+    async with maker() as session, session.begin():
+        item = (
+            await session.scalars(select(OrderItem).where(OrderItem.order_id == order_id))
+        ).one()
+        assert (item.is_sale_at_order, item.regular_price_at_order, item.product_price) == (
+            True,
+            Decimal("330000.00"),
+            Decimal("313500.00"),
+        )
+        if change == "delete":
+            await session.execute(delete(Product).where(Product.id == item.product_id))
+        else:
+            product = await session.get(Product, item.product_id)
+            product.is_sale = False
+            product.price = Decimal("350000.00")
+            product.sale_price = Decimal("300000.00")
+    if change == "delete":
+        async with maker() as session:
+            item = (
+                await session.scalars(select(OrderItem).where(OrderItem.order_id == order_id))
+            ).one()
+            assert item.product_id is None
+
+    body = _callback_body(
+        uuid="u-sale-snapshot", invoice_id="ORD-SALE-SNAPSHOT", amount=31_350_000
+    )
+    first = await client.post(CALLBACK_URL, json=body)
+    second = await client.post(CALLBACK_URL, json=body)
+    assert first.status_code == second.status_code == 200
+    assert (await _committed_order(maker, order_id)).payment_status == "paid"
+    assert len(sent_messages) == 1
+    assert (
+        "1. BIFOLAK® ACTIVE\nАкция: 330 000 → 313 500 сум\n"
+        "1 шт. × 313 500 сум"
+    ) in sent_messages[0]
+
+
+async def test_legacy_paid_item_stays_ordinary_after_catalog_becomes_sale(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], sent_messages: list[str]
+) -> None:
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-LEGACY-SNAPSHOT",
+        payment_uuid="u-legacy-snapshot",
+        payment_status="pending",
+        product_slug="legacy-item",
+    )
+    async with maker() as session, session.begin():
+        item = (
+            await session.scalars(select(OrderItem).where(OrderItem.order_id == order_id))
+        ).one()
+        assert (item.is_sale_at_order, item.regular_price_at_order) == (None, None)
+        product = await session.get(Product, item.product_id)
+        product.is_sale = True
+        product.sale_price = Decimal("45000.00")
+
+    response = await client.post(
+        CALLBACK_URL,
+        json=_callback_body(uuid="u-legacy-snapshot", invoice_id="ORD-LEGACY-SNAPSHOT"),
+    )
+    assert response.status_code == 200, response.text
+    assert len(sent_messages) == 1
+    assert "1. BIFOLAK® ACTIVE - 1 шт × 50,000 сум" in sent_messages[0]
+    assert "Акция:" not in sent_messages[0]
 
 
 async def test_callback_unknown_invoice_returns_404(client: AsyncClient, maker) -> None:
