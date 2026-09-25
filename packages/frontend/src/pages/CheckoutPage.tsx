@@ -9,7 +9,7 @@ import { useMainButton } from '@hooks/useMainButton';
 import { useHaptic, usePlatform } from '@hooks/useTelegram';
 import { useTranslation } from '@/i18n';
 import { useUserStore } from '@stores/userStore';
-import { useCartItems, useCartTotalAmount } from '@stores/cartStore';
+import { useCartItems, useCartTotalAmount, useRefreshCartPrices } from '@stores/cartStore';
 import { useLocationStore, getDisplayAddress } from '@stores/locationStore';
 import { useLoyalty } from '@hooks/useLoyalty';
 import { usePayment } from '@hooks/usePayment';
@@ -61,6 +61,7 @@ export function CheckoutPage() {
   const { t } = useTranslation();
   const { profile, isLoading, fetchProfile, updatePhone } = useUserStore();
   const items = useCartItems();
+  useRefreshCartPrices();
   const cartTotal = useCartTotalAmount();
   const [quoted, setQuoted] = useState<{ items: CartItem[]; quote: OrderQuote } | null>(null);
   const quote = quoted?.items === items ? quoted.quote : null;

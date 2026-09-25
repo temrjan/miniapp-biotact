@@ -26,6 +26,7 @@ let serverMax: number;
 let loyaltyBalance: number;
 let conflict: 'quote_mismatch' | 'quote_required' | null;
 let quoteFailure: Error | null;
+let catalogPrice = { price: 10000, old_price: null as number | null, is_sale: false, sale_price: null as number | null };
 
 function quote(points = 0) {
   return {
@@ -108,6 +109,7 @@ async function walkToConfirmStep() {
 }
 
 beforeEach(() => {
+  catalogPrice = { price: 10000, old_price: null, is_sale: false, sale_price: null };
   serverTotal = 10000;
   serverMax = 10000;
   loyaltyBalance = 20000;
@@ -122,6 +124,7 @@ beforeEach(() => {
   vi.spyOn(window, 'confirm').mockReset().mockReturnValue(false);
   vi.mocked(WebApp.openLink).mockClear();
   vi.mocked(api.get).mockImplementation(async (url) => {
+    if (url === '/products/1') return catalogPrice;
     if (url === '/users/me') return profile;
     if (url === '/loyalty/me')
       return {
@@ -333,4 +336,20 @@ describe('CheckoutPage — quote agreement', () => {
       });
     }
   );
+});
+
+
+describe('CheckoutPage — current catalog prices', () => {
+  it('should display the current sale total when entered with a stale persisted cart', async () => {
+    catalogPrice = { price: 10000, old_price: 12000, is_sale: true, sale_price: 8000.5 };
+    serverTotal = 8000.5;
+    serverMax = 0;
+    loyaltyBalance = 0;
+    await walkToConfirmStep();
+    expect(await screen.findByText('8 000,5 сум')).toBeInTheDocument();
+    fireEvent.click(payButton());
+    await waitFor(() => expect(WebApp.openLink).toHaveBeenCalled());
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(orders()[0]?.[1]).toMatchObject({ quote_fingerprint: 'quote-8000.5-0' });
+  });
 });

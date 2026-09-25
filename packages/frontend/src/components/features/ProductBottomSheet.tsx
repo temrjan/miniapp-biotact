@@ -1,3 +1,4 @@
+import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ShoppingCart, Plus, Minus, X } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
@@ -9,12 +10,10 @@ import { useTranslation } from '@/i18n';
 import type { Product } from '@/types';
 
 // API response type
-interface ApiProduct {
+interface ApiProduct extends ApiProductPrice {
   id: number;
   name: string;
   description: string | null;
-  price: number;
-  old_price: number | null;
   image_url: string | null;
   category_id: number;
   stock_quantity: number;
@@ -27,8 +26,7 @@ function mapApiProduct(api: ApiProduct): Product {
     id: String(api.id),
     name: api.name,
     description: api.description || '',
-    price: api.price,
-    oldPrice: api.old_price || undefined,
+    ...mapProductPrice(api),
     imageUrl: api.image_url || '',
     categoryId: String(api.category_id),
     inStock: api.is_in_stock,
@@ -58,7 +56,7 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
   // Format price with currency
   const formatPrice = useCallback(
     (price: number) => {
-      return Math.floor(price).toLocaleString('ru-RU').replace(/,/g, ' ') + ' ' + t('currency.sum');
+      return price.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ' + t('currency.sum');
     },
     [t]
   );
@@ -179,13 +177,14 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
               {product.name}
             </h2>
 
+            {product.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
             <div className="flex items-baseline gap-3">
               <span className="text-2xl font-bold text-[var(--primary)]">
-                {formatPrice(product.price)}
+                {formatPrice(effectivePrice(product))}
               </span>
-              {product.oldPrice && (
+              {originalPrice(product) != null && (
                 <span className="text-lg text-[var(--text-muted)] line-through">
-                  {formatPrice(product.oldPrice)}
+                  {formatPrice(originalPrice(product) ?? 0)}
                 </span>
               )}
             </div>
@@ -236,7 +235,7 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
                   : t('product.addToCart')}
               </span>
               <span className="ml-auto">
-                {formatPrice(product.price * localQuantity)}
+                {formatPrice(effectivePrice(product) * localQuantity)}
               </span>
             </button>
           )}

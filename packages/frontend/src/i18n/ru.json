@@ -35,7 +35,12 @@
     "allProducts": "Все товары",
     "noProducts": "Товары не найдены"
   },
+  "sales": {
+    "title": "Акции",
+    "viewAll": "Все акции"
+  },
   "product": {
+    "sale": "Акция",
     "addToCart": "В корзину",
     "inCart": "В корзине",
     "outOfStock": "Нет в наличии",

@@ -1,7 +1,9 @@
+import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronDown, ShoppingCart } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ROUTES } from '@/utils/constants';
+import { Link, useNavigate } from 'react-router-dom';
 import { Loading } from '@components/ui/Loading';
 import { api } from '@/api/client';
 import { useCartStore } from '@/stores/cartStore';
@@ -20,11 +22,9 @@ interface ApiCategory {
   image_url: string | null;
 }
 
-interface ApiProduct {
+interface ApiProduct extends ApiProductPrice {
   id: number;
   name: string;
-  price: number;
-  old_price: number | null;
   image_url: string | null;
   description: string | null;
   category_id: number;
@@ -84,8 +84,7 @@ function mapApiProductToProduct(api: ApiProduct): Product {
     id: String(api.id),
     name: api.name,
     description: api.description || '',
-    price: api.price,
-    oldPrice: api.old_price || undefined,
+    ...mapProductPrice(api),
     imageUrl: api.image_url || '',
     categoryId: String(api.category_id),
     inStock: api.is_in_stock,
@@ -105,6 +104,7 @@ function ProductCard({
   formatPrice,
   buttonText,
 }: ProductCardProps) {
+  const { t } = useTranslation();
   const handleCardClick = useCallback(() => {
     onNavigate(product.id);
   }, [onNavigate, product.id]);
@@ -147,12 +147,13 @@ function ProductCard({
           <div className="p-2.5 pb-2">
             {/* Цена */}
             <div className="text-center mb-1">
+              {product.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
               <div className="text-[var(--primary)] font-bold text-sm">
-                {formatPrice(product.price)}
+                {formatPrice(effectivePrice(product))}
               </div>
-              {product.oldPrice && (
+              {originalPrice(product) != null && (
                 <span className="text-[var(--text-muted)] text-xs line-through">
-                  {formatPrice(product.oldPrice)}
+                  {formatPrice(originalPrice(product) ?? 0)}
                 </span>
               )}
             </div>
@@ -346,6 +347,7 @@ export function HomePage() {
   // Local state
   const [categories, setCategories] = useState<ApiCategory[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [saleProducts, setSaleProducts] = useState<Product[]>([]);
   const [banners, setBanners] = useState<ApiBanner[]>([]);
   const [bannerInterval, setBannerInterval] = useState(DEFAULT_INTERVAL_MS);
   const [loading, setLoading] = useState(true);
@@ -357,14 +359,17 @@ export function HomePage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [catsRes, prodsRes, bannersRes] = await Promise.all([
+        const [catsRes, prodsRes, bannersRes, salesRes] = await Promise.all([
           api.get<{ items: ApiCategory[] }>('/categories'),
           api.get<{ items: ApiProduct[] }>('/products?size=100'),
           api.get<{ items: ApiBanner[] }>('/banners').catch(() => ({ items: [] as ApiBanner[] })),
+          api.get<{ items: ApiProduct[] }>('/products?size=100&on_sale=true')
+            .catch(() => ({ items: [] as ApiProduct[] })),
         ]);
 
         setCategories(catsRes.items || []);
         setProducts((prodsRes.items || []).map(mapApiProductToProduct));
+        setSaleProducts(salesRes.items.map(mapApiProductToProduct));
 
         const activeBanners = (bannersRes.items || []).filter(
           (b: ApiBanner) => b.is_active
@@ -420,7 +425,7 @@ export function HomePage() {
 
   // Memoized callbacks
   const formatPrice = useCallback((price: number) => {
-    return Math.floor(price).toLocaleString('ru-RU').replace(/,/g, ' ') + ' ' + t('currency.sum');
+    return price.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ' + t('currency.sum');
   }, [t]);
 
   const handleBannerClick = useCallback(
@@ -596,6 +601,23 @@ export function HomePage() {
           </>
         )}
       </div>
+
+      {saleProducts.length > 0 && (
+        <section aria-label={t('sales.title')}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">{t('sales.title')}</h2>
+            <Link to={ROUTES.SALES} className="text-sm text-[var(--primary)]">{t('sales.viewAll')}</Link>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {saleProducts.map((product, index) => (
+              <div key={product.id} className="w-[calc(50%-6px)] md:w-[31%] lg:w-[calc(25%-12px)] flex-shrink-0">
+                <ProductCard product={product} index={index} onAddToCart={addToCart}
+                  onNavigate={handleNavigateToProduct} formatPrice={formatPrice} buttonText={addToCartText} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Popular Products */}
       {popularProducts.length > 0 && (

@@ -1,3 +1,6 @@
+import { useEffect } from 'react';
+import { api } from '@/api/client';
+import { effectivePrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { CartItem, Product } from '@/types';
@@ -35,7 +38,7 @@ export const useCartStore = create<CartState>()(
               {
                 items: items.map((item) =>
                   item.productId === product.id
-                    ? { ...item, quantity: item.quantity + quantity }
+                    ? { ...item, product, quantity: item.quantity + quantity }
                     : item
                 ),
               },
@@ -109,7 +112,7 @@ export const useCartTotalItems = () =>
 export const useCartTotalAmount = () =>
   useCartStore((state) =>
     state.items.reduce(
-      (total, item) => total + item.product.price * item.quantity,
+      (total, item) => total + effectivePrice(item.product) * item.quantity,
       0
     )
   );
@@ -119,3 +122,34 @@ export const useCartItemQuantity = (productId: string) =>
     (state) =>
       state.items.find((item) => item.productId === productId)?.quantity ?? 0
   );
+
+// Refresh only pricing; keep the current cart membership and quantities while requests are in flight.
+export function useRefreshCartPrices() {
+  const productIds = useCartStore((state) => JSON.stringify(state.items.map((item) => item.productId)));
+  useEffect(() => {
+    let active = true;
+    const ids: string[] = JSON.parse(productIds);
+    if (ids.length === 0) return;
+    void Promise.allSettled(ids.map(async (id) => ({
+      id,
+      price: mapProductPrice(await api.get<ApiProductPrice>(`/products/${id}`)),
+    }))).then((results) => {
+      if (!active) return;
+      const prices = new Map(results.flatMap((result) =>
+        result.status === 'fulfilled' ? [[result.value.id, result.value.price] as const] : []
+      ));
+      useCartStore.setState((state) => {
+        let changed = false;
+        const items = state.items.map((item) => {
+          const price = prices.get(item.productId);
+          if (!price || (item.product.price === price.price && item.product.oldPrice === price.oldPrice
+            && item.product.isSale === price.isSale && item.product.salePrice === price.salePrice)) return item;
+          changed = true;
+          return { ...item, product: { ...item.product, ...price } };
+        });
+        return changed ? { items } : state;
+      });
+    });
+    return () => { active = false; };
+  }, [productIds]);
+}

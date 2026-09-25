@@ -1,3 +1,4 @@
+import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ShoppingCart, ChevronDown } from 'lucide-react';
@@ -18,14 +19,12 @@ interface ApiCategory {
   image_url: string | null;
 }
 
-interface ApiProduct {
+interface ApiProduct extends ApiProductPrice {
   id: number;
   name: string;
   name_uz: string | null;
   slug: string;
   description: string | null;
-  price: number;
-  old_price: number | null;
   image_url: string | null;
   category_id: number;
   stock_quantity: number;
@@ -47,8 +46,7 @@ function mapProduct(api: ApiProduct): Product {
     id: String(api.id),
     name: api.name,
     description: api.description || '',
-    price: api.price,
-    oldPrice: api.old_price || undefined,
+    ...mapProductPrice(api),
     imageUrl: api.image_url || '',
     categoryId: String(api.category_id),
     inStock: api.stock_quantity > 0,
@@ -76,6 +74,7 @@ function ProductCard({
   formatPrice,
   buttonText,
 }: ProductCardProps) {
+  const { t } = useTranslation();
   const handleCardClick = useCallback(() => {
     onProductClick(product.id);
   }, [onProductClick, product.id]);
@@ -114,12 +113,13 @@ function ProductCard({
           <div className="p-2.5 pb-2">
             {/* Цена */}
             <div className="text-center mb-1">
+              {product.isSale && <span className="inline-block rounded bg-[var(--primary)] px-2 py-0.5 text-xs text-white">{t('product.sale')}</span>}
               <div className="text-[var(--primary)] font-bold text-sm">
-                {formatPrice(product.price)}
+                {formatPrice(effectivePrice(product))}
               </div>
-              {product.oldPrice && (
+              {originalPrice(product) != null && (
                 <span className="text-[var(--text-muted)] text-xs line-through">
-                  {formatPrice(product.oldPrice)}
+                  {formatPrice(originalPrice(product) ?? 0)}
                 </span>
               )}
             </div>
@@ -146,7 +146,7 @@ function ProductCard({
   );
 }
 
-export function CatalogPage() {
+export function CatalogPage({ onSale = false }: { onSale?: boolean }) {
   const { slug } = useParams<{ slug?: string }>();
   const navigate = useNavigate();
   const haptic = useHaptic();
@@ -171,7 +171,7 @@ export function CatalogPage() {
       try {
         const [catsRes, prodsRes] = await Promise.all([
           api.get<{ items: ApiCategory[] }>('/categories'),
-          api.get<{ items: ApiProduct[] }>('/products?size=100'),
+          api.get<{ items: ApiProduct[] }>(`/products?size=100${onSale ? '&on_sale=true' : ''}`),
         ]);
         setCategories((catsRes.items || []).map(mapCategory));
         setProducts((prodsRes.items || []).map(mapProduct));
@@ -182,7 +182,7 @@ export function CatalogPage() {
       }
     }
     fetchData();
-  }, [language]);
+  }, [language, onSale]);
 
   // Reset visible count when category changes
   useEffect(() => {
@@ -207,7 +207,7 @@ export function CatalogPage() {
 
   const formatPrice = useCallback(
     (price: number) =>
-      Math.floor(price).toLocaleString('ru-RU').replace(/,/g, ' ') + ' ' + t('currency.sum'),
+      price.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ' + t('currency.sum'),
     [t]
   );
 
@@ -244,7 +244,7 @@ export function CatalogPage() {
   return (
     <div className="p-3 pt-2 md:pt-3 space-y-4 max-w-4xl mx-auto">
       {/* Categories - simple 2x2 grid */}
-      <section>
+      {!onSale && <section>
         <div className="flex flex-col gap-2">
           {categories.map((category) => {
             const isSelected = selectedCategory?.id === category.id;
@@ -265,12 +265,12 @@ export function CatalogPage() {
             );
           })}
         </div>
-      </section>
+      </section>}
 
       {/* Products */}
       <section>
         <h2 className="text-lg font-semibold mb-3">
-          {selectedCategory ? selectedCategory.name : t('catalog.allProducts')}
+          {onSale ? t('sales.title') : selectedCategory ? selectedCategory.name : t('catalog.allProducts')}
           <span className="text-sm font-normal text-[var(--text-muted)] ml-2">
             ({filteredProducts.length})
           </span>

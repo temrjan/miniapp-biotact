@@ -22,6 +22,8 @@ export interface Product {
   description: string;
   price: number;
   oldPrice?: number | undefined;
+  isSale?: boolean | undefined;
+  salePrice?: number | null | undefined;
   imageUrl: string;
   images?: string[] | undefined;
   categoryId: string;

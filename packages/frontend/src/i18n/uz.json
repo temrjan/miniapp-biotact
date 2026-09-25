@@ -35,7 +35,12 @@
     "allProducts": "Barcha mahsulotlar",
     "noProducts": "Mahsulotlar topilmadi"
   },
+  "sales": {
+    "title": "Aksiyalar",
+    "viewAll": "Barcha aksiyalar"
+  },
   "product": {
+    "sale": "Aksiya",
     "addToCart": "Savatga",
     "inCart": "Savatda",
     "outOfStock": "Mavjud emas",
@@ -55,8 +60,8 @@
     "goToCatalog": "Katalogga o'tish"
   },
   "checkout": {
-    "priceChanged": "Narx o‘zgardi. Yangi summa: {total}. Xaridni tasdiqlaysizmi?",
-    "quoteChanged": "Buyurtma shartlari o‘zgardi. Yangi summa: {total}. Ballarni tekshiring va to‘lov tugmasini yana bosing.",
+    "priceChanged": "Narx o'zgardi. Yangi summa: {total}. Xaridni tasdiqlaysizmi?",
+    "quoteChanged": "Buyurtma shartlari o'zgardi. Yangi summa: {total}. Ballarni tekshiring va to'lov tugmasini yana bosing.",
     "title": "Buyurtmani rasmiylashtirish",
     "delivery": "Yetkazib berish",
     "deliveryAddress": "Yetkazib berish manzili",
