@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import func, select
 
 from src.loyalty.models import PointLedger
-from src.orders.models import Order, OrderStatus
+from src.orders.models import Order, OrderItem, OrderStatus
 from src.products.models import Product
 from tests import test_orders_redeem as redeem_fixtures
 from tests.test_orders_redeem import (
@@ -46,6 +46,7 @@ async def snapshot(maker):
         return (
             await db.scalar(select(func.count()).select_from(Order)),
             await db.scalar(select(func.count()).select_from(PointLedger)),
+            await db.scalar(select(func.count()).select_from(OrderItem)),
             [
                 (o.id, o.payment_status, o.points_applied, o.payment_uuid)
                 for o in (await db.scalars(select(Order).order_by(Order.id))).all()
@@ -86,6 +87,39 @@ async def test_quote_is_read_only_and_legacy_agreement(client, maker, sent_messa
     assert accepted.status_code == 201
     assert accepted.json()["total"] == quote["total"]
     assert (await snapshot(maker))[0] == before[0] + 1
+
+
+async def test_quote_fingerprint_ignores_regular_snapshot_when_sale_price_is_unchanged(
+    client, maker, sent_messages
+):
+    _, pid = await seed(maker)
+    payload = _payload(pid)
+    before = await snapshot(maker)
+    first = await client.post("/api/v1/orders/quote", headers=_headers(80902), json=payload)
+    assert first.status_code == 200
+    assert await snapshot(maker) == before
+
+    async with maker() as db, db.begin():
+        (await db.get(Product, pid)).price = Decimal("220000.00")
+
+    second = await client.post("/api/v1/orders/quote", headers=_headers(80902), json=payload)
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert await snapshot(maker) == before
+    accepted = await client.post(
+        "/api/v1/orders",
+        headers=_headers(80902),
+        json=payload | {"quote_fingerprint": first.json()["quote_fingerprint"]},
+    )
+    assert accepted.status_code == 201, accepted.text
+    async with maker() as db:
+        saved = (
+            await db.scalars(select(OrderItem).where(OrderItem.order_id == accepted.json()["id"]))
+        ).one()
+        assert saved.product_price == Decimal("150000.00")
+        assert saved.is_sale_at_order is True
+        assert saved.regular_price_at_order == Decimal("220000.00")
+    assert sent_messages == []
 
 
 @pytest.mark.parametrize("points", [0, 100000, 150000])

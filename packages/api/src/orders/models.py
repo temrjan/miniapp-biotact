@@ -5,7 +5,18 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.database import Base
@@ -124,6 +135,8 @@ class OrderItem(Base):
     # Snapshot of product at time of order
     product_name: Mapped[str] = mapped_column(String(200))
     product_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    is_sale_at_order: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    regular_price_at_order: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
 

@@ -44,7 +44,7 @@ from src.loyalty.service import InsufficientPointsError
 from src.main import app
 from src.notifications.service import telegram_notifier
 from src.orders import service as orders_service
-from src.orders.models import Order, OrderStatus
+from src.orders.models import Order, OrderItem, OrderStatus
 from src.orders.schemas import OrderCreate, OrderItemCreate
 from src.payments.schemas import MultiCardPaymentResponse, PaymentCreateData
 from src.payments.service import multicard_client
@@ -1312,7 +1312,7 @@ async def test_full_coverage_writes_timezone_aware_paid_at(
 
 
 @pytest.mark.parametrize('points', [0, 100_000, 330_000])
-async def test_sale_effective_price_settlement(client, maker, monkeypatch, points, admin_headers):
+async def test_sale_effective_price_settlement(client, maker, monkeypatch, points, admin_headers, sent_messages):
     uid = await _seed_user(maker, 80901)
     await _seed_points(maker, user_id=uid, amount=500_000)
     async with maker() as session, session.begin():
@@ -1346,6 +1346,16 @@ async def test_sale_effective_price_settlement(client, maker, monkeypatch, point
     assert Decimal(order['subtotal']) == Decimal('330000')
     assert Decimal(order['total']) == sum(Decimal(i['total']) for i in order['items'])
     assert Decimal(order['items'][0]['product_price']) == Decimal('150000')
+    async with maker() as session:
+        saved_items = (
+            await session.scalars(
+                select(OrderItem).where(OrderItem.order_id == order['id']).order_by(OrderItem.id)
+            )
+        ).all()
+        assert [(item.is_sale_at_order, item.regular_price_at_order) for item in saved_items] == [
+            (True, Decimal('200000.00')),
+            (False, Decimal('30000.00')),
+        ]
     if points == 330_000:
         assert order['payment_status'] == 'paid'
         assert order['status'] == 'confirmed'
@@ -1357,6 +1367,17 @@ async def test_sale_effective_price_settlement(client, maker, monkeypatch, point
         assert len(captured) == 1
         assert captured[0].amount == (330_000 - points) * 100
         assert sum(i.price * i.qty for i in captured[0].ofd) == captured[0].amount
+    assert len(sent_messages) == 1
+    assert (
+        "1. Sale\nАкция: 200 000 → 150 000 сум\n2 шт. × 150 000 сум\n"
+        "2. Regular - 1 шт × 30,000 сум"
+    ) in sent_messages[0]
+    if points == 330_000:
+        assert "ОПЛАЧЕНО БАЛЛАМИ" in sent_messages[0]
+        assert "🧾 Invoice:" not in sent_messages[0]
+    elif points == 100_000:
+        assert "К оплате картой:</b> 230 000 сум" in sent_messages[0]
+        assert "Списано баллов:</b> 100 000" in sent_messages[0]
     disabled = await client.patch(sale_url, headers=admin_headers, json={'is_sale': False})
     assert disabled.status_code == 200
     current = (await client.get(sale_url)).json()
@@ -1370,3 +1391,109 @@ async def test_sale_effective_price_settlement(client, maker, monkeypatch, point
     assert fresh.json()['total'] == '430000.00'
     persisted = await _committed_order(maker, order['id'])
     assert persisted.total == Decimal('330000')
+
+
+@pytest.mark.parametrize("change", ["edit", "delete"])
+async def test_invoice_uses_saved_sale_terms_after_catalog_change(
+    client: AsyncClient,
+    maker: async_sessionmaker[AsyncSession],
+    sent_messages: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+) -> None:
+    await _seed_user(maker, telegram_id=80910)
+    async with maker() as session, session.begin():
+        product = Product(
+            name="Жилетка двусторонняя Healthy Lifestyle",
+            slug="snapshot-vest",
+            price=Decimal("330000.00"),
+            is_sale=True,
+            sale_price=Decimal("313500.00"),
+        )
+        session.add(product)
+        await session.flush()
+        product_id = product.id
+
+    payload = _payload(product_id)
+    quote = await client.post(f"{ORDERS_URL}/quote", headers=_headers(80910), json=payload)
+    assert quote.status_code == 200
+    created = await client.post(
+        ORDERS_URL,
+        headers=_headers(80910),
+        json=payload | {"quote_fingerprint": quote.json()["quote_fingerprint"]},
+    )
+    assert created.status_code == 201, created.text
+
+    async with maker() as session, session.begin():
+        saved = (
+            await session.scalars(
+                select(OrderItem).where(OrderItem.order_id == created.json()["id"])
+            )
+        ).one()
+        assert (saved.is_sale_at_order, saved.regular_price_at_order, saved.product_price) == (
+            True,
+            Decimal("330000.00"),
+            Decimal("313500.00"),
+        )
+        if change == "delete":
+            await session.execute(delete(Product).where(Product.id == product_id))
+        else:
+            product = await session.get(Product, product_id)
+            product.is_sale = False
+            product.price = Decimal("350000.00")
+            product.sale_price = Decimal("300000.00")
+
+    if change == "delete":
+        async with maker() as session:
+            saved = (
+                await session.scalars(
+                    select(OrderItem).where(OrderItem.order_id == created.json()["id"])
+                )
+            ).one()
+            assert saved.product_id is None
+
+    async def fake_invoice(data: PaymentCreateData) -> MultiCardPaymentResponse:
+        return MultiCardPaymentResponse(uuid="snapshot-invoice", pay_url="https://pay.uz/stub")
+
+    monkeypatch.setattr(multicard_client, "create_invoice", fake_invoice)
+    response = await client.post(
+        PAYMENTS_URL,
+        headers=_headers(80910),
+        json={"order_id": created.json()["id"], "return_url": "https://x.uz"},
+    )
+    assert response.status_code == 200, response.text
+    assert len(sent_messages) == 1
+    assert (
+        "1. Жилетка двусторонняя Healthy Lifestyle\n"
+        "Акция: 330 000 → 313 500 сум\n1 шт. × 313 500 сум"
+    ) in sent_messages[0]
+
+
+async def test_ordinary_invoice_keeps_old_line_after_catalog_becomes_sale(
+    client: AsyncClient,
+    maker: async_sessionmaker[AsyncSession],
+    sent_messages: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed_user(maker, telegram_id=80911)
+    product_id = await _seed_product(maker, slug="ordinary-later-sale", price=Decimal("75500"))
+    created = await client.post(ORDERS_URL, headers=_headers(80911), json=_payload(product_id))
+    assert created.status_code == 201, created.text
+    async with maker() as session, session.begin():
+        product = await session.get(Product, product_id)
+        product.is_sale = True
+        product.sale_price = Decimal("70000.00")
+
+    async def fake_invoice(data: PaymentCreateData) -> MultiCardPaymentResponse:
+        return MultiCardPaymentResponse(uuid="ordinary-invoice", pay_url="https://pay.uz/stub")
+
+    monkeypatch.setattr(multicard_client, "create_invoice", fake_invoice)
+    response = await client.post(
+        PAYMENTS_URL,
+        headers=_headers(80911),
+        json={"order_id": created.json()["id"], "return_url": "https://x.uz"},
+    )
+    assert response.status_code == 200, response.text
+    assert len(sent_messages) == 1
+    assert "1. Product ordinary-later-sale - 1 шт × 75,500 сум" in sent_messages[0]
+    assert "Акция:" not in sent_messages[0]

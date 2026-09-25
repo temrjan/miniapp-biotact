@@ -14,10 +14,11 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
-from src.orders.models import Order
+from src.orders.models import Order, OrderItem
 from src.products.models import Product
 from src.users.models import User
 from tests.conftest import _make_init_data
@@ -62,6 +63,8 @@ async def _seed_product(
     price: Decimal = CATALOGUE_PRICE,
     in_stock: bool = True,
     active: bool = True,
+    is_sale: bool = False,
+    sale_price: Decimal | None = None,
 ) -> int:
     """Commit one catalogue product; return its id."""
     async with sm() as session, session.begin():
@@ -71,6 +74,8 @@ async def _seed_product(
             price=price,
             is_in_stock=in_stock,
             is_active=active,
+            is_sale=is_sale,
+            sale_price=sale_price,
         )
         session.add(product)
         await session.flush()
@@ -198,6 +203,71 @@ async def test_multi_line_totals_are_computed_by_the_server(
     assert Decimal(body["subtotal"]) == Decimal("285000.00")
     assert Decimal(body["delivery_fee"]) == Decimal("0")
     assert Decimal(body["total"]) == Decimal("285000.00")
+
+
+async def test_order_saves_server_sale_terms_across_sessions(
+    client: AsyncClient, maker: async_sessionmaker[AsyncSession], test_db: AsyncSession
+) -> None:
+    sale_id = await _seed_product(
+        maker,
+        slug="snapshot-sale",
+        price=Decimal("330000.00"),
+        is_sale=True,
+        sale_price=Decimal("313500.00"),
+    )
+    regular_id = await _seed_product(maker, slug="snapshot-regular", price=Decimal("75500.00"))
+
+    payload = {
+        "items": [
+            {
+                "product_id": sale_id,
+                "quantity": 2,
+                "is_sale_at_order": False,
+                "regular_price_at_order": "1.00",
+            },
+            {
+                "product_id": regular_id,
+                "quantity": 1,
+                "is_sale_at_order": True,
+                "regular_price_at_order": "900000.00",
+            },
+        ]
+    }
+    quote = await client.post(f"{ORDERS_URL}/quote", json=payload, headers=_headers(70100))
+    assert quote.status_code == 200, quote.text
+    response = await client.post(
+        ORDERS_URL,
+        json=payload | {"quote_fingerprint": quote.json()["quote_fingerprint"]},
+        headers=_headers(70100),
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert Decimal(body["total"]) == Decimal("702500.00")
+    assert all(
+        "is_sale_at_order" not in item and "regular_price_at_order" not in item
+        for item in body["items"]
+    )
+    await test_db.commit()
+    async with maker() as fresh:
+        saved = (
+            (
+                await fresh.execute(
+                    select(OrderItem)
+                    .where(OrderItem.order_id == body["id"])
+                    .order_by(OrderItem.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [
+            (item.is_sale_at_order, item.regular_price_at_order, item.product_price, item.quantity)
+            for item in saved
+        ] == [
+            (True, Decimal("330000.00"), Decimal("313500.00"), 2),
+            (False, Decimal("75500.00"), Decimal("75500.00"), 1),
+        ]
 
 
 # --------------------------------------------------------------------------- #
