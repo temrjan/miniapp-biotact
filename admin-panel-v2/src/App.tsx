@@ -10,6 +10,9 @@ import './index.css'
 
 // Lazy load all pages
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })))
+const CampaignsListPage = lazy(() => import('./features/campaigns/pages/CampaignsListPage').then(m => ({ default: m.CampaignsListPage })))
+const CampaignCreatePage = lazy(() => import('./features/campaigns/pages/CampaignCreatePage').then(m => ({ default: m.CampaignCreatePage })))
+const CampaignRecordPage = lazy(() => import('./features/campaigns/pages/CampaignRecordPage').then(m => ({ default: m.CampaignRecordPage })))
 const DashboardPage = lazy(() => import('./features/dashboard/pages/DashboardPage').then(m => ({ default: m.DashboardPage })))
 const ProductsListPage = lazy(() => import('./features/products/pages/ProductsListPage').then(m => ({ default: m.ProductsListPage })))
 const ProductCreatePage = lazy(() => import('./features/products/pages/ProductCreatePage').then(m => ({ default: m.ProductCreatePage })))
@@ -38,6 +41,9 @@ function App() {
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path='/login' element={<LoginPage />} />
+                <Route path='/campaigns' element={<PrivateRoute><MainLayout><CampaignsListPage /></MainLayout></PrivateRoute>} />
+                <Route path='/campaigns/new' element={<PrivateRoute><MainLayout><CampaignCreatePage /></MainLayout></PrivateRoute>} />
+                <Route path='/campaigns/:id' element={<PrivateRoute><MainLayout><CampaignRecordPage /></MainLayout></PrivateRoute>} />
 
                 <Route
                   path='/dashboard'

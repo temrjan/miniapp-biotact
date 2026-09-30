@@ -32,6 +32,7 @@ const navItems = [
   { href: "/dashboard", label: "Главная", icon: LayoutDashboard },
   { href: "/orders", label: "Заказы", icon: ShoppingCart },
   { href: "/products", label: "Товары", icon: Package },
+  { href: "/campaigns", label: "Акции", icon: Award },
   { href: "/categories", label: "Категории", icon: Folder },
   { href: "/banners", label: "Баннеры", icon: Image },
   { href: "/users", label: "Пользователи", icon: Users },

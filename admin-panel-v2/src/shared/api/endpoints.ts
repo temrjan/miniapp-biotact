@@ -1,4 +1,10 @@
 export const ENDPOINTS = {
+  CAMPAIGNS: {
+    LIST: '/admin/campaigns',
+    GET: (id: number) => `/admin/campaigns/${id}`,
+    PUBLISH: (id: number) => `/admin/campaigns/${id}/publish`,
+    END: (id: number) => `/admin/campaigns/${id}/end`,
+  },
   // Auth
   AUTH: {
     LOGIN: "/admin/auth/login",

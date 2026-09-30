@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, X, Image as ImageIcon } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
@@ -16,6 +16,7 @@ interface ImageUploaderProps {
   maxSize?: number  // in MB
   disabled?: boolean
   uploadEndpoint?: string  // Custom upload endpoint (default: /uploads/products)
+  onUploadingChange?: (active: boolean) => void
 }
 
 export const ImageUploader = ({
@@ -25,13 +26,19 @@ export const ImageUploader = ({
   maxSize = 5,
   disabled = false,
   uploadEndpoint = '/uploads/products',
+  onUploadingChange,
 }: ImageUploaderProps) => {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const activeBatch = useRef(false)
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
-      if (disabled) return
+      if (disabled || (onUploadingChange && activeBatch.current)) return
+      if (onUploadingChange) {
+        activeBatch.current = true
+        onUploadingChange(true)
+      }
 
       const uploadImage = async (file: File): Promise<string | null> => {
         const formData = new FormData()
@@ -49,7 +56,7 @@ export const ImageUploader = ({
           )
           return response.data.url
         } catch (err) {
-          console.error('Upload failed:', err)
+          if (!onUploadingChange) console.error('Upload failed:', err)
           return null
         }
       }
@@ -80,10 +87,12 @@ export const ImageUploader = ({
           setError('Некоторые файлы не удалось загрузить')
         }
       } finally {
+        activeBatch.current = false
+        onUploadingChange?.(false)
         setUploading(false)
       }
     },
-    [value, onChange, maxFiles, disabled, uploadEndpoint]
+    [value, onChange, maxFiles, disabled, uploadEndpoint, onUploadingChange]
   )
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -92,12 +101,12 @@ export const ImageUploader = ({
       'image/*': ['.jpg', '.jpeg', '.png', '.webp'],
     },
     maxSize: maxSize * 1024 * 1024,
-    disabled: disabled || value.length >= maxFiles,
+    disabled: disabled || value.length >= maxFiles || (!!onUploadingChange && uploading),
     multiple: true,
   })
 
   const removeImage = (index: number) => {
-    if (disabled || !onChange) return
+    if (disabled || !onChange || (onUploadingChange && activeBatch.current)) return
     const newValue = value.filter((_, i) => i !== index)
     onChange(newValue)
   }
@@ -122,6 +131,8 @@ export const ImageUploader = ({
               {!disabled && (
                 <button
                   type="button"
+                  aria-label={`Удалить изображение ${index + 1}`}
+                  disabled={!!onUploadingChange && uploading}
                   onClick={() => removeImage(index)}
                   className="absolute top-2 right-2 p-1 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                 >
@@ -150,7 +161,7 @@ export const ImageUploader = ({
             uploading && 'opacity-50 cursor-not-allowed'
           )}
         >
-          <input {...getInputProps()} />
+          <input {...getInputProps()} aria-label="Загрузить изображение" />
           <div className="flex flex-col items-center gap-2">
             {uploading ? (
               <>
@@ -184,7 +195,7 @@ export const ImageUploader = ({
 
       {/* Error Message */}
       {error && (
-        <div className="text-sm text-destructive border border-destructive/50 rounded-lg p-3">
+        <div role="alert" className="text-sm text-destructive border border-destructive/50 rounded-lg p-3">
           {error}
         </div>
       )}
