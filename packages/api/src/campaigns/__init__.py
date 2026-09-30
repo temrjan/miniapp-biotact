@@ -1,0 +1,1 @@
+"""Shop campaign administration integration."""

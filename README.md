@@ -25,6 +25,7 @@ Telegram Mini App для продажи БАДов (биологически а�
 | CRM | `crm/` | — | Операторский роутер для звонков |
 | Уведомления | `notifications/` | — | Telegram-оповещения админам о заказах |
 | Загрузки | `uploads/` | — | Upload изображений товаров |
+| Campaign administration | `campaigns/` | [README](packages/api/src/campaigns/README.md) | Current shop admin authorization and bounded server-only portal proxy |
 
 ### Admin Panel (`admin-panel-v2/src/features/`)
 

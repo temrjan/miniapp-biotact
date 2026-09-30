@@ -21,6 +21,8 @@ from src.auth.admin_router import router as admin_auth_router
 from src.banners.router import router as banners_router
 from src.banners.router import settings_router
 from src.broadcasts.admin_router import router as admin_broadcasts_router
+from src.campaigns.client import portal_http_client
+from src.campaigns.router import router as campaigns_router
 from src.categories.router import router as categories_router
 from src.config import settings
 from src.crm.admin_router import router as crm_admin_router
@@ -42,12 +44,17 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan events."""
-    # Startup
-    yield
-    # Shutdown
-    await engine.dispose()
+    client = portal_http_client()
+    app.state.campaign_http_client = client
+    try:
+        yield
+    finally:
+        try:
+            await client.aclose()
+        finally:
+            await engine.dispose()
 
 
 def create_app() -> FastAPI:
@@ -76,6 +83,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.debug else None,
         openapi_url="/openapi.json" if settings.debug else None,
     )
+    app.state.campaign_sessions = async_session_maker
 
     # CORS
     app.add_middleware(
@@ -164,6 +172,13 @@ def create_app() -> FastAPI:
         admin_users_router,
         prefix=f"{settings.api_v1_prefix}/admin/users",
         tags=["admin-users"],
+    )
+
+    # Admin campaign integration
+    app.include_router(
+        campaigns_router,
+        prefix=f"{settings.api_v1_prefix}/admin/campaigns",
+        tags=["admin-campaigns"],
     )
 
     # Admin Orders router

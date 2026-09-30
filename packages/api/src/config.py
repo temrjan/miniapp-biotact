@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # Bot API (for AI assistant integration)
     bot_api_token: SecretStr = SecretStr("")
 
+    # Server-only campaign integration; checked only at the campaign boundary.
+    campaign_portal_origin: str = ""
+    campaign_service_token: SecretStr = SecretStr("")
+
     # Multicard Payment Gateway
     multicard_application_id: str = ""
     multicard_secret: SecretStr = SecretStr("")
