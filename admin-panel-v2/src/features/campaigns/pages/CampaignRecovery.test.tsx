@@ -77,6 +77,21 @@ describe('Campaign recovery and negative request channels in actual pages', () =
     expect(sessionStorage.getItem(attemptKey(1))).toBeNull()
     expect(observed.http?.requests.filter(r => r.method !== 'get')).toHaveLength(0)
   })
+  it('should show the accepted version when navigating from list recovery with a cached older record', async () => {
+    marker('patch')
+    const adopted = campaign({ name: 'Fresh adopted campaign', updated_at: '2026-10-01T00:00:00.123457+00:00' })
+    const observed = view('/campaigns', r => ({ status: 200, data: r.url === '/admin/campaigns/1' ? adopted : campaignPage() }))
+    observed.client.setQueryDefaults(['campaigns', 1, 'record', 1], { staleTime: 5 * 60 * 1000 })
+    observed.client.setQueryData(['campaigns', 1, 'record', 1], campaign())
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Проверить запись' }))
+    const recovery = screen.getByRole('region', { name: 'Проверка результата' })
+    expect(await within(recovery).findByRole('article', { name: 'Запись №1' })).toHaveTextContent(adopted.updated_at)
+    await user.click(screen.getByRole('button', { name: 'Принять текущее состояние и продолжить' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Подтвердить' }))
+    expect(await screen.findByLabelText('Название *')).toHaveValue(adopted.name)
+    expect(screen.getByText(`№1 · Черновик · Версия: ${adopted.updated_at}`)).toBeVisible()
+  })
   it('should hide actual form and cached record on 403 and restore only after fresh authorization', async () => {
     let authorized = true
     const observed = view('/campaigns/1', r => authorized ? { status: 200, data: r.url.endsWith('/1') ? campaign() : campaignPage() } : refusal(403, 'admin_forbidden'))

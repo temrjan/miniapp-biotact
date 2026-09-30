@@ -175,6 +175,7 @@ export class CampaignController {
       return false
     }
     const record = this.state.record
+    if (record) this.client.setQueryData(['campaigns', this.actorId, 'record', record.id], record)
     this.update(idleState())
     return record
   }
