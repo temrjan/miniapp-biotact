@@ -6,7 +6,9 @@ import sentry_sdk
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from starlette.types import Receive, Scope, Send
 
 from src.config import settings
 from src.database import engine
@@ -38,41 +40,49 @@ def error_response(code: ErrorCode) -> JSONResponse:
 
 
 class K1Route(APIRoute):
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # The active Starlette integration owns a request isolation scope around
+        # dispatch, exception capture and transaction completion. Mark that scope
+        # before entering ours, so late capture survives our scope's exit too.
+        if sentry_sdk.get_client().get_integration(StarletteIntegration) is not None:
+            sentry_sdk.get_isolation_scope().set_tag("biotact_k1", "yes")
+        with sentry_sdk.isolation_scope() as event_scope:
+            event_scope.set_tag("biotact_k1", "yes")
+            await super().handle(scope, receive, send)
+
     def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:
         handler = super().get_route_handler()
 
         async def guarded(request: Request) -> Response:
-            with sentry_sdk.isolation_scope() as scope:
-                scope.set_tag("biotact_k1", "yes")
-                try:
-                    if not settings.employee_referral_k1_enabled:
-                        raise K1Error("k1_disabled")
-                    key = decode_key(settings.employee_referral_k1_key.get_secret_value())
-                    maker: async_sessionmaker[AsyncSession] = (
-                        request.app.state.employee_referral_sessions
-                    )
-                    bind = maker.kw.get("bind")
-                    if settings.database_echo or engine.echo or (bind is not None and bind.echo):
-                        raise K1Error("k1_unavailable")
-                    stamp, signature = auth_headers(request)
-                    body = await bounded_body(request)
-                    path: bytes = request.scope.get("raw_path", request.url.path.encode("utf-8"))
-                    verify_signature(key, path, stamp, signature, body)
-                    request.state.employee_referral_body = body
+            try:
+                if not settings.employee_referral_k1_enabled:
+                    raise K1Error("k1_disabled")
+                key = decode_key(settings.employee_referral_k1_key.get_secret_value())
+                maker: async_sessionmaker[AsyncSession] = (
+                    request.app.state.employee_referral_sessions
+                )
+                bind = maker.kw.get("bind")
+                if settings.database_echo or engine.echo or (bind is not None and bind.echo):
+                    raise K1Error("k1_unavailable")
+                stamp, signature = auth_headers(request)
+                body = await bounded_body(request)
+                path: bytes = request.scope.get("raw_path", request.url.path.encode("utf-8"))
+                verify_signature(key, path, stamp, signature, body)
+                request.state.employee_referral_body = body
 
-                    # Present only authenticated bounded bytes to Sentry's inner FastAPI wrapper.
-                    async def bounded_receive() -> dict[str, object]:
-                        return {"type": "http.request", "body": body, "more_body": False}
+                # Present only authenticated bounded bytes to Sentry's inner FastAPI wrapper.
+                async def bounded_receive() -> dict[str, object]:
+                    return {"type": "http.request", "body": body, "more_body": False}
 
-                    response = await handler(Request(request.scope, receive=bounded_receive))
-                except K1Error as exc:
-                    return error_response(exc.code)
-                except Exception:
-                    # Deliberate final redaction boundary. Never log exception/parameters or let
-                    # shared handlers/SDK capture them. BaseException/cancellation still propagates.
-                    return error_response("k1_unavailable")
-                response.headers["Cache-Control"] = "no-store"
-                return response
+                response = await handler(Request(request.scope, receive=bounded_receive))
+            except K1Error as exc:
+                return error_response(exc.code)
+            except Exception:
+                # Deliberate final redaction boundary. Never log exception/parameters or let
+                # shared handlers/SDK capture them. BaseException/cancellation still propagates.
+                return error_response("k1_unavailable")
+            response.headers["Cache-Control"] = "no-store"
+            return response
 
         return guarded
 

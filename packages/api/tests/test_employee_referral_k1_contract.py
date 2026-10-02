@@ -354,22 +354,15 @@ def test_participant_order_fraction_and_new_identity_dont_corrupt_digest():
     assert parse_snapshot(encoded(data)).content_sha256() != digest
 
 
-def test_sentry_filter_only_removes_the_named_route_or_explicit_tag(monkeypatch):
+def test_sentry_filter_uses_the_route_tag_not_the_host_derived_url():
     from src.employee_referrals.privacy import filter_k1
 
     ordinary = {"request": {"url": "https://example.invalid/ordinary"}, "message": "control"}
     assert filter_k1(ordinary, {}) is ordinary
-    assert filter_k1({"request": {"url": "https://example.invalid" + PATH}}, {}) is None
     assert filter_k1({"tags": {"biotact_k1": "yes"}}, {}) is None
     assert filter_k1({}, {}) == {}
-    monkeypatch.setattr(settings, "api_v1_prefix", "/custom")
-    assert (
-        filter_k1(
-            {"request": {"url": "https://example.invalid/custom/internal/employee-referrals/k1"}},
-            {},
-        )
-        is None
-    )
+    untrusted = {"request": {"url": "https://example.invalid" + PATH}}
+    assert filter_k1(untrusted, {}) is untrusted
 
 
 @pytest.mark.asyncio
