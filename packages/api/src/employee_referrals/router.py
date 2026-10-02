@@ -2,18 +2,16 @@
 
 from collections.abc import Callable, Coroutine
 
-import sentry_sdk
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from sentry_sdk.integrations.starlette import StarletteIntegration
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.types import Receive, Scope, Send
 
 from src.config import settings
 from src.database import engine
 from src.employee_referrals.auth import auth_headers, bounded_body, decode_key, verify_signature
-from src.employee_referrals.privacy import K1_PATH
+from src.employee_referrals.privacy import K1_PATH, k1_privacy_scope
 from src.employee_referrals.schemas import Ack, ErrorCode, K1Error, parse_snapshot
 from src.employee_referrals.service import receive_snapshot
 
@@ -41,13 +39,8 @@ def error_response(code: ErrorCode) -> JSONResponse:
 
 class K1Route(APIRoute):
     async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # The active Starlette integration owns a request isolation scope around
-        # dispatch, exception capture and transaction completion. Mark that scope
-        # before entering ours, so late capture survives our scope's exit too.
-        if sentry_sdk.get_client().get_integration(StarletteIntegration) is not None:
-            sentry_sdk.get_isolation_scope().set_tag("biotact_k1", "yes")
-        with sentry_sdk.isolation_scope() as event_scope:
-            event_scope.set_tag("biotact_k1", "yes")
+        # Retain matched-route classification even when this router is mounted elsewhere.
+        with k1_privacy_scope():
             await super().handle(scope, receive, send)
 
     def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:

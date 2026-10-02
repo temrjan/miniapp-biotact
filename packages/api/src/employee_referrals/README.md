@@ -85,7 +85,9 @@ All responses have `Cache-Control: no-store`. Fixed errors use
 campaign conflict, 503 unavailable. Auth errors include
 `WWW-Authenticate: Biotact-K1-HMAC`. Cancellation propagates; unfinished work rolls back.
 
-K1 catches errors before shared log handlers and filters only K1 Sentry events/transactions.
+K1 classifies the configured ASGI path before CORS can return early, without reading the
+body or trusting Host. Request-scope tagging survives late send failures and SDK capture.
+The matched route retains the same privacy boundary; only K1 events/transactions are filtered.
 Names, raw body, tokens, headers, keys and SQL exceptions are never logged. Other routes'
 telemetry is preserved. Test positive controls prove capture is active.
 
@@ -124,7 +126,7 @@ It adds no exclusions and does not change the 90% requirement or shared CI.
 
 `pytest.ini` is the active test configuration. The shared API coverage debt is deferred;
 this feature's local critical-domain coverage gate does not change CI.
-The three `test_employee_referral_k1_*` modules cover wire, auth, real database races,
+The `test_employee_referral_k1_*` modules cover wire, auth, real database races,
 commit/replay/failure, privacy and baseline→new→baseline→new migration parity.
 The frozen synthetic body in the contract test has 524 bytes and SHA-256
 `b63ef17e24e4fc592a53cbe0bc84f4a33b34ed17ac64a28a0321f068814ef7de`.

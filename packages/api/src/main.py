@@ -29,7 +29,7 @@ from src.crm.admin_router import router as crm_admin_router
 from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
 from src.database import async_session_maker, engine
-from src.employee_referrals.privacy import filter_k1
+from src.employee_referrals.privacy import K1_PATH, K1PrivacyMiddleware, filter_k1
 from src.employee_referrals.router import router as employee_referrals_router
 from src.loyalty.admin_router import router as admin_lottery_router
 from src.loyalty.router import router as loyalty_router
@@ -98,6 +98,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Last added runs outside CORS, inside the SDK-owned request scope. It only
+    # classifies K1 telemetry; CORS responses and request handling remain unchanged.
+    app.add_middleware(K1PrivacyMiddleware, path=settings.api_v1_prefix + K1_PATH)
 
     app.include_router(employee_referrals_router, prefix=settings.api_v1_prefix)
 
