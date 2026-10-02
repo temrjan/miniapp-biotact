@@ -14,6 +14,7 @@ from src.campaigns.schemas import (
     CampaignError,
     CampaignPage,
     CampaignRecord,
+    CampaignSync,
     DraftInput,
     EditInput,
     ErrorCode,
@@ -154,3 +155,8 @@ async def end(
     campaign_id: CampaignId, body: TransitionInput, client: Client, outcome: Outcome
 ) -> CampaignRecord:
     return await client.end(campaign_id, body, outcome)
+
+
+@router.get("/{campaign_id}/k1-sync", response_model=CampaignSync)
+async def sync(campaign_id: CampaignId, client: Client) -> CampaignSync:
+    return await client.sync(campaign_id)

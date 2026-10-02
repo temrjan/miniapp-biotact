@@ -53,3 +53,13 @@ boundaries. The existing uploader's optional activity callback is used only by
 campaigns; default multi-file callers and their upload endpoints remain intact.
 Private coverage and real-app browser acceptance evidence is maintained with the
 engineering handoff, outside the product repository.
+
+Campaign detail also reads `/admin/campaigns/:id/k1-sync` independently from the
+saved record and write recovery. Its strict metadata DTO preserves bigint strings
+and rejects additional fields. Refresh is explicit, after confirmed transitions,
+or on window focus; there is no polling. An open confirmation expires using the
+server observation and monotonic elapsed request time. Expiry describes absence
+of current confirmation; it does not infer whether a lost renewal reached the
+shop. A sync failure preserves the saved campaign and never disables End or
+resolves an uncertain write. Current-account refusals clear protected data through
+the existing campaign controller.

@@ -1,4 +1,5 @@
 import { isAxiosError } from 'axios'
+import { decodeSync, parseSyncJSON } from '../model/campaignSync'
 import { apiClient } from '@/shared/api/client'
 import { ENDPOINTS } from '@/shared/api/endpoints'
 import { decodeError, decodePage, decodeRecord, ERROR_MESSAGES } from '../model/campaignContract'
@@ -34,6 +35,10 @@ export const campaignsApi = {
     200, data => decodePage(data, page)),
   get: (id: number, signal?: AbortSignal): Promise<CampaignRecord> => request(false,
     () => apiClient.get<unknown>(ENDPOINTS.CAMPAIGNS.GET(id), signal ? { signal } : {}), 200, data => decodeRecord(data, id)),
+  sync: (id: number, signal?: AbortSignal) => request(false,
+    () => apiClient.get<unknown>(`${ENDPOINTS.CAMPAIGNS.GET(id)}/k1-sync`, {
+      ...(signal ? { signal } : {}), transformResponse: [parseSyncJSON],
+    }), 200, data => decodeSync(data, id)),
   create: (input: DraftInput): Promise<CampaignRecord> => request(true,
     () => apiClient.post<unknown>(ENDPOINTS.CAMPAIGNS.LIST, input), 201, data => decodeRecord(data, undefined, 'draft')),
   patch: (id: number, input: EditInput): Promise<CampaignRecord> => request(true,

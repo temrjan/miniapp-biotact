@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { Button } from '@/shared/components/ui/button'
 import { useCampaign } from '../hooks/useCampaigns'
 import { useCampaignActions } from '../hooks/useCampaignActions'
+import { CampaignSyncPanel } from '../components/CampaignSyncPanel'
 import { CampaignForm } from '../components/CampaignForm'
 import { CampaignRecoveryPanel } from '../components/CampaignRecoveryPanel'
 
@@ -18,6 +19,7 @@ export function CampaignRecordPage() {
       <Button variant="outline" disabled={query.isFetching} onClick={() => { void query.refetch() }}>Обновить запись</Button>
       {query.isFetching && <p role="status">Загрузка записи…</p>}
       {query.isError && <p role="alert">{query.error.message}</p>}
+      {query.data && <CampaignSyncPanel key={`${state.session}:${id}:${query.data.updated_at}`} campaign={query.data} />}
       {query.data ? <CampaignForm key={`${state.session}:${id}`} initial={query.data} available={!query.isError && !query.isFetching} /> : <CampaignRecoveryPanel />}
     </>}
   </div>
