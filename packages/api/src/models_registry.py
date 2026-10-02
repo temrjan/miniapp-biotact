@@ -25,6 +25,7 @@ _MODEL_MODULES = (
     "src.broadcasts.models",
     "src.loyalty.models",
     "src.payments.models",
+    "src.employee_referrals.models",
 )
 
 for _module in _MODEL_MODULES:

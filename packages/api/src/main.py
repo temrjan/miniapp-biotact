@@ -29,6 +29,8 @@ from src.crm.admin_router import router as crm_admin_router
 from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
 from src.database import async_session_maker, engine
+from src.employee_referrals.privacy import K1_PATH, K1PrivacyMiddleware, filter_k1
+from src.employee_referrals.router import router as employee_referrals_router
 from src.loyalty.admin_router import router as admin_lottery_router
 from src.loyalty.router import router as loyalty_router
 from src.loyalty.router import summary_router as loyalty_summary_router
@@ -71,6 +73,8 @@ def create_app() -> FastAPI:
             dsn=settings.sentry_dsn,
             integrations=[FastApiIntegration(), SqlalchemyIntegration()],
             traces_sample_rate=0.1,
+            before_send=filter_k1,
+            before_send_transaction=filter_k1,
             environment="production" if not settings.debug else "development",
         )
         logger.info("Sentry initialized")
@@ -84,6 +88,7 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.debug else None,
     )
     app.state.campaign_sessions = async_session_maker
+    app.state.employee_referral_sessions = async_session_maker
 
     # CORS
     app.add_middleware(
@@ -93,6 +98,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Last added runs outside CORS, inside the SDK-owned request scope. It only
+    # classifies K1 telemetry; CORS responses and request handling remain unchanged.
+    app.add_middleware(K1PrivacyMiddleware, path=settings.api_v1_prefix + K1_PATH)
+
+    app.include_router(employee_referrals_router, prefix=settings.api_v1_prefix)
 
     # Include routers
     app.include_router(
