@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     # Feature flags
     # Biotact Club loyalty: gates loyalty routers/UI; stays dark on prod until ready.
     loyalty_enabled: bool = False
+    employee_referral_k1_enabled: bool = False
+    employee_referral_k1_key: SecretStr = SecretStr("")
 
     # Database
     database_url: str
