@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from starlette.types import Receive, Scope, Send
 
 from src.campaigns.client import PortalClient
 from src.campaigns.dependencies import authorize_campaign, campaign_client, write_outcome
@@ -76,6 +77,15 @@ def error_response(code: ErrorCode) -> JSONResponse:
 
 
 class CampaignRoute(APIRoute):
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Starlette rejects methods before the authenticated endpoint wrapper runs.
+        if self.methods and scope["method"] not in self.methods:
+            raise HTTPException(
+                status_code=405,
+                headers={"Allow": ", ".join(sorted(self.methods)), "Cache-Control": "no-store"},
+            )
+        await super().handle(scope, receive, send)
+
     def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:
         handler = super().get_route_handler()
 

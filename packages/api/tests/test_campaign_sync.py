@@ -139,3 +139,34 @@ def test_duplicate_json() -> None:
 @pytest.mark.parametrize("error", ["configuration", "clock", "transport", "protocol", "authentication", "conflict", "payload_limit", "receiver_disabled", "invalid_request", "attempt_limit", "database", "storage"])
 def test_decoder_accepts_categories(error: str) -> None:
     assert CampaignSync.model_validate(sync_data(last_error_code=error)).last_error_code == error
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+@pytest.mark.parametrize("authenticated", [False, True])
+async def test_sync_method_refusal_is_no_store(
+    harness: Harness, method: str, authenticated: bool
+) -> None:
+    response = await harness.browser.request(
+        method, URL, headers=headers() if authenticated else {}
+    )
+    assert response.status_code == 405
+    assert response.headers.get("allow") == "GET"
+    assert harness.calls == []
+    assert response.headers.get("cache-control") == "no-store"
+    if method != "HEAD":
+        assert response.json() == {"detail": "Method Not Allowed"}
+
+
+@pytest.mark.parametrize(
+    ("method", "suffix", "allow"), [("POST", "/7", "GET"), ("GET", "/7/publish", "POST")]
+)
+async def test_campaign_method_refusals_share_no_store_boundary(
+    harness: Harness, method: str, suffix: str, allow: str
+) -> None:
+    response = await harness.browser.request(
+        method, "/api/v1/admin/campaigns" + suffix, headers=headers()
+    )
+    assert response.status_code == 405
+    assert response.headers.get("allow") == allow
+    assert response.headers.get("cache-control") == "no-store"
+    assert harness.calls == []
