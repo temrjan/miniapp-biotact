@@ -3,7 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, StrictStr, field_serializer
 
 
 # Order Item schemas
@@ -75,6 +75,7 @@ class OrderCreate(BaseModel):
     # cannot see. ``ge=0`` only rejects a negative request outright.
     points_to_apply: int = Field(0, ge=0)
     quote_fingerprint: str | None = Field(None, max_length=64)
+    referral_token: StrictStr | None = Field(None, repr=False)
     delivery_address: str | None = None
     delivery_phone: str | None = None
     delivery_name: str | None = None

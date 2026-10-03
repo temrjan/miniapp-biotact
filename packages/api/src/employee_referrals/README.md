@@ -142,3 +142,49 @@ Activation and the first campaign are separate decisions. For a receiver inciden
 disable K1, retain identities/receipts and use a separately authorized compatible code
 rollback. Do not downgrade/drop new tables in production. Local downgrade is tested
 only in the owned scratch database. Sender, order attribution and K2 follow later specs.
+
+
+## Optional order capture
+
+`EMPLOYEE_REFERRAL_CAPTURE_ENABLED=false` independently gates capture at
+`POST ${API_V1_PREFIX}/orders`. Default OFF leaves existing callers and orders ordinary.
+It needs no transport key: it uses the already received local K1 registry and makes
+no portal/network request. SQL echo must be disabled; an enabled canonical-token
+capture request with `DATABASE_ECHO=true` returns fixed 503 before pricing/capture
+queries. Ordinary requests without a canonical token remain available.
+
+`referral_token` is optional, null or a strict string. Missing/null, noncanonical,
+unknown, omitted-from-roster, stale, ended, outside-window or mismatched-product
+attribution yields an ordinary order. Other request validation and shopper access
+continue to apply. The token does not change prices, point rules or quote fingerprint;
+`POST /orders/quote` ignores attribution and writes no snapshots. No public response
+contains employee identity, campaign identity or the referral token.
+
+Capture holds a campaign share lock conflicting with K1 receiver writes until the
+order transaction ends. It refreshes the replica/current roster after acquiring the
+lock and checks the PostgreSQL wall clock afterward. The local 60-second lease is
+never extended by checkout. A successful capture copies the campaign/employee
+identity, currency and all separate server-priced lines for that campaign product,
+including duplicate requested lines; other basket products stay ordinary.
+
+`employee_referral_orders` has one header per order; `employee_referral_order_items`
+has one snapshot per participating order item. These tables store no token, phone or
+Telegram ID. Their product identity has no catalogue foreign key, so catalogue/K1
+changes and product deletion leave the snapshots unchanged. Order/item deletion
+retains the existing cascade policy. Snapshots record order terms, not paid totals or
+employee rewards; later payment/refund projection uses separate lifecycle logic.
+
+The caller owns commit/rollback. Capture flushes after pending order/items have IDs,
+before full-points debit and the paid transition. Partial points remain a reservation.
+The full-points router commits before Telegram; card/partial commit on dependency
+completion. A failure before commit rolls back the new related facts, whereas an
+error/cancellation after durable commit leaves them saved together. A lost commit
+confirmation cannot prove absence of the order and introduces no automatic retry or
+new request idempotency. The pre-existing stale-reservation cleanup has its own commit.
+
+The POST order/quote privacy boundary drops only its own Sentry events/transactions,
+classifies the decoded ASGI path independently of Host, hides validation input and
+uses fixed diagnostics for affected errors. K1 filtering and unrelated telemetry
+remain active. No launcher, K2 sender, customer UI or production activation is added.
+Deployment is additive and defaults OFF. Recovery disables capture while retaining
+these tables/history; production destructive downgrade is not a recovery operation.

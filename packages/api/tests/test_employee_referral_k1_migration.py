@@ -97,7 +97,12 @@ def test_additive_migration_preserves_legacy_objects_rows_and_parity():
                     else set()
                 )
                 if direction == "upgrade":
+                    # K1's historical head remains independently reversible; parity is
+                    # defined against all current models, including later additive tables.
+                    alembic("upgrade", "head")
                     assert "No new upgrade operations detected" in alembic("check")
+                    assert fingerprint(connection) == before
+                    alembic("downgrade", "72a6cf91b3d0")
             print(
                 "K1 baseline -> new -> baseline -> new: legacy rows/objects unchanged; alembic check passed twice"
             )

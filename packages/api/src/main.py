@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -29,7 +31,13 @@ from src.crm.admin_router import router as crm_admin_router
 from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
 from src.database import async_session_maker, engine
-from src.employee_referrals.privacy import K1_PATH, K1PrivacyMiddleware, filter_k1
+from src.employee_referrals.order_privacy import (
+    OrderPrivacyMiddleware,
+    filter_referral_telemetry,
+    is_private_order,
+    order_paths,
+)
+from src.employee_referrals.privacy import K1_PATH, K1PrivacyMiddleware
 from src.employee_referrals.router import router as employee_referrals_router
 from src.loyalty.admin_router import router as admin_lottery_router
 from src.loyalty.router import router as loyalty_router
@@ -73,8 +81,8 @@ def create_app() -> FastAPI:
             dsn=settings.sentry_dsn,
             integrations=[FastApiIntegration(), SqlalchemyIntegration()],
             traces_sample_rate=0.1,
-            before_send=filter_k1,
-            before_send_transaction=filter_k1,
+            before_send=filter_referral_telemetry,
+            before_send_transaction=filter_referral_telemetry,
             environment="production" if not settings.debug else "development",
         )
         logger.info("Sentry initialized")
@@ -101,6 +109,8 @@ def create_app() -> FastAPI:
     # Last added runs outside CORS, inside the SDK-owned request scope. It only
     # classifies K1 telemetry; CORS responses and request handling remain unchanged.
     app.add_middleware(K1PrivacyMiddleware, path=settings.api_v1_prefix + K1_PATH)
+    private_order_paths = order_paths(settings.api_v1_prefix)
+    app.add_middleware(OrderPrivacyMiddleware, paths=private_order_paths)
 
     app.include_router(employee_referrals_router, prefix=settings.api_v1_prefix)
 
@@ -239,9 +249,28 @@ def create_app() -> FastAPI:
     )
 
     # Global exception handlers
+    @app.exception_handler(RequestValidationError)
+    async def order_validation_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        if not is_private_order(request.scope, private_order_paths):
+            return await request_validation_exception_handler(request, exc)
+        # Pydantic's input/context can contain the raw referral token or its enclosing body.
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": [
+                    {key: error[key] for key in ("type", "loc", "msg")} for error in exc.errors()
+                ]
+            },
+        )
+
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
-        logger.error("IntegrityError: %s | path=%s", exc.orig, request.url.path)
+        if is_private_order(request.scope, private_order_paths):
+            logger.error("Order data conflict | path=%s", request.scope["path"])
+        else:
+            logger.error("IntegrityError: %s | path=%s", exc.orig, request.url.path)
         return JSONResponse(
             status_code=409,
             content={"detail": "Data conflict: duplicate or constraint violation"},
@@ -249,7 +278,10 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(OperationalError)
     async def operational_error_handler(request: Request, exc: OperationalError) -> JSONResponse:
-        logger.error("OperationalError: %s | path=%s", exc.orig, request.url.path)
+        if is_private_order(request.scope, private_order_paths):
+            logger.error("Order database unavailable | path=%s", request.scope["path"])
+        else:
+            logger.error("OperationalError: %s | path=%s", exc.orig, request.url.path)
         return JSONResponse(
             status_code=503,
             content={"detail": "Database temporarily unavailable"},
@@ -257,7 +289,10 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled error: %s | path=%s", exc, request.url.path)
+        if is_private_order(request.scope, private_order_paths):
+            logger.error("Order request failed | path=%s", request.scope["path"])
+        else:
+            logger.exception("Unhandled error: %s | path=%s", exc, request.url.path)
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"},
