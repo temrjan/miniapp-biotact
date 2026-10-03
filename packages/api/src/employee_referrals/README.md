@@ -1,8 +1,9 @@
-# Employee campaign registry — K1 receiver
+# Employee referrals — K1 receiver and order capture
 
-This shop-only receiver stores the portal's complete campaign roster atomically.
-It is **OFF by default**. It does not create employee links, attribute orders,
-run a sender, process K2, expose a dashboard, or start a campaign.
+The shop receiver stores the portal's complete campaign roster atomically.
+Optional order capture uses that local registry to save employee attribution.
+Both features are **OFF by default** and have independent switches.
+The portal owns roster issuance; K2 and customer entry flows use separate contracts.
 
 ## Configuration and trust
 
@@ -141,7 +142,8 @@ and requires a separate release decision with backup/restore and actual CI evide
 Activation and the first campaign are separate decisions. For a receiver incident,
 disable K1, retain identities/receipts and use a separately authorized compatible code
 rollback. Do not downgrade/drop new tables in production. Local downgrade is tested
-only in the owned scratch database. Sender, order attribution and K2 follow later specs.
+only in the owned scratch database. Optional order capture is described below;
+portal issuance and the later K2 lifecycle have separate contracts.
 
 
 ## Optional order capture
