@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run check:build-patterns && tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:build-patterns": "vitest run tests/buildPatternSafety.test.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
