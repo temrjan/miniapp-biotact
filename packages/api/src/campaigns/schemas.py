@@ -127,3 +127,55 @@ class ErrorResponse(BoundaryModel):
 @dataclass
 class WriteOutcome:
     started: bool = False
+
+
+def _bigint(value: str) -> str:
+    if not re.fullmatch(r"[1-9][0-9]{0,18}", value) or int(value) > 9223372036854775807:
+        raise ValueError("Invalid bigint")
+    return value
+
+
+def _sync_time(value: str) -> str:
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z", value):
+        raise ValueError("Invalid UTC instant")
+    datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return value
+
+
+Bigint = Annotated[str, AfterValidator(_bigint)]
+SyncTime = Annotated[str, AfterValidator(_sync_time)]
+
+
+class CampaignSync(BoundaryModel):
+    campaign_id: Bigint
+    campaign_state: State
+    sender_enabled: bool
+    status: Literal["not_published", "disabled", "pending", "confirmed", "expired", "blocked"]
+    desired_revision: Bigint | None
+    confirmed_revision: Bigint | None
+    participant_count: int = Field(ge=0, le=9007199254740991)
+    confirmed_at: SyncTime | None
+    valid_until: SyncTime | None
+    stop_confirmed: bool
+    stop_deadline: SyncTime | None
+    pending_count: int = Field(ge=0, le=1)
+    blocked_count: int = Field(ge=0, le=1)
+    oldest_pending_at: SyncTime | None
+    last_error_code: (
+        Literal[
+            "configuration",
+            "clock",
+            "transport",
+            "protocol",
+            "authentication",
+            "conflict",
+            "payload_limit",
+            "receiver_disabled",
+            "invalid_request",
+            "attempt_limit",
+            "database",
+            "storage",
+        ]
+        | None
+    )
+    observed_at: SyncTime

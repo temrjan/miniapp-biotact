@@ -14,6 +14,7 @@ from src.campaigns.schemas import (
     CampaignError,
     CampaignPage,
     CampaignRecord,
+    CampaignSync,
     DraftInput,
     EditInput,
     ErrorCode,
@@ -114,13 +115,29 @@ def _decode(
     write: bool,
 ) -> Reply:
     if response.status_code == success:
-        result = model.model_validate_json(response.content)
+        if model is CampaignSync:
+
+            def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+                result: dict[str, object] = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError("Duplicate field")
+                    result[key] = value
+                return result
+
+            result = model.model_validate(
+                json.loads(response.content, object_pairs_hook=unique_object)
+            )
+        else:
+            result = model.model_validate_json(response.content)
         if (
             isinstance(result, CampaignRecord)
             and campaign_id is not None
             and result.id != campaign_id
         ):
             raise ValueError("Unexpected campaign identity")
+        if isinstance(result, CampaignSync) and result.campaign_id != str(campaign_id):
+            raise ValueError("Unexpected sync identity")
         return result
     data = json.loads(response.content)
     if isinstance(data, dict) and set(data) == {"detail"}:
@@ -193,6 +210,11 @@ class PortalClient:
 
     async def detail(self, campaign_id: int) -> CampaignRecord:
         return await self._send("GET", f"/{campaign_id}", CampaignRecord, campaign_id=campaign_id)
+
+    async def sync(self, campaign_id: int) -> CampaignSync:
+        return await self._send(
+            "GET", f"/{campaign_id}/k1-sync", CampaignSync, campaign_id=campaign_id
+        )
 
     async def create(self, body: DraftInput, outcome: WriteOutcome) -> CampaignRecord:
         return await self._send("POST", "", CampaignRecord, success=201, body=body, outcome=outcome)
