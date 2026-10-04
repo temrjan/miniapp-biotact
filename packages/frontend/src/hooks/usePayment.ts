@@ -11,6 +11,7 @@ import { api, ApiError } from '@/api/client';
 import { buildOrderRequest, type OrderQuote } from '@/utils/order';
 import { ROUTES } from '@/utils/constants';
 import type { CartItem } from '@/types';
+import { referralContext, isReferralEntryEnabled } from '@/employeeReferrals/runtime';
 
 interface OrderResponse {
   id: number;
@@ -142,9 +143,11 @@ export function usePayment({
       )
         return;
       if (version !== requestVersion.current) return;
+      const referralToken = referralContext.tokenForOrder();
       const order = await api.post<OrderResponse>('/orders', {
         ...orderRequest,
         quote_fingerprint: quote.quote_fingerprint,
+        ...(referralToken === undefined ? {} : { referral_token: referralToken }),
       });
       settled = true;
 
@@ -195,8 +198,8 @@ export function usePayment({
         alert(t('checkout.redeem.insufficient'));
         return;
       }
-      console.error('Payment error:', error);
-      alert(error instanceof Error ? error.message : t('common.error'));
+      console.error('Payment request failed');
+      alert(!isReferralEntryEnabled() && error instanceof Error ? error.message : t('common.error'));
     } finally {
       if (!settled) {
         isProcessingRef.current = false;

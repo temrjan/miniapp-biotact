@@ -9,6 +9,7 @@ import { useClearCartOnPaidOrder } from '@hooks/useClearCartOnPaidOrder';
 import { useAppStore } from '@stores/appStore';
 import { ROUTES } from '@utils/constants';
 import { isLegalEnabled } from '@/legal/flag';
+import { ReferralOwner } from '@/employeeReferrals/Owner';
 
 // ═══════════════════════════════════════════════════════════════════
 // Lazy load pages
@@ -90,6 +91,7 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <MainLayout>
+          <ReferralOwner />
           <Suspense fallback={<Loading />}>
             <Routes>
               <Route path={ROUTES.HOME} element={<HomeOrActivate />} />

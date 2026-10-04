@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # qr_<code> deeplink behaves like a normal /start (the program is dark end-to-end).
     # Flipped to true together with the API flag at go-live (Stage 4, PR-4.5).
     loyalty_enabled: bool = False
+    employee_referral_entry_enabled: bool = False
 
     # Debug
     debug: bool = False

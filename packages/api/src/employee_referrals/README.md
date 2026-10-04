@@ -190,3 +190,66 @@ uses fixed diagnostics for affected errors. K1 filtering and unrelated telemetry
 remain active. No launcher, K2 sender, customer UI or production activation is added.
 Deployment is additive and defaults OFF. Recovery disables capture while retaining
 these tables/history; production destructive downgrade is not a recovery operation.
+
+
+## Customer entry and resolve
+
+Bot `EMPLOYEE_REFERRAL_ENTRY_ENABLED=false`, frontend
+`VITE_EMPLOYEE_REFERRAL_ENTRY` (only literal `true`) and API
+`EMPLOYEE_REFERRAL_ENTRY_ENABLED=false` are independent default-OFF switches.
+The capture switch remains the authority for new attribution. An incident OFF
+bundle disables capture + API entry + bot entry and rebuilds/serves frontend OFF;
+K1 sender/receiver switches are separate. No new credentials or migration are needed.
+
+Private `/start ref_<positive decimal product hint>_<canonical 22-char token>`
+opens an inline WebApp product button after normal language/optional-phone
+registration. The bot preserves only an unconfirmed per-user Redis FSM intent,
+serialized by process-local event isolation in the single fork bot, and never resolves it over the network.
+Malformed ref starts carry an empty `ref` marker so a previous context is retired.
+
+Authenticated POST `${API_V1_PREFIX}/employee-referrals/resolve` accepts only
+`{"token":"..."}` (strict max256 string; streamed JSON limit1024 bytes). Entry or
+capture OFF returns404 before authentication/body/SQL. ON reads local current K1
+under the same campaign share lock/time predicates as capture, without renewal.
+Valid200 contains only `state`, string `product_id`, `observed_at`, `expires_at`
+(UTC microseconds); all negative registry states return `{"state":"invalid"}`.
+Auth401/403 and other failures have fixed bodies; all responses are no-store.
+The expiry is a campaign-end storage deadline, not a K1 freshness guarantee.
+Existing shared Telegram verifier limitations require owner assessment before ON.
+
+Frontend owns one current context above routes, removes URL ref before resources
+and keeps only `{version:1,token,expires_at}` under `biotact_employee_referral`.
+Stored/reopened/resumed context must resolve again. New entries retire old tokens
+synchronously; pending/error/expired/OFF flows permit ordinary checkout. Storage
+failure selects document-wide memory-only mode. Quote remains independent; current
+active token is sampled immediately before POST orders, never payment/return URLs.
+
+### Serving privacy preflight before ON
+
+The HTML's early no-referrer meta and early query cleanup do not hide the initial
+GET from a proxy. Verify the actual serving layer before activation:
+
+1. Inspect the effective vhost/access/error/analytics configuration and every CDN
+   hop for product/root entry URLs. Use pathname-only logging (nginx `$uri`, never
+   `$request`, `$request_uri`, `$args`, full Referer or Location). Disable or redact
+   error/analytics fields that would record a query. Do not log initData headers.
+2. Serve `Referrer-Policy: no-referrer` on the actual HTML response before resources.
+3. Send a distinct synthetic canonical token canary through root/product entry,
+   duplicated/empty ref and an error route on an owned staging proxy. Inspect all
+   access/error/analytics outputs; canary must be absent while an unrelated
+   pathname control proves those channels are active. Observe browser requests to
+   first assets/external Telegram, images/iframe and checkout navigation: no full
+   entry Referer. Confirm URL cleanup preserves Club code and Telegram hash.
+4. Record config hashes, served assets, header and observations in release evidence.
+   A local harness demonstrates its own configuration only; production readiness
+   remains unverified until that evidence exists. Flags remain OFF on release.
+
+Focused entry suites use real mounted auth/PostgreSQL, real bot Dispatcher/Redis
+and deferred frontend replies/checkout payloads. The existing >=90% branch guard
+above includes resolve; coverage exclusions and shared CI are unchanged.
+
+Bot entry integration tests additionally require an explicit `BOT_TEST_REDIS_URL`
+pointing to an owned disposable Redis 7 server. The bot CI job provides its own
+Redis service. Tests use unique per-fixture FSM key prefixes and delete only their
+own keys; a separate sentinel verifies that unrelated Redis data survives. They
+never use the application `REDIS_URL` as a fallback or flush the database.

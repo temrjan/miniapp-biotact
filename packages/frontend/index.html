@@ -2,6 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="referrer" content="no-referrer" />
+    <script>
+      // Capture in a closure and remove every ref before resources, SDK or React start.
+      (function () {
+        var url = new URL(window.location.href);
+        var entry = null;
+        if (url.searchParams.has('ref')) {
+          var values = url.searchParams.getAll('ref');
+          url.searchParams.delete('ref');
+          var location = url.pathname + url.search + url.hash;
+          history.replaceState(history.state, '', location);
+          entry = { values: values, location: location };
+        }
+        window.consumeBiotactReferral = function () {
+          var current = entry;
+          entry = null;
+          return current;
+        };
+      })();
+    </script>
     <link rel="icon" type="image/jpeg" href="/favicon.jpg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>biotact</title>

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -25,6 +26,7 @@ from bot.keyboards.inline import (
     get_skip_phone_keyboard,
     get_webapp_keyboard,
 )
+from bot.referral_entry import INTENT_KEY, launch_keyboard
 from bot.services.crm import sync_customer_full, sync_customer_to_crm
 from bot.services.user import UserService
 
@@ -178,15 +180,25 @@ def t(lang: str, key: str) -> str:
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def cmd_start(
+    message: Message,
+    session: AsyncSession,
+    state: FSMContext,
+    referral_intent: dict[str, str] | None = None,
+) -> None:
     """Handle /start command."""
     await state.clear()
+    if referral_intent is not None:
+        await state.update_data(
+            **{INTENT_KEY: referral_intent, "referral_generation": time.time_ns()}
+        )
     user_service = UserService(session)
     user, is_new = await user_service.get_or_create(message.from_user)
     # Sync to CRM (fire and forget)
     asyncio.create_task(sync_customer_to_crm(message.from_user))
 
     if is_new:
+        await state.update_data(registration_language=True)
         # New user - show language selection first
         await message.answer(
             "🌐 Tilni tanlang / Выберите язык:",
@@ -214,8 +226,10 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext) 
         # Existing user with phone - show welcome
         await message.answer(
             t(user.language_code, "welcome").format(name=message.from_user.first_name),
-            reply_markup=get_webapp_keyboard(user.language_code),
+            reply_markup=await launch_keyboard(state, user.language_code),
         )
+        if referral_intent is not None:
+            await state.clear()
 
 
 @router.message(Command("help"))
@@ -252,6 +266,10 @@ async def callback_language(
     state: FSMContext,
 ) -> None:
     """Handle language selection callback."""
+    data = await state.get_data()
+    if INTENT_KEY in data and not data.get("registration_language"):
+        await callback.answer()
+        return
     lang = callback_data.code
     user_service = UserService(session)
     user = await user_service.update_language(callback.from_user.id, lang)
@@ -267,8 +285,9 @@ async def callback_language(
             # Already has phone, show welcome
             await callback.message.answer(
                 t(lang, "welcome").format(name=callback.from_user.first_name),
-                reply_markup=get_webapp_keyboard(lang),
+                reply_markup=await launch_keyboard(state, lang),
             )
+            await state.clear()
         else:
             # Ask for phone number
             await state.set_state(RegistrationState.waiting_phone)
@@ -304,6 +323,11 @@ async def handle_contact_received(
     state: FSMContext,
 ) -> None:
     """Handle when user shares their contact."""
+    if message.contact.user_id != message.from_user.id:
+        return
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    keyboard = await launch_keyboard(state, lang)
     phone = message.contact.phone_number
     if not phone.startswith("+"):
         phone = f"+{phone}"
@@ -313,8 +337,6 @@ async def handle_contact_received(
 
     await state.clear()
 
-    # Get language from state or user
-    data = await state.get_data()
     lang = data.get("lang", user.language_code if user else "ru")
 
     # Sync full user data to CRM (fire and forget)
@@ -331,7 +353,7 @@ async def handle_contact_received(
     )
     await message.answer(
         t(lang, "welcome").format(name=message.from_user.first_name),
-        reply_markup=get_webapp_keyboard(lang),
+        reply_markup=keyboard,
     )
 
 
@@ -342,6 +364,9 @@ async def callback_skip_phone(
     state: FSMContext,
 ) -> None:
     """Handle when user skips phone sharing via inline button."""
+    if await state.get_state() != RegistrationState.waiting_phone.state:
+        await callback.answer()
+        return
     user_service = UserService(session)
     user, _ = await user_service.get_or_create(callback.from_user)
 
@@ -349,6 +374,7 @@ async def callback_skip_phone(
     data = await state.get_data()
     lang = data.get("lang", user.language_code if user else "ru")
 
+    keyboard = await launch_keyboard(state, lang)
     await state.clear()
 
     # Sync user to CRM (fire and forget)
@@ -362,7 +388,7 @@ async def callback_skip_phone(
     await callback.message.answer("⏭️", reply_markup=get_remove_keyboard())
     await callback.message.answer(
         t(lang, "welcome").format(name=callback.from_user.first_name),
-        reply_markup=get_webapp_keyboard(lang),
+        reply_markup=keyboard,
     )
     await callback.answer()
 

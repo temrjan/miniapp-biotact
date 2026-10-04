@@ -19,6 +19,8 @@ class LoggingMiddleware(BaseMiddleware):
         event: Update,
         data: dict[str, Any],
     ) -> Any:
+        if data.get("private_referral_entry"):
+            return await handler(event, data)
         user = None
         if event.message:
             user = event.message.from_user
