@@ -21,6 +21,7 @@ import {
   
 } from '@/shared/components/ui/select';
 
+import { ReferralReturns } from '../components/ReferralReturns';
 import { useOrder, useUpdateOrderStatus } from '../hooks/useOrders';
 import type { OrderStatus } from '../types/order.types';
 import { ORDER_STATUS_LABELS, ORDER_STATUS_COLORS, PAYMENT_STATUS_LABELS } from '../types/order.types';
@@ -177,6 +178,8 @@ export const OrderDetailsPage = () => {
               </div>
             </CardContent>
           </Card>
+
+          {id && <ReferralReturns key={id} orderId={id} items={order.items} />}
 
           {/* Notes */}
           {(order.customer_note || order.admin_note) && (

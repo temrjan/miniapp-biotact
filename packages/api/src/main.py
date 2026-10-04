@@ -40,6 +40,8 @@ from src.employee_referrals.order_privacy import (
     order_paths,
 )
 from src.employee_referrals.privacy import K1_PATH, K1PrivacyMiddleware
+from src.employee_referrals.return_privacy import ReturnPrivacyMiddleware
+from src.employee_referrals.return_router import router as referral_returns_router
 from src.employee_referrals.router import router as employee_referrals_router
 from src.loyalty.admin_router import router as admin_lottery_router
 from src.loyalty.router import router as loyalty_router
@@ -115,6 +117,8 @@ def create_app() -> FastAPI:
     app.add_middleware(OrderPrivacyMiddleware, paths=private_order_paths)
 
     app.add_middleware(EntryPrivacyMiddleware, prefix=settings.api_v1_prefix)
+    app.add_middleware(ReturnPrivacyMiddleware, prefix=settings.api_v1_prefix)
+    app.include_router(referral_returns_router, prefix=settings.api_v1_prefix)
     app.include_router(referral_entry_router, prefix=settings.api_v1_prefix)
     app.include_router(employee_referrals_router, prefix=settings.api_v1_prefix)
 

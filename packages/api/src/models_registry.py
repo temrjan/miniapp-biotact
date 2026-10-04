@@ -27,6 +27,7 @@ _MODEL_MODULES = (
     "src.payments.models",
     "src.employee_referrals.models",
     "src.employee_referrals.paid_models",
+    "src.employee_referrals.return_models",
 )
 
 for _module in _MODEL_MODULES:

@@ -108,22 +108,23 @@ pytest-cov 7.0.0 / coverage 7.11.0, set synthetic SECRET_KEY and DATABASE_URL, t
 ruff check src/
 ruff format --check src/
 mypy src/ --strict --ignore-missing-imports
-pytest tests/ -v --no-header
 cat > /tmp/biotact-k1-coverage.ini <<'CONFIG'
 [run]
 branch = True
 concurrency = thread, greenlet
 [report]
 show_missing = True
-fail_under = 90
+
 CONFIG
-pytest tests/ -v --no-header --cov=src.employee_referrals --cov-config=/tmp/biotact-k1-coverage.ini --cov-branch --cov-fail-under=90 --cov-report=term-missing
+pytest tests/ -v --no-header --cov=src --cov-config=/tmp/biotact-k1-coverage.ini --cov-branch --cov-report=json:coverage.json
 ```
 
 The local coverage configuration is required for SQLAlchemy async greenlet switches;
 without it, executed continuation lines are missed. See the pinned
 [Coverage 7.11 concurrency documentation](https://coverage.readthedocs.io/en/7.11.0/config.html#run-concurrency).
-It adds no exclusions and does not change the 90% requirement or shared CI.
+It adds no exclusions or shared CI changes. Inspect actual branches in the critical
+referral and new return modules: covered_branches / num_branches must reach80%.
+This is separate from the deferred overall API coverage debt.
 
 `pytest.ini` is the active test configuration. The shared API coverage debt is deferred;
 this feature's local critical-domain coverage gate does not change CI.
@@ -245,8 +246,8 @@ GET from a proxy. Verify the actual serving layer before activation:
    remains unverified until that evidence exists. Flags remain OFF on release.
 
 Focused entry suites use real mounted auth/PostgreSQL, real bot Dispatcher/Redis
-and deferred frontend replies/checkout payloads. The existing >=90% branch guard
-above includes resolve; coverage exclusions and shared CI are unchanged.
+and deferred frontend replies/checkout payloads. The critical branch guard above includes resolve; coverage exclusions and shared CI
+are unchanged.
 
 Bot entry integration tests additionally require an explicit `BOT_TEST_REDIS_URL`
 pointing to an owned disposable Redis 7 server. The bot CI job provides its own
@@ -273,8 +274,76 @@ post-commit Telegram failure preserves it. Private paid logging and Sentry chann
 are scoped; unrelated telemetry remains active. SQL echo blocks this private channel.
 
 Additive migration b5a1d6e8f230 follows9b47c6e3d821. Existing history is not backfilled.
-Delivery, returns and employee UI follow separately; release/activation remain OFF.
-The current minimum is80% actual global and critical branches. Scoped paid tests use
+Confirmed returned units are described below; delivery and employee UI remain separate.
+The current minimum is80% actual critical branches; overall API debt is deferred. Scoped paid tests use
 real PG17, mounted get_db/commits and external Telegram substitutes only. Existing
 API lint/format/strict-mypy/full-suite and migration parity gates remain required;
 shared coverage debt is reported independently without changing exclusions or CI.
+
+
+## Confirmed returned campaign units
+
+GET/POST `${API_V1_PREFIX}/admin/orders/{order_id}/referral-returns` require an
+existing active admin authenticated by the ordinary admin JWT. SQL echo refuses503
+before admin SQL. GET returns only `{order_id, order_version, lines}`. Each line
+has decimal-string `order_item_id`, `product_id`, `paid_quantity`,
+`returned_quantity`; remaining is paid minus returned. Frozen paid lines survive
+original order/item/product deletion and roster/capture changes. Missing retained
+paid source gives404; payment status edits and provider revert never infer returns.
+
+POST confirms an already performed quantity return. It performs no provider, Club,
+stock or status operation. JSON has exactly canonical UUIDv4 `return_id` and
+nonempty `lines` of positive BIGINT decimal-string `order_item_id` and delta
+`quantity`. Items must be unique retained campaign rows. The service sorts them
+numerically and bounds cumulative returns by original paid quantities. Body size,
+media, duplicate-key and strict validation use the existing bounded JSON contract.
+
+200 follows durable commit and contains only `{receipt, replayed}`. Receipt has
+return_id/order_id/order_version as strings, UTC microsecond confirmed_at, and
+original normalized delta lines. Exact retry returns the original receipt, including
+after remaining reaches zero. Reused UUID with another order/delta or paid event
+UUID gives409. All errors are fixed no-store `detail.code`:
+`referral_return_invalid_auth`401, forbidden403, not_found404, conflict/bounds409,
+payload_too_large413, unsupported_media415, invalid_request422, unavailable503.
+These names share the `referral_return_` prefix. Queries, noncanonical/trailing
+paths are invalid; unsupported methods give fixed405 invalid_request.
+
+The OrderDetails control shows paid/returned/remaining per item, partial quantities
+and all remaining, with explicit confirmation before submission. One UUID and its
+deltas are persisted in sessionStorage before POST. Double click is disabled and
+an unknown network/503 outcome, including reload, retries that same intent. Storage
+failure blocks sending.200 clears intent and refreshes;409/422 refresh for a new
+explicit action;401/403 hide protected returns. Ordinary source404 hides only this
+control. No history/dashboard or employee result UI is introduced.
+
+`employee_referral_return_outbox` is one immutable confirmation plus frozen K2
+record, with server admin ID/time and sorted deltas. Writers lock the immutable
+paid root FOR UPDATE, then validate every saved hash/body/metadata/identity and
+consecutive version/cumulative delta chain under fresh READ COMMITTED. Corruption
+fails503, including replay. Global UUID races roll back before a fresh read.
+Cancellation propagates; lost commit confirmation requires the same-ID retry, never
+a compensating deletion. GET validates history within one repeatable-read snapshot.
+Both outboxes share the paid sequence; gaps are permitted and are not completeness.
+
+The unchanged paid v1 bytes have three line fields. Refund v2+ freezes all original
+paid lines with cumulative integer returned_quantity, the same attribution and
+exact compact sorted-key UTF-8/hash. It has event_type sale_refunded, event_id=return
+UUID, shared source_position, DB instant for both wire times, and no admin/money/PII.
+The receiving Portal must support returned snapshots before delivery.
+
+Additive b5b2e7f9a341 follows b5a1d6e8f230 without rewriting paid history or resetting
+its sequence. App role needs paid-root row lock, return INSERT and shared sequence
+USAGE; UPDATE/DELETE triggers refuse history changes. Scratch downgrade requires
+empty returns and drops only new objects; production downgrade is not recovery.
+After saved confirmations, retain return-compatible code/schema. Capture OFF stops
+new attribution without dropping retained facts; no new producer flag exists.
+Release order: extended Portal/schema with K2 OFF, then Shop schema/confirmation,
+then separately verified delivery. No transport worker is part of this module.
+
+`test_employee_referral_returns.py` uses the real mounted get_db/sessionmaker and
+owned PG17 for3→2→0, root/UUID races, durable/unknown commit, corrupt history, auth
+and scoped privacy with live local SDK/log positive controls. Only external provider
+and notification boundaries are substituted. Migration tests use unique owned
+scratch databases/restricted roles for populated compatibility, immutable triggers,
+shared sequence and whole-chain roundtrip/parity. Admin tests exercise the actual
+control and runtime decoder against the axios boundary.

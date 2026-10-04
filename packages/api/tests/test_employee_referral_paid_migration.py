@@ -91,14 +91,14 @@ def test_paid_additive_transition_and_app_role():
             cur.execute("INSERT INTO point_ledger(user_id,amount,reason) VALUES(1,100,'adjust')")
         before = fingerprint()
         for action, target in (
-            ("upgrade", "head"),
+            ("upgrade", "b5a1d6e8f230"),
             ("downgrade", "9b47c6e3d821"),
-            ("upgrade", "head"),
+            ("upgrade", "b5a1d6e8f230"),
         ):
             alembic(action, target)
             assert fingerprint() == before
-            if action == "upgrade":
-                assert "No new upgrade operations detected" in alembic("check")
+        alembic("upgrade", "head")
+        assert "No new upgrade operations detected" in alembic("check")
         body = b'{"synthetic":"paid-count"}'
         with connection.cursor() as cur:
             cur.execute(
