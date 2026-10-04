@@ -10,6 +10,7 @@ from src.auth.dependencies import get_current_user, verify_admin_jwt
 from src.common.exceptions import ForbiddenException
 from src.database import get_db
 from src.employee_referrals.capture import CaptureUnavailableError, capture_requested
+from src.employee_referrals.paid import PaidUnavailableError, commit_paid
 from src.loyalty.service import InsufficientPointsError
 from src.notifications.service import telegram_notifier
 from src.orders import service
@@ -81,6 +82,8 @@ async def create_order(
                 "message": "Referral capture unavailable",
             },
         ) from exc
+    except PaidUnavailableError:
+        raise HTTPException(503, detail={"code": "referral_paid_unavailable"}) from None
     except service.QuoteAgreementError as exc:
         raise HTTPException(
             status_code=409, detail={"code": exc.code, "quote": exc.quote.model_dump(mode="json")}
@@ -128,7 +131,10 @@ async def create_order(
         #     Sending first would let a failing commit announce a phantom order to the group.
         #
         # The later ``get_db`` commit is a harmless no-op on the already-committed session.
-        await db.commit()
+        try:
+            await commit_paid(db)
+        except PaidUnavailableError:
+            raise HTTPException(503, detail={"code": "referral_paid_unavailable"}) from None
 
         # The same admin request card payments produce, marked «оплачено баллами» (Captain,
         # 2026-07-13). A fully-covered points order never reaches the payments router, so this is

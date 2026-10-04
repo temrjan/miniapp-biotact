@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src import database
 from src.employee_referrals import capture
 from src.employee_referrals.models import CampaignReplica, ReferralIdentity
+from src.employee_referrals.paid_models import PaidOutbox
 from src.employee_referrals.schemas import parse_snapshot, utc_text
 from src.employee_referrals.service import apply_snapshot
 from src.loyalty import service as loyalty
@@ -203,8 +204,14 @@ async def test_precommit_failure_rolls_back_related_facts(checkout, monkeypatch,
         with pytest.raises(RuntimeError, match="confirmed refusal"):
             await h.create(h.body(points_to_apply=points))
     else:
-        assert (await h.create(h.body(points_to_apply=points))).status_code == 500
+        response = await h.create(h.body(points_to_apply=points))
+        expected = 503 if stage == "order-commit" and points == 10000 else 500
+        assert response.status_code == expected
+        if expected == 503:
+            assert response.json() == {"detail": {"code": "referral_paid_unavailable"}}
     assert await h.state() == (0, 0, 0, 100000)
+    async with h.sessions() as reader:
+        assert await reader.scalar(select(func.count()).select_from(PaidOutbox)) == 0
 
 
 @pytest.mark.parametrize("points", [0, 5000, 10000])
@@ -230,8 +237,14 @@ async def test_lost_commit_confirmation_reads_durable_truth(checkout, monkeypatc
         with pytest.raises(RuntimeError, match="lost commit confirmation"):
             await h.create(h.body(points_to_apply=points))
     else:
-        assert (await h.create(h.body(points_to_apply=points))).status_code == 500
+        response = await h.create(h.body(points_to_apply=points))
+        assert response.status_code == 503
+        assert response.json() == {"detail": {"code": "referral_paid_unavailable"}}
     assert await h.state() == (1, 1, 1, 90000 if points == 10000 else 100000)
+    async with h.sessions() as reader:
+        assert await reader.scalar(select(func.count()).select_from(PaidOutbox)) == (
+            1 if points == 10000 else 0
+        )
 
 
 async def test_failure_of_late_dependency_commit_preserves_full_points_fact(checkout, monkeypatch):

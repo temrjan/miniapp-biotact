@@ -253,3 +253,28 @@ pointing to an owned disposable Redis 7 server. The bot CI job provides its own
 Redis service. Tests use unique per-fixture FSM key prefixes and delete only their
 own keys; a separate sentinel verifies that unrelated Redis data survives. They
 never use the application `REDIS_URL` as a fallback or flush the database.
+
+## Retained paid count
+
+Applied signed callback success and fully-points checkout append one immutable
+`employee_referral_paid_outbox` row in the existing paid transaction. Card, mixed
+and fully-points count every retained campaign-product item quantity alike, including
+separate repeated product rows. Current catalogue/K1/capture OFF/End/approval cannot
+change saved attribution. Ordinary orders and unsuccessful, unsigned, rejected or
+manually edited payments append nothing. Existing customer Club behavior is preserved.
+
+The outbox has unique order/event IDs, exact frozen count-only K2 bytes, SHA256 and
+creation time. Its sequence ID is source_position, not a commit watermark. The
+history has no cascading source FKs and an app-role UPDATE/DELETE rejection trigger.
+Retries reuse stored bytes; no sender, bookkeeping table or new activation flag is
+introduced. Serialization/storage/commit errors return fixed503
+`{"detail":{"code":"referral_paid_unavailable"}}` and roll back the paid unit;
+post-commit Telegram failure preserves it. Private paid logging and Sentry channels
+are scoped; unrelated telemetry remains active. SQL echo blocks this private channel.
+
+Additive migration b5a1d6e8f230 follows9b47c6e3d821. Existing history is not backfilled.
+Delivery, returns and employee UI follow separately; release/activation remain OFF.
+The current minimum is80% actual global and critical branches. Scoped paid tests use
+real PG17, mounted get_db/commits and external Telegram substitutes only. Existing
+API lint/format/strict-mypy/full-suite and migration parity gates remain required;
+shared coverage debt is reported independently without changing exclusions or CI.

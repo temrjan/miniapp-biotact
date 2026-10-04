@@ -92,9 +92,9 @@ def test_capture_migration_preserves_baseline_and_has_metadata_parity():
                 )
             before = fingerprint(conn)
             for direction, target in [
-                ("upgrade", "head"),
+                ("upgrade", "9b47c6e3d821"),
                 ("downgrade", "72a6cf91b3d0"),
-                ("upgrade", "head"),
+                ("upgrade", "9b47c6e3d821"),
             ]:
                 alembic(direction, target)
                 assert fingerprint(conn) == before
@@ -117,7 +117,11 @@ def test_capture_migration_preserves_baseline_and_has_metadata_parity():
                                 "Migration must not backfill historical attribution"
                             )
                 if direction == "upgrade":
+                    # Historical capture transition stays independent of later additive tables.
+                    alembic("upgrade", "head")
                     assert "No new upgrade operations detected" in alembic("check")
+                    alembic("downgrade", "9b47c6e3d821")
+                    assert fingerprint(conn) == before
         finally:
             conn.close()
     finally:
