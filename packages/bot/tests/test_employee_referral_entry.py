@@ -4,15 +4,17 @@ import asyncio
 import importlib
 import itertools
 import logging
+import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.base import BaseSession
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.base import StorageKey
+from aiogram.fsm.storage.base import DefaultKeyBuilder, StorageKey
 from aiogram.fsm.storage.memory import SimpleEventIsolation
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import Chat, Message, Update, User
@@ -81,8 +83,13 @@ async def h(monkeypatch):
     monkeypatch.setattr(common, "sync_customer_to_crm", AsyncMock())
     monkeypatch.setattr(common, "sync_customer_full", AsyncMock())
     monkeypatch.setattr(auth, "verify_auth_code", verify)
-    storage = RedisStorage.from_url(settings.redis_url)
-    await storage.redis.flushdb()
+    # Require an explicit test target; never fall back to the application Redis.
+    redis_url = os.environ["BOT_TEST_REDIS_URL"]
+    namespace = "g3b-test-" + uuid4().hex
+    key_builder = DefaultKeyBuilder(prefix=namespace, with_bot_id=True)
+    storage = RedisStorage.from_url(redis_url, key_builder=key_builder, state_ttl=120, data_ttl=120)
+    foreign_key = "g3b-isolation-control-" + uuid4().hex
+    await storage.redis.set(foreign_key, "outside-fsm", ex=120)
     session = StubSession()
     bot = Bot(settings.bot_token.get_secret_value(), session=session)
     dp = Dispatcher(storage=storage, events_isolation=SimpleEventIsolation())
@@ -134,20 +141,29 @@ async def h(monkeypatch):
             if button.web_app
         ]
 
-    yield SimpleNamespace(
-        feed=feed,
-        urls=urls,
-        state=state,
-        storage=storage,
-        bot=bot,
-        dp=dp,
-        service=service,
-        user=user,
-        session=session,
-        verify=verify,
-    )
-    await dp.fsm.close()
-    await bot.session.close()
+    try:
+        yield SimpleNamespace(
+            feed=feed,
+            urls=urls,
+            state=state,
+            storage=storage,
+            redis_url=redis_url,
+            foreign_key=foreign_key,
+            bot=bot,
+            dp=dp,
+            service=service,
+            user=user,
+            session=session,
+            verify=verify,
+        )
+        assert await storage.redis.get(foreign_key) == b"outside-fsm"
+    finally:
+        owned_keys = [key async for key in storage.redis.scan_iter(match=namespace + ":*")]
+        if owned_keys:
+            await storage.redis.delete(*owned_keys)
+        await storage.redis.delete(foreign_key)
+        await dp.fsm.close()
+        await bot.session.close()
 
 
 @pytest.mark.parametrize("payload", ["ref_39_" + A, "ref_9223372036854775807_" + B])
@@ -191,9 +207,10 @@ async def test_new_start_retires_old_and_late_callbacks_cannot_resurrect(h, repl
 
 
 async def test_contact_own_and_redis_roundtrip(h):
+    assert await h.storage.redis.get(h.foreign_key) == b"outside-fsm"
     await h.feed("/start ref_39_" + A)
     await h.feed(callback="lang:ru")
-    reloaded = RedisStorage.from_url(settings.redis_url)
+    reloaded = RedisStorage.from_url(h.redis_url, key_builder=h.storage.key_builder)
     try:
         assert (await FSMContext(reloaded, h.state.key).get_data())[INTENT_KEY]["token"] == A
     finally:

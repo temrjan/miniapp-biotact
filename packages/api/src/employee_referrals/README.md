@@ -247,3 +247,9 @@ GET from a proxy. Verify the actual serving layer before activation:
 Focused entry suites use real mounted auth/PostgreSQL, real bot Dispatcher/Redis
 and deferred frontend replies/checkout payloads. The existing >=90% branch guard
 above includes resolve; coverage exclusions and shared CI are unchanged.
+
+Bot entry integration tests additionally require an explicit `BOT_TEST_REDIS_URL`
+pointing to an owned disposable Redis 7 server. The bot CI job provides its own
+Redis service. Tests use unique per-fixture FSM key prefixes and delete only their
+own keys; a separate sentinel verifies that unrelated Redis data survives. They
+never use the application `REDIS_URL` as a fallback or flush the database.
