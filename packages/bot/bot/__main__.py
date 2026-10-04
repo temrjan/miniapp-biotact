@@ -16,6 +16,7 @@ from bot.core.config import settings
 from bot.core.loader import bot, dp
 from bot.handlers import router
 from bot.middlewares import DatabaseMiddleware, LoggingMiddleware
+from bot.middlewares.referral_entry import ReferralEntryMiddleware, is_ref_update
 
 logger = logging.getLogger(__name__)
 
@@ -73,17 +74,21 @@ async def main() -> None:
     )
 
     # Register middlewares (order matters: logging first, then database)
+    dp.update.outer_middleware(ReferralEntryMiddleware())
     dp.update.outer_middleware(LoggingMiddleware())
     dp.update.outer_middleware(DatabaseMiddleware())
 
     # Global error handler
     @dp.errors()
     async def error_handler(event: ErrorEvent) -> bool:
-        logger.exception(
-            "Unhandled error in update %s: %s",
-            event.update.update_id,
-            event.exception,
-        )
+        if is_ref_update(event.update):
+            logger.error("Referral entry update failed")
+        else:
+            logger.exception(
+                "Unhandled error in update %s: %s",
+                event.update.update_id,
+                event.exception,
+            )
         # Try to notify the user
         try:
             update = event.update

@@ -40,11 +40,24 @@ def capture_requested(token: str | None) -> bool:
 async def capture_order(session: AsyncSession, order: Order, token: str | None) -> None:
     if not capture_requested(token):
         return
+    current = await current_referral(session, token)
+    if current is None:
+        return
+    replica, identity, now = current
+    if not any(item.product_id == replica.product_id for item in order.items):
+        return
+    await store_snapshot(session, order, replica, identity, now)
+
+
+async def current_referral(
+    session: AsyncSession, token: str | None
+) -> tuple[CampaignReplica, ReferralIdentity, datetime] | None:
+    """Caller owns the transaction; read current K1 under its conflicting lock."""
     campaign_id = await session.scalar(
         select(ReferralIdentity.campaign_id).where(ReferralIdentity.token == token)
     )
     if campaign_id is None:
-        return
+        return None
     # Receiver holds FOR UPDATE. Re-read both objects after this conflicting lock,
     # even if a caller has an older object already present in the identity map.
     replica = await session.scalar(
@@ -59,19 +72,19 @@ async def capture_order(session: AsyncSession, order: Order, token: str | None) 
         .execution_options(populate_existing=True)
     )
     if replica is None or identity is None:
-        return
+        return None
     now = await capture_clock(session)
     if (
-        not identity.in_current_registry
+        identity.campaign_id != replica.campaign_id
+        or not identity.in_current_registry
         or replica.state != "published"
         or replica.ended_at is not None
         or replica.published_at > now
         or not replica.start_at <= now < replica.end_at
         or not replica.issued_at <= now < replica.valid_until
-        or not any(item.product_id == replica.product_id for item in order.items)
     ):
-        return
-    await store_snapshot(session, order, replica, identity, now)
+        return None
+    return replica, identity, now
 
 
 async def store_snapshot(

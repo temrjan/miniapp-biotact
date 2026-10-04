@@ -3,6 +3,7 @@
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import SimpleEventIsolation
 from aiogram.fsm.storage.redis import RedisStorage
 
 from bot.core.config import settings
@@ -23,7 +24,11 @@ bot = Bot(
 )
 
 # Dispatcher instance
+storage = get_storage()
 dp = Dispatcher(
-    storage=get_storage(),
+    storage=storage,
+    # One fork process: local locks cannot expire during a slow Telegram request.
+    # Pending context stays in Redis and is read again after a process restart.
+    events_isolation=SimpleEventIsolation(),
     settings=settings,
 )

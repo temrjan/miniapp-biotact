@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     employee_referral_k1_enabled: bool = False
     employee_referral_k1_key: SecretStr = SecretStr("")
     employee_referral_capture_enabled: bool = False
+    employee_referral_entry_enabled: bool = False
 
     # Database
     database_url: str

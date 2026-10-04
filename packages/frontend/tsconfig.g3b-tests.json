@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": { "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.g3b-tests.tsbuildinfo" },
+  "include": ["src/employeeReferrals/context.ts", "src/employeeReferrals/runtime.ts", "src/employeeReferrals/employeeReferrals.test.ts"],
+  "exclude": []
+}

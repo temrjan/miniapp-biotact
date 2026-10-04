@@ -54,6 +54,9 @@ async function fetchWithAuth<T>(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      if (endpoint !== '/employee-referrals/resolve' && (response.status === 401 || response.status === 403)) {
+        window.dispatchEvent(new Event('biotact-auth-reset'));
+      }
       const errorData = await response.json().catch(() => null);
       throw new ApiError(
         errorData?.message || `HTTP ${response.status}`,

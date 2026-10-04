@@ -31,6 +31,8 @@ from src.crm.admin_router import router as crm_admin_router
 from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
 from src.database import async_session_maker, engine
+from src.employee_referrals.entry import router as referral_entry_router
+from src.employee_referrals.entry_privacy import EntryPrivacyMiddleware
 from src.employee_referrals.order_privacy import (
     OrderPrivacyMiddleware,
     filter_referral_telemetry,
@@ -112,6 +114,8 @@ def create_app() -> FastAPI:
     private_order_paths = order_paths(settings.api_v1_prefix)
     app.add_middleware(OrderPrivacyMiddleware, paths=private_order_paths)
 
+    app.add_middleware(EntryPrivacyMiddleware, prefix=settings.api_v1_prefix)
+    app.include_router(referral_entry_router, prefix=settings.api_v1_prefix)
     app.include_router(employee_referrals_router, prefix=settings.api_v1_prefix)
 
     # Include routers

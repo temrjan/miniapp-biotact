@@ -276,3 +276,40 @@ describe('usePayment', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['loyalty', 'me'] });
   });
 });
+
+describe('employee referral sampled at actual POST', () => {
+  it.each(['active', 'pending'])('entry becomes %s during quote; quote/payment never carry token', async (state) => {
+    vi.stubEnv('VITE_EMPLOYEE_REFERRAL_ENTRY', 'true');
+    const { referralContext } = await import('@/employeeReferrals/runtime');
+    referralContext.reset();
+    const A = 'AAAAAAAAAAAAAAAAAAAAAA', B = 'AQEBAQEBAQEBAQEBAQEBAQ';
+    const dto = { state: 'valid', product_id: '39', observed_at: new Date().toISOString().replace('Z','000Z'), expires_at: new Date(Date.now()+3600000).toISOString().replace('Z','000Z') };
+    postMock.mockResolvedValue(dto); await referralContext.enter([A]);
+    let release: (value: unknown) => void = () => {};
+    const waiting = new Promise<unknown>((resolve) => { release = resolve; });
+    let resolveQuote: () => void = () => {};
+    const quote = new Promise<void>((resolve) => { resolveQuote = resolve; });
+    postMock.mockImplementation((endpoint) => {
+      if (endpoint === '/orders/quote') return quote.then(() => ({ subtotal:'30000.00', delivery_fee:'0.00', total:'30000.00', max_redeemable:30000, points_to_apply:0, quote_fingerprint:'current' }));
+      if (endpoint === '/employee-referrals/resolve') return waiting;
+      if (endpoint === '/orders') return Promise.resolve({ id:17, order_number:'ORD-17', payment_status:'unpaid', points_applied:0 });
+      return Promise.resolve({ payment_url:'https://pay/17', payment_uuid:'synthetic', order_id:17 });
+    });
+    // renderPay's baseline wrapper supplies an immediate quote; use the actual hook directly here.
+    const { result } = renderHook(() => usePayment({ items, deliveryAddress:'Tashkent', name:'Synthetic', phone:'+998000000000', redeemPoints:0, displayedTotal:30000, onQuote:vi.fn(), onInvalidAmount:vi.fn() }), { wrapper });
+    let payment: Promise<void> = Promise.resolve();
+    act(() => { payment = result.current.pay(); });
+    const entry = referralContext.enter([B]);
+    if (state === 'active') { release(dto); await entry; }
+    await act(async () => { resolveQuote(); await payment; });
+    const body = bodyOf('/orders');
+    expect(body?.referral_token).toBe(state === 'active' ? B : undefined);
+    expect(bodyOf('/orders/quote')).not.toHaveProperty('referral_token');
+    expect(bodyOf('/payments/create')).not.toHaveProperty('referral_token');
+    expect(JSON.stringify(usePendingOrderStore.getState())).not.toContain(B);
+    if (state === 'pending') { release(dto); await entry; }
+    // A later entry does not mutate the already sent request.
+    expect(body?.referral_token).toBe(state === 'active' ? B : undefined);
+    referralContext.reset(); vi.unstubAllEnvs();
+  });
+});
