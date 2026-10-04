@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_user, verify_admin_jwt
 from src.common.exceptions import ForbiddenException
 from src.database import get_db
+from src.employee_referrals.capture import CaptureUnavailableError, capture_requested
 from src.loyalty.service import InsufficientPointsError
 from src.notifications.service import telegram_notifier
 from src.orders import service
@@ -52,16 +53,34 @@ async def create_order(
     # DELETE must never be undone by a later rollback of the create below. A pure card order holds no
     # reservation, so it skips this. Best-effort: a cleanup failure must not block a new order (the
     # stale reserve is simply retried on the next attempt).
+    try:
+        capture_requested(order_data.referral_token)
+    except CaptureUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "referral_capture_unavailable",
+                "message": "Referral capture unavailable",
+            },
+        ) from exc
     if order_data.points_to_apply > 0:
         try:
             await service.expire_stale_partials(db, user_id=user.id)
             await db.commit()
-        except Exception as exc:  # cleanup is best-effort, never blocks a new order
-            logger.error("stale-partial cleanup failed for user %s: %s", user.id, exc)
+        except Exception:  # cleanup is best-effort, never blocks a new order
+            logger.error("stale-partial cleanup failed for user %s", user.id)
             await db.rollback()
 
     try:
         order = await service.create_order(db, order_data, user_id=user.id)
+    except CaptureUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "referral_capture_unavailable",
+                "message": "Referral capture unavailable",
+            },
+        ) from exc
     except service.QuoteAgreementError as exc:
         raise HTTPException(
             status_code=409, detail={"code": exc.code, "quote": exc.quote.model_dump(mode="json")}
@@ -147,8 +166,8 @@ async def create_order(
                 delivery_address=order.delivery_address,
                 points_applied=order.points_applied,
             )
-        except Exception as exc:  # notification is best-effort, never blocks money
-            logger.error("Failed to send Telegram notification: %s", exc)
+        except Exception:  # notification is best-effort, never blocks money
+            logger.error("Failed to send Telegram notification")
 
     return order
 

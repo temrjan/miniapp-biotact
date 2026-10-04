@@ -13,6 +13,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.employee_referrals.capture import capture_order, capture_requested
 from src.loyalty import service as loyalty_service
 from src.orders.models import Order, OrderItem, OrderStatus
 from src.orders.schemas import (
@@ -331,6 +332,8 @@ async def create_order(
     — the router maps it to 422 — and :class:`~src.loyalty.service.InsufficientPointsError` —
     mapped to 409, nothing persisted.
     """
+    # Refuse unsafe SQL echo before any pricing/K1 SQL for a canonical capture request.
+    capture_requested(order_data.referral_token)
     items, subtotal, has_sale = await _price_lines(db, order_data.items)
     total = subtotal + DELIVERY_FEE
 
@@ -361,16 +364,13 @@ async def create_order(
     is_full = points > 0 and total - points == 0
     if points > 0:
         order.points_applied = points
-        if is_full:  # full coverage — settled outright, no Multicard leg to wait for
-            order.payment_status = "paid"
-            order.status = OrderStatus.CONFIRMED
-            order.paid_at = datetime.now(UTC)
         # A partial redemption keeps the default unpaid/pending — the pending order row itself is
         # the reservation; the card collects the remainder and the debit lands only on settlement.
     order.items.extend(items)
 
     db.add(order)
     await db.flush()
+    await capture_order(db, order, order_data.referral_token)
     if points > 0:
         # After the flush so the reservation sum can exclude this order by id. Admission is
         # reserve-aware under the customer_profile lock (Model-1): a PARTIAL reserves (no ledger row
@@ -380,6 +380,12 @@ async def create_order(
         await loyalty_service.reserve_points(
             db, user_id=user_id, order_id=order.id, amount=points, settle_now=is_full
         )
+    if is_full:
+        # Capture and real debit precede the paid transition in this same transaction.
+        order.payment_status = "paid"
+        order.status = OrderStatus.CONFIRMED
+        order.paid_at = datetime.now(UTC)
+        await db.flush()
     await db.refresh(order)
     return order
 

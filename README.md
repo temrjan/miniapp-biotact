@@ -26,6 +26,7 @@ Telegram Mini App для продажи БАДов (биологически а�
 | Уведомления | `notifications/` | — | Telegram-оповещения админам о заказах |
 | Загрузки | `uploads/` | — | Upload изображений товаров |
 | Campaign administration | `campaigns/` | [README](packages/api/src/campaigns/README.md) | Current shop admin authorization and bounded server-only portal proxy |
+| Employee referral registry/capture | `employee_referrals/` | [README](packages/api/src/employee_referrals/README.md) | Local K1 receiver and optional order snapshots, independently OFF by default |
 
 ### Admin Panel (`admin-panel-v2/src/features/`)
 
