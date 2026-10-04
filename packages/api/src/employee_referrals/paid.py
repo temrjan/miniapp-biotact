@@ -131,6 +131,12 @@ async def record_paid(session: AsyncSession, order: Order) -> PaidOutbox | None:
     """Caller has the order lock, or owns its newly inserted fully-points order."""
     with paid_privacy_scope(session):
         try:
+            # Eligibility is private too, but unsafe echo must not reject ordinary
+            # payments. Keep this read inside the existing log/SDK boundary.
+            header = await session.get(ReferralOrderSnapshot, order.id)
+            if header is None:
+                return None
+            session.info["referral_paid"] = True
             bind = session.get_bind()
             if settings.database_echo or bind.engine.echo:
                 raise PaidUnavailableError()
@@ -139,10 +145,6 @@ async def record_paid(session: AsyncSession, order: Order) -> PaidOutbox | None:
             )
             if existing is not None:
                 return existing
-            header = await session.get(ReferralOrderSnapshot, order.id)
-            if header is None:
-                return None
-            session.info["referral_paid"] = True
             if order.payment_status != "paid" or order.paid_at is None:
                 raise PaidUnavailableError()
             items = (

@@ -19,6 +19,7 @@ from src.employee_referrals.models import (
     CampaignReplica,
     ReferralIdentity,
     ReferralOrderItemSnapshot,
+    ReferralOrderSnapshot,
 )
 from src.employee_referrals.order_privacy import filter_referral_telemetry
 from src.employee_referrals.paid_models import PaidOutbox
@@ -305,3 +306,83 @@ async def test_missing_retained_items_rolls_back_paid_unit(checkout):
     async with h.sessions() as session:
         assert (await session.get(Order, order["id"])).payment_status == "unpaid"
         assert await session.scalar(select(func.count()).select_from(PaymentEvent)) == 0
+
+
+@pytest.mark.parametrize("echo", ["setting", "engine"])
+@pytest.mark.parametrize("hook", ["callback", "fully-points"])
+async def test_ordinary_paid_echo_preserves_commit(checkout, monkeypatch, echo, hook):
+    h = checkout
+    monkeypatch.setattr(settings, "employee_referral_capture_enabled", False)
+    order = None
+    if hook == "callback":
+        order = (await h.create(h.body(points_to_apply=5000))).json()
+    if echo == "setting":
+        monkeypatch.setattr(settings, "database_echo", True)
+    else:
+        h.engine.echo = "debug"
+    try:
+        response = (
+            await callback(h, order)
+            if hook == "callback"
+            else await h.create(h.body(points_to_apply=10000))
+        )
+        assert response.status_code == (200 if hook == "callback" else 201), response.text
+        if hook == "fully-points":
+            order = response.json()
+    finally:
+        h.engine.echo = False
+    assert await facts(h) == []
+    async with h.sessions() as reader:
+        assert (await reader.get(Order, order["id"])).payment_status == "paid"
+        assert await reader.get(ReferralOrderSnapshot, order["id"]) is None
+        assert await loyalty.get_balance(reader, 1) == (95000 if hook == "callback" else 90000)
+        assert await reader.scalar(select(func.count()).select_from(PaymentEvent)) == (
+            1 if hook == "callback" else 0
+        )
+
+
+async def test_retained_late_paid_echo_keeps_eligibility_and_rollback_private(
+    checkout, monkeypatch, caplog, capsys
+):
+    h = checkout
+    order = (await h.create(h.body(points_to_apply=5000))).json()
+    marker = "PRIVATE_PAID_ELIGIBILITY_CANARY"
+    async with h.sessions.begin() as writer:
+        header = await writer.get(ReferralOrderSnapshot, order["id"])
+        header.campaign_name = header.employee_display_name = marker
+        code = str(header.employee_code)
+        campaign = await writer.get(CampaignReplica, 1)
+        campaign.state = "ended"
+        campaign.ended_at = h.now
+    monkeypatch.setattr(settings, "employee_referral_capture_enabled", False)
+    captured = Captured()
+    sentry_sdk.init(
+        dsn="https://public@example.invalid/1",
+        transport=captured,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=1.0,
+        before_send=filter_referral_telemetry,
+        before_send_transaction=filter_referral_telemetry,
+    )
+    caplog.set_level(logging.DEBUG)
+    h.engine.echo = "debug"
+    try:
+        response = await callback(h, order)
+        assert response.status_code == 503
+        assert response.json() == {"detail": {"code": "referral_paid_unavailable"}}
+        sentry_sdk.flush()
+        assert captured.events == []
+    finally:
+        h.engine.echo = False
+        sentry_sdk.get_client().close()
+    output = capsys.readouterr()
+    observed = response.text + caplog.text + output.out + output.err + json.dumps(captured.events)
+    assert marker not in observed
+    assert code not in observed
+    logging.getLogger("sqlalchemy.engine.Engine").warning("ORDINARY_ECHO_CONTROL")
+    assert "ORDINARY_ECHO_CONTROL" in caplog.text
+    assert await facts(h) == []
+    async with h.sessions() as reader:
+        assert (await reader.get(Order, order["id"])).payment_status == "unpaid"
+        assert await loyalty.get_balance(reader, 1) == 100000
+        assert await reader.scalar(select(func.count()).select_from(PaymentEvent)) == 0
