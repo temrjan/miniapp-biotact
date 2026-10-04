@@ -22,6 +22,7 @@ const readIntent = (orderId: string): { intent: ReturnIntent | null; error: stri
 
 export const ReferralReturns = ({ orderId, items }: { orderId: string; items: OrderItem[] }) => {
   const summary = useReferralReturns(orderId);
+  const data = summary.data;
   const [restored] = useState(() => readIntent(orderId));
   const [intent, setIntent] = useState<ReturnIntent | null>(restored.intent);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
@@ -31,16 +32,16 @@ export const ReferralReturns = ({ orderId, items }: { orderId: string; items: Or
   const sending = useRef(false);
 
   const submit = async () => {
-    if (sending.current || restored.error || forbidden || !summary.data || summary.error) return;
+    if (sending.current || restored.error || forbidden || !data || summary.error) return;
     let next = intent;
     if (!next) {
-      const selected = summary.data.lines.flatMap(line => {
+      const selected = data.lines.flatMap(line => {
         const value = quantities[line.order_item_id] ?? '';
         return value === '' || value === '0' ? [] : [{ order_item_id: line.order_item_id, quantity: value }];
       });
       const parsed = intentSchema.safeParse({ return_id: crypto.randomUUID(), lines: normalizeLines(selected) });
       if (!parsed.success || parsed.data.lines.some(line => {
-        const source = summary.data.lines.find(value => value.order_item_id === line.order_item_id);
+        const source = data.lines.find(value => value.order_item_id === line.order_item_id);
         return !source || BigInt(line.quantity) > BigInt(source.paid_quantity) - BigInt(source.returned_quantity);
       })) {
         setMessage('Укажите положительное количество в пределах оставшегося.');
@@ -72,6 +73,7 @@ export const ReferralReturns = ({ orderId, items }: { orderId: string; items: Or
       const status = statusOf(error);
       if (status === 401 || status === 403) {
         setForbidden(true);
+        summary.clearProtectedData();
         setQuantities({});
         setMessage('Нет доступа к подтверждениям.');
       } else if (status === 409 || status === 422) {
@@ -95,14 +97,14 @@ export const ReferralReturns = ({ orderId, items }: { orderId: string; items: Or
 
   const status = statusOf(summary.error);
   if (status === 404) return null;
-  if (forbidden || status === 401 || status === 403) return <p role="alert">Нет доступа к подтверждениям.</p>;
+  if (forbidden || data === null || status === 401 || status === 403) return <p role="alert">Нет доступа к подтверждениям.</p>;
   return <Card>
     <CardHeader><CardTitle>Подтверждённый возврат товара кампании</CardTitle></CardHeader>
     <CardContent className="space-y-3">
       {summary.isPending ? <p>Загрузка подтверждённых количеств…</p> : summary.error ?
         <><p role="alert">Не удалось загрузить количества.</p><Button onClick={() => void summary.refetch()}>Повторить загрузку</Button></> :
-        summary.data && <>
-          {summary.data.lines.map(line => {
+        data && <>
+          {data.lines.map(line => {
             const remaining = (BigInt(line.paid_quantity) - BigInt(line.returned_quantity)).toString();
             const item = items.find(value => Number.isSafeInteger(value.id) && String(value.id) === line.order_item_id);
             return <div key={line.order_item_id}>
@@ -114,7 +116,7 @@ export const ReferralReturns = ({ orderId, items }: { orderId: string; items: Or
               </label>
             </div>;
           })}
-          <Button variant="outline" disabled={pending || !!intent || !!restored.error} onClick={() => setQuantities(Object.fromEntries(summary.data.lines.map(line => [line.order_item_id, (BigInt(line.paid_quantity) - BigInt(line.returned_quantity)).toString()])))}>Все оставшиеся</Button>
+          <Button variant="outline" disabled={pending || !!intent || !!restored.error} onClick={() => setQuantities(Object.fromEntries(data.lines.map(line => [line.order_item_id, (BigInt(line.paid_quantity) - BigInt(line.returned_quantity)).toString()])))}>Все оставшиеся</Button>
           <p>{confirmation}</p>
           <Button disabled={pending || !!restored.error} onClick={() => void submit()}>{pending ? 'Отправка…' : intent ? 'Повторить сохранённое подтверждение' : 'Подтвердить возврат'}</Button>
         </>}
