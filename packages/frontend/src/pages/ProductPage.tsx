@@ -106,12 +106,14 @@ export function ProductPage() {
   };
 
   useEffect(() => {
+    let active = true;
     async function fetchProduct() {
       if (!productId) return;
       setIsLoading(true);
       setError(null);
       try {
         const response = await productsApi.getProduct(productId);
+        if (!active) return;
         const mappedProduct = mapProduct(response as unknown as ApiProduct, language);
         setProduct(mappedProduct);
         if (mappedProduct.categoryId) {
@@ -119,16 +121,18 @@ export function ProductPage() {
             categoryId: mappedProduct.categoryId,
             limit: 10,
           });
+          if (!active) return;
           const mapped = (similarResponse.items as unknown as ApiProduct[]).filter((p) => String(p.id) !== productId).slice(0, 5).map((p) => mapProduct(p, language));
           setSimilarProducts(mapped);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load product');
+        if (active) setError(err instanceof Error ? err.message : 'Failed to load product');
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     }
     fetchProduct();
+    return () => { active = false; };
   }, [productId, language]);
 
   const handleAddToCart = () => {

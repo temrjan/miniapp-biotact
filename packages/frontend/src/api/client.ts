@@ -1,4 +1,5 @@
 import WebApp from '@twa-dev/sdk';
+import { referralAuthRevision } from '@/employeeReferrals/authBoundary';
 
 import { useLanguageStore } from '@/stores/languageStore';
 import { API_BASE_URL, API_TIMEOUT_MS } from '@/utils/constants';
@@ -35,6 +36,8 @@ async function fetchWithAuth<T>(
 
   // Get current language from store (Zustand allows getState outside React)
   const language = useLanguageStore.getState().language;
+  const requestIdentity = WebApp.initData;
+  const requestRevision = referralAuthRevision();
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -45,7 +48,7 @@ async function fetchWithAuth<T>(
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'X-Init-Data': WebApp.initData,
+        'X-Init-Data': requestIdentity,
         'Accept-Language': language,
         ...fetchConfig.headers,
       },
@@ -54,7 +57,9 @@ async function fetchWithAuth<T>(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      if (endpoint !== '/employee-referrals/resolve' && (response.status === 401 || response.status === 403)) {
+      if (endpoint !== '/employee-referrals/resolve' &&
+          requestIdentity === WebApp.initData && requestRevision === referralAuthRevision() &&
+          (response.status === 401 || response.status === 403)) {
         window.dispatchEvent(new Event('biotact-auth-reset'));
       }
       const errorData = await response.json().catch(() => null);

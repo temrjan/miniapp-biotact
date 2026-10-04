@@ -20,6 +20,7 @@ interface ContextOptions {
   monotonic: () => number;
   wall: () => number;
   identity: () => string;
+  onInvalidate?: () => void;
 }
 
 export function canonicalToken(value: unknown): value is string {
@@ -112,6 +113,7 @@ export class ReferralContext {
   }
   private clear(status: EntryStatus, removeStorage = true) {
     this.generation += 1;
+    this.options.onInvalidate?.();
     clearTimeout(this.timer);
     this.active = null;
     this.candidate = null;

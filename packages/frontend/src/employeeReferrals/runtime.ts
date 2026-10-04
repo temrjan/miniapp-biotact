@@ -1,6 +1,7 @@
 import WebApp from '@twa-dev/sdk';
 import { api } from '@/api/client';
 import { ReferralContext } from './context';
+import { invalidateReferralAuthRequests } from './authBoundary';
 
 export const isReferralEntryEnabled = () => import.meta.env.VITE_EMPLOYEE_REFERRAL_ENTRY === 'true';
 export const referralContext = new ReferralContext({
@@ -16,6 +17,7 @@ export const referralContext = new ReferralContext({
   wall: () => Date.now(),
   // Used only to notice credential switches; never persisted or sent to diagnostics.
   identity: () => WebApp.initData,
+  onInvalidate: invalidateReferralAuthRequests,
 });
 
 export interface ReferralEntry {
