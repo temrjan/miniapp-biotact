@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     employee_referral_k2_key: SecretStr = SecretStr("")
     employee_referral_notices_enabled: str = "false"
 
+    employee_referral_count_readback_enabled: str = "false"
+    employee_referral_count_readback_key: SecretStr = SecretStr("")
+
     # Database
     database_url: str
     database_echo: bool = False

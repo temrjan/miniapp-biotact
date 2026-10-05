@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.config import settings
 from src.employee_referrals.delivery_models import K2Delivery, NoticeDelivery
 from src.employee_referrals.delivery_privacy import private_operation, private_scope
-from src.employee_referrals.delivery_store import Lane, claim_job, complete, now, retry
+from src.employee_referrals.delivery_store import Lane, claim_job, complete, now, replay_k2, retry
 from src.employee_referrals.paid_models import PaidOutbox
 from src.employee_referrals.return_models import ReturnOutbox
 from src.employee_referrals.transport import LaneConfig, send_k2, send_notice
@@ -200,14 +200,18 @@ class Parser(argparse.ArgumentParser):
 
 async def command(argv: Sequence[str]) -> int:
     parser = Parser(add_help=False)
-    parser.add_argument("action", choices=("run", "health", "retry"))
+    parser.add_argument("action", choices=("run", "health", "retry", "replay-k2"))
     parser.add_argument("--lane", choices=("k2", "notice"))
     parser.add_argument("--event-id")
     try:
         args = parser.parse_args(argv)
         event = None
-        if args.action == "retry":
-            if args.lane is None or args.event_id is None:
+        if args.action in {"retry", "replay-k2"}:
+            if (
+                (args.action == "retry" and args.lane is None)
+                or (args.action == "replay-k2" and args.lane is not None)
+                or args.event_id is None
+            ):
                 raise ValueError("Invalid operator request")
             event = UUID(args.event_id)
             if event.version != 4 or str(event) != args.event_id:
@@ -269,7 +273,10 @@ async def command(argv: Sequence[str]) -> int:
                 if event is None:
                     raise ValueError("Missing event")
                 lane: Lane = "k2" if args.lane == "k2" else "notice"
-                result, count, code = await retry(sessions, lane, event, config[lane])
+                if args.action == "replay-k2":
+                    result, count, code = await replay_k2(sessions, event, config["k2"])
+                else:
+                    result, count, code = await retry(sessions, lane, event, config[lane])
                 data = {"result": result, "count": count}
         print(json.dumps(data, sort_keys=True))
         return code

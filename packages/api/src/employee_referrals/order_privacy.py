@@ -81,6 +81,7 @@ def filter_referral_telemetry(event: "Event", hint: "Hint") -> "Event | None":
         or event.get("tags", {}).get("biotact_referral_return") == "yes"
         or event.get("tags", {}).get("biotact_referral_paid") == "yes"
         or event.get("tags", {}).get("biotact_referral_entry") == "yes"
+        or event.get("tags", {}).get("biotact_referral_count") == "yes"
     ):
         return None
     return filter_k1(event, hint)

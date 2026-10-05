@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import and_, false, func, or_, select
+from sqlalchemy import and_, false, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.employee_referrals.delivery_models import DeliveryColumns, K2Delivery, NoticeDelivery
@@ -229,4 +229,57 @@ async def retry(
         job.leased_until = None
         job.next_attempt_at = await now(session)
         job.error_category = None
+        return "queued", 1, 0
+
+
+@private_operation
+async def replay_k2(
+    sessions: async_sessionmaker[AsyncSession], event: UUID, config: LaneConfig
+) -> tuple[str, int, int]:
+    """Explicitly replay one retained fact, including ACK after a Portal restore."""
+    if not config.enabled or not config.valid("k2"):
+        return "configuration", 0, 2
+    async with sessions.begin() as session:
+        paid_id = await session.scalar(select(PaidOutbox.id).where(PaidOutbox.event_id == event))
+        return_id = await session.scalar(
+            select(ReturnOutbox.id).where(ReturnOutbox.return_id == event)
+        )
+        if paid_id is not None and return_id is not None:
+            return "quarantined", 0, 1
+        job = await session.scalar(
+            select(K2Delivery)
+            .where(
+                or_(
+                    K2Delivery.paid_id == paid_id if paid_id is not None else false(),
+                    K2Delivery.return_id == return_id if return_id is not None else false(),
+                )
+            )
+            .with_for_update()
+        )
+        if job is None:
+            return "missing", 0, 1
+        if job.state == "leased":
+            return "busy", 0, 1
+        if job.error_category in QUARANTINE or job.generation >= MAX_BIGINT:
+            return "quarantined", 0, 1
+        await verify(session, "k2", job)
+        from src.employee_referrals.returns import read_history
+
+        source_row = await source(session, job)
+        await read_history(session, source_row.order_id)
+        # JSONB None means JSON null; the receipt invariant requires SQL NULL.
+        await session.execute(
+            update(K2Delivery)
+            .where(K2Delivery.id == job.id)
+            .values(
+                state="pending",
+                attempt_count=0,
+                generation=job.generation + 1,
+                leased_until=None,
+                next_attempt_at=await now(session),
+                error_category=None,
+                ack=null(),
+                completed_at=None,
+            )
+        )
         return "queued", 1, 0
