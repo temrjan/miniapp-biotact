@@ -63,6 +63,8 @@ async def test_actual_worker_sigterm_sigkill_recovery_and_health(checkout, tmp_p
         EMPLOYEE_REFERRAL_K2_PORTAL_ORIGIN="https://portal.example.test",
         EMPLOYEE_REFERRAL_K2_KEY="00" * 32,
         EMPLOYEE_REFERRAL_NOTICES_ENABLED="true",
+        TELEGRAM_NOTIFICATION_BOT_TOKEN="12345:synthetic_g6a",
+        TELEGRAM_CHAT_ID="-12345",
         G6A_BOUNDARY_MARKER=str(marker),
     )
     processes = []
