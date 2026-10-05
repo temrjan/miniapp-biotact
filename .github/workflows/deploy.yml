@@ -55,6 +55,28 @@ jobs:
 
           echo "=== Save current revision for rollback ==="
           PREV_COMMIT=$(git rev-parse HEAD)
+          G6_CUTOVER=false
+          # Stop affected writers before replacing source or backfilling retained jobs.
+          pm2 stop api --namespace biotact
+          if pm2 pid employee-referral-worker --namespace biotact | awk '$1+0>0 {found=1} END {exit !found}'; then
+            pm2 stop employee-referral-worker --namespace biotact
+          fi
+          rollback_referrals() {
+            trap - ERR
+            cd /var/www/biotact
+            if [ -f ops/employee-referral-release.sh ]; then
+              bash ops/employee-referral-release.sh rollback "$PREV_COMMIT" "$G6_CUTOVER"
+            elif [ "$G6_CUTOVER" = "false" ]; then
+              # A fetch failure on first install still has the previous checkout.
+              git reset --hard "$PREV_COMMIT"
+              pm2 restart api --namespace biotact --update-env
+              pm2 save
+            else
+              echo "Referral rollback unavailable; affected writers remain paused"
+              return 1
+            fi
+          }
+          trap 'rollback_referrals; exit 1' ERR
 
           echo "=== Pull latest code ==="
           git fetch origin main
@@ -78,15 +100,18 @@ jobs:
           pip install -r requirements.txt --quiet
 
           set +e
+          trap - ERR
+          G6_CUTOVER=true
           alembic upgrade head
           MIGRATION_STATUS=$?
           set -e
+          trap 'rollback_referrals; exit 1' ERR
 
           if [ "$MIGRATION_STATUS" -ne 0 ]; then
             echo "=== Migration failed, aborting deploy and rolling back code ==="
             deactivate
             cd ../..
-            git reset --hard "$PREV_COMMIT"
+            rollback_referrals
             echo "=== Deploy aborted ==="
             exit 1
           fi
@@ -102,7 +127,7 @@ jobs:
           cd ../..
 
           echo "=== Restart services ==="
-          pm2 restart api --namespace biotact
+          bash ops/employee-referral-release.sh start
           pm2 restart bot --namespace biotact
           pm2 save
 
@@ -116,7 +141,7 @@ jobs:
 
           if [ "$HEALTH_OK" != "true" ]; then
             echo "=== Health check failed, rolling back code and rebuilds ==="
-            git reset --hard "$PREV_COMMIT"
+            rollback_referrals
 
             echo "=== Rebuild frontend from previous revision ==="
             cd packages/frontend
@@ -130,11 +155,14 @@ jobs:
             npm run build
             cd ..
 
-            pm2 restart api bot --namespace biotact
+            bash ops/employee-referral-release.sh check
+            pm2 restart bot --namespace biotact
             echo "=== Rollback complete ==="
             exit 1
           fi
 
+          bash ops/employee-referral-release.sh check
+          trap - ERR
           echo "=== Deploy complete ==="
           SCRIPT
 

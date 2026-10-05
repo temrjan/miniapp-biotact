@@ -161,6 +161,7 @@ class TelegramNotifier:
         delivery_address: str | None = None,
         invoice_uuid: str | None = None,
         points_applied: int = 0,
+        referral_label: str = "Без реферала",
     ) -> bool:
         """Notify about a new order whose card invoice was just created (payment initiated).
 
@@ -189,6 +190,8 @@ class TelegramNotifier:
 Имя: {esc(customer_name) if customer_name else "Не указано"}
 Телефон: {esc(customer_phone) if customer_phone else "Не указано"}
 {f"Адрес: {esc(delivery_address)}" if delivery_address else ""}
+
+{esc(referral_label)}
 
 🔖 <b>Заказ:</b> {esc(order_number)}
 {f"🧾 Invoice: {esc(invoice_uuid)}" if invoice_uuid else ""}
@@ -250,6 +253,8 @@ class TelegramNotifier:
 Имя: {esc(customer_name) if customer_name else "Не указано"}
 Телефон: {esc(customer_phone) if customer_phone else "Не указано"}
 {f"Адрес: {esc(delivery_address)}" if delivery_address else ""}
+
+Без реферала
 
 🔖 <b>Заказ:</b> {esc(order_number)}
 {f"🧾 Invoice: {esc(invoice_uuid)}" if invoice_uuid else ""}

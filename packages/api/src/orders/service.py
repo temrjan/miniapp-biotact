@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.employee_referrals.capture import capture_order, capture_requested
+from src.employee_referrals.paid import record_paid
 from src.loyalty import service as loyalty_service
 from src.orders.models import Order, OrderItem, OrderStatus
 from src.orders.schemas import (
@@ -386,6 +387,7 @@ async def create_order(
         order.status = OrderStatus.CONFIRMED
         order.paid_at = datetime.now(UTC)
         await db.flush()
+        await record_paid(db, order)
     await db.refresh(order)
     return order
 

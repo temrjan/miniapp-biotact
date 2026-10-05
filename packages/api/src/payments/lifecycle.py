@@ -34,6 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.employee_referrals.paid import record_paid
 from src.loyalty import service as loyalty_service
 from src.orders.models import Order, OrderStatus
 from src.payments.models import PaymentEvent
@@ -208,4 +209,6 @@ async def process_payment_event(
         order.status = OrderStatus.CANCELLED
 
     await db.flush()
+    if applied_success:
+        await record_paid(db, order)
     return EventOutcome(order=order, newly_processed=True, applied_success=applied_success)

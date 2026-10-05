@@ -78,7 +78,10 @@ class OrderPrivacyMiddleware:
 def filter_referral_telemetry(event: "Event", hint: "Hint") -> "Event | None":
     if (
         event.get("tags", {}).get("biotact_order_capture") == "yes"
+        or event.get("tags", {}).get("biotact_referral_return") == "yes"
+        or event.get("tags", {}).get("biotact_referral_paid") == "yes"
         or event.get("tags", {}).get("biotact_referral_entry") == "yes"
+        or event.get("tags", {}).get("biotact_referral_count") == "yes"
     ):
         return None
     return filter_k1(event, hint)

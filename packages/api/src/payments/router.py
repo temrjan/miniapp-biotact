@@ -10,6 +10,8 @@ from src.auth.dependencies import get_current_user
 from src.common.exceptions import ForbiddenException
 from src.config import settings
 from src.database import get_db
+from src.employee_referrals.notices import invoice_referral_label, owns_paid
+from src.employee_referrals.paid import PaidUnavailableError, commit_paid
 from src.notifications.service import telegram_notifier
 from src.orders import service as orders_service
 from src.payments.lifecycle import PaymentAmountMismatchError, process_payment_event
@@ -135,6 +137,7 @@ async def create_payment(
                 delivery_address=order.delivery_address,
                 invoice_uuid=result.uuid,
                 points_applied=order.points_applied,
+                referral_label=await invoice_referral_label(db, order.id),
             )
         except Exception as e:
             logger.error(f"Failed to send Telegram notification: {e}")
@@ -164,6 +167,8 @@ async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) ->
     Must run after the transaction is committed so the ``FOR UPDATE`` lock is not held across the
     Telegram network call (up to 10s) — same lesson as the points path.
     """
+    if await owns_paid(db, order_id):
+        return
     order = await orders_service.get_order_with_items(db, order_id)
     if not order:
         return
@@ -227,6 +232,8 @@ async def payment_callback(
             payload=callback.model_dump(),
             trust_success=True,  # MD5 callback is the authoritative success channel
         )
+    except PaidUnavailableError:
+        raise HTTPException(503, detail={"code": "referral_paid_unavailable"}) from None
     except PaymentAmountMismatchError as exc:
         # Non-2xx to a success callback = Multicard cancels+refunds — correct: we reject a
         # payment for the wrong sum rather than mark the order paid.
@@ -247,7 +254,10 @@ async def payment_callback(
         logger.info("Order %s paid successfully via %s", callback.invoice_id, callback.ps)
         # Commit BEFORE notifying so the order's FOR UPDATE lock is released before the Telegram
         # call; the get_db commit that follows is then a harmless no-op.
-        await db.commit()
+        try:
+            await commit_paid(db)
+        except PaidUnavailableError:
+            raise HTTPException(503, detail={"code": "referral_paid_unavailable"}) from None
         try:
             await _notify_paid(db, outcome.order.id, invoice_uuid=callback.uuid)
         except Exception as exc:  # notification is best-effort, never fails the callback
