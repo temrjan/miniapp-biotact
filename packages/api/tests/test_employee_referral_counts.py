@@ -587,3 +587,108 @@ async def test_two_permanent_pairs_other_campaign_and_unsigned_healthy_empty(che
     assert (await h.client.post(PATH, content=raw, headers=signed(raw))).json()["totals"] == qty(
         1, 0
     )
+
+
+async def foreign_history(h):
+    from tests.test_employee_referral_paid import callback
+
+    data = copy.deepcopy(h.data)
+    data["event_id"] = str(uuid4())
+    data["campaign"]["id"] = 2
+    data["participants"][0]["token"] = "AQEBAQEBAQEBAQEBAQEBAQ"
+    await h.publish(data)
+    orders = []
+    for index in range(3):
+        order = (await h.create(h.body(referral_token=data["participants"][0]["token"]))).json()
+        assert (await callback(h, order, uuid=f"foreign-count-{index}")).status_code == 200
+        orders.append(order)
+    return orders
+
+
+@pytest.mark.parametrize("empty", [False, True])
+async def test_campaign_event_bound_ignores_valid_foreign_history(checkout, monkeypatch, empty):
+    h = checkout
+    if not empty:
+        await paid_order(h)
+    await foreign_history(h)
+    monkeypatch.setattr(count_store, "MAX_EVENTS", 2)
+    response = await read(h)
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["source_state"] == "retained_valid"
+    assert value["totals"] == qty(0 if empty else 3, 0)
+    assert len(value["events"]) == (0 if empty else 1)
+    for _ in range(3 if empty else 2):
+        await paid_order(h)
+    refused = await read(h)
+    assert refused.status_code == 413
+    assert refused.json() == {"detail": {"code": "count_payload_too_large"}}
+
+
+@pytest.mark.parametrize("corruption", ["hash", "attribution", "uuid", "position"])
+async def test_foreign_damage_and_global_collisions_are_not_filtered(
+    checkout, monkeypatch, corruption
+):
+    import hashlib
+
+    from tests.test_employee_referral_paid import facts
+
+    h = checkout
+    await paid_order(h)
+    orders = await foreign_history(h)
+    assert (
+        await h.client.post(
+            path(orders[0]["id"]), json=intent(orders[0], 1), headers=await admin(h)
+        )
+    ).status_code == 200
+    monkeypatch.setattr(count_store, "MAX_EVENTS", 2)
+    own = (await facts(h))[0]
+    async with h.sessions.begin() as session:
+        returned = (await session.scalars(select(ReturnOutbox))).one()
+        value = json.loads(returned.body)
+        if corruption == "hash":
+            returned.body_sha256 = "f" * 64
+        elif corruption == "attribution":
+            value["attribution"]["campaign_id"] = 0
+        elif corruption == "uuid":
+            value["event_id"] = str(own.event_id)
+            returned.return_id = own.event_id
+        else:
+            await session.execute(delete(K2Delivery).where(K2Delivery.return_id == returned.id))
+            await session.execute(
+                delete(NoticeDelivery).where(NoticeDelivery.return_id == returned.id)
+            )
+            returned.id = own.id
+            value["source_position"] = own.id
+        if corruption != "hash":
+            returned.body = canonical(value)
+            returned.body_sha256 = hashlib.sha256(returned.body).hexdigest()
+    response = await read(h)
+    assert response.status_code == 503, response.text
+    assert response.json() == {"detail": {"code": "count_unavailable"}}
+
+
+async def test_owned_root_checks_capture_even_when_campaign_changed(checkout):
+    from src.employee_referrals.models import ReferralOrderSnapshot
+    from tests.test_employee_referral_paid import facts
+
+    h = checkout
+    order = await paid_order(h)
+    root = (await facts(h))[0]
+    body = root.body
+    async with h.sessions.begin() as session:
+        header = await session.get(ReferralOrderSnapshot, order["id"])
+        header.campaign_id = 2
+    response = await read(h)
+    assert response.status_code == 200
+    value = response.json()
+    assert value["source_state"] == "inconsistent"
+    assert value["totals"] is value["daily"] is None
+    async with h.sessions.begin() as session:
+        assert (await session.get(PaidOutbox, root.id)).body == body
+        await session.execute(delete(Order).where(Order.id == order["id"]))
+    deleted = (await read(h)).json()
+    assert deleted["source_state"] == "retained_valid"
+    assert deleted["totals"] == qty(3, 0)
+    async with h.sessions() as session:
+        assert (await session.get(PaidOutbox, root.id)).body == body

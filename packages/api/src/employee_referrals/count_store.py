@@ -3,7 +3,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.employee_referrals.count_wire import (
@@ -48,12 +48,9 @@ async def observe(
         clock = await session.scalar(select(func.clock_timestamp()))
         if not isinstance(clock, datetime):
             raise CountError("unavailable")
-        # Validate attribution before filtering damaged bodies. A bounded scan refuses
-        # oversized scope rather than silently excluding an unparseable source.
-        roots = list((await session.scalars(select(PaidOutbox).limit(MAX_EVENTS + 1))).all())
-        returns = list((await session.scalars(select(ReturnOutbox).limit(MAX_EVENTS + 1))).all())
-        if len(roots) + len(returns) > MAX_EVENTS:
-            raise CountError("payload_too_large")
+        # Validate global attribution/collisions before selecting the bounded campaign.
+        roots = list((await session.scalars(select(PaidOutbox))).all())
+        returns = list((await session.scalars(select(ReturnOutbox))).all())
         all_sources: list[PaidOutbox | ReturnOutbox] = [*roots, *returns]
         parsed = {r.id: validated(r) for r in all_sources}
         ids = [s.event_id for s in parsed.values()]
@@ -65,6 +62,9 @@ async def observe(
         ):
             raise CountError("unavailable")
         owned = [r for r in roots if parsed[r.id].attribution.campaign_id == campaign_id]
+        owned_orders = {r.order_id for r in owned}
+        if len(owned) + sum(r.order_id in owned_orders for r in returns) > MAX_EVENTS:
+            raise CountError("payload_too_large")
         roots_by_order = {r.order_id: r for r in roots}
         state = "retained_valid"
         for confirmation in returns:
@@ -73,14 +73,15 @@ async def observe(
         captures = list(
             (
                 await session.scalars(
-                    select(ReferralOrderSnapshot)
-                    .where(ReferralOrderSnapshot.campaign_id == campaign_id)
-                    .limit(MAX_EVENTS + 1)
+                    select(ReferralOrderSnapshot).where(
+                        or_(
+                            ReferralOrderSnapshot.campaign_id == campaign_id,
+                            ReferralOrderSnapshot.order_id.in_(owned_orders),
+                        )
+                    )
                 )
             ).all()
         )
-        if len(captures) > MAX_EVENTS:
-            raise CountError("payload_too_large")
         for header in captures:
             order = await session.get(Order, header.order_id)
             root = roots_by_order.get(header.order_id)
