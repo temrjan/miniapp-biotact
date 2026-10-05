@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.employee_referrals.models import ReferralOrderItemSnapshot, ReferralOrderSnapshot
+from src.employee_referrals.notices import append_jobs
 from src.employee_referrals.paid_models import PaidOutbox
 from src.employee_referrals.schemas import MAX_BIGINT, canonical_uuid, utc_text
 from src.orders.models import Order
@@ -181,6 +182,7 @@ async def record_paid(session: AsyncSession, order: Order) -> PaidOutbox | None:
             )
             session.add(row)
             await session.flush()
+            await append_jobs(session, row, order)
             return row
         except Exception:
             raise PaidUnavailableError("Referral paid unavailable") from None

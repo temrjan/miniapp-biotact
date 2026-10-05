@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     employee_referral_k1_key: SecretStr = SecretStr("")
     employee_referral_capture_enabled: bool = False
     employee_referral_entry_enabled: bool = False
+    # Delivery config is validated lazily by the separate worker, independently per lane.
+    employee_referral_k2_sender_enabled: str = "false"
+    employee_referral_k2_portal_origin: str = ""
+    employee_referral_k2_key: SecretStr = SecretStr("")
+    employee_referral_notices_enabled: str = "false"
 
     # Database
     database_url: str

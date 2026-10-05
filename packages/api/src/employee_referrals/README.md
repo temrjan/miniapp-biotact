@@ -112,14 +112,16 @@ cat > /tmp/biotact-k1-coverage.ini <<'CONFIG'
 [run]
 branch = True
 concurrency = thread, greenlet
+patch = subprocess
 [report]
 show_missing = True
 
 CONFIG
-pytest tests/ -v --no-header --cov=src --cov-config=/tmp/biotact-k1-coverage.ini --cov-branch --cov-report=json:coverage.json
+pytest tests/ -v --no-header --cov=src --cov=../../ops --cov-config=/tmp/biotact-k1-coverage.ini --cov-branch --cov-report=json:coverage.json
 ```
 
-The local coverage configuration is required for SQLAlchemy async greenlet switches;
+The local coverage configuration is required for SQLAlchemy async greenlet switches
+and separate worker/runtime-verifier subprocesses;
 without it, executed continuation lines are missed. See the pinned
 [Coverage 7.11 concurrency documentation](https://coverage.readthedocs.io/en/7.11.0/config.html#run-concurrency).
 It adds no exclusions or shared CI changes. Inspect actual branches in the critical
@@ -267,8 +269,7 @@ manually edited payments append nothing. Existing customer Club behavior is pres
 The outbox has unique order/event IDs, exact frozen count-only K2 bytes, SHA256 and
 creation time. Its sequence ID is source_position, not a commit watermark. The
 history has no cascading source FKs and an app-role UPDATE/DELETE rejection trigger.
-Retries reuse stored bytes; no sender, bookkeeping table or new activation flag is
-introduced. Serialization/storage/commit errors return fixed503
+Retries reuse stored bytes; the delivery worker below uses these immutable sources. Serialization/storage/commit errors return fixed503
 `{"detail":{"code":"referral_paid_unavailable"}}` and roll back the paid unit;
 post-commit Telegram failure preserves it. Private paid logging and Sentry channels
 are scoped; unrelated telemetry remains active. SQL echo blocks this private channel.
@@ -338,7 +339,7 @@ empty returns and drops only new objects; production downgrade is not recovery.
 After saved confirmations, retain return-compatible code/schema. Capture OFF stops
 new attribution without dropping retained facts; no new producer flag exists.
 Release order: extended Portal/schema with K2 OFF, then Shop schema/confirmation,
-then separately verified delivery. No transport worker is part of this module.
+then separately verified delivery using the worker below.
 
 `test_employee_referral_returns.py` uses the real mounted get_db/sessionmaker and
 owned PG17 for3→2→0, root/UUID races, durable/unknown commit, corrupt history, auth
@@ -347,3 +348,105 @@ and notification boundaries are substituted. Migration tests use unique owned
 scratch databases/restricted roles for populated compatibility, immutable triggers,
 shared sequence and whole-chain roundtrip/parity. Admin tests exercise the actual
 control and runtime decoder against the axios boundary.
+
+
+## K2 delivery and independent campaign notices
+
+Paid/return producers atomically append a row in each of
+`employee_referral_k2_delivery` and `employee_referral_notice_delivery` with the
+immutable source fact. They continue with capture/entry/K1/K2/notices OFF and after
+End. The K2 source alone owns wire bytes. The immutable local notice payload retains
+existing order sums/points/sale/form/customer display and campaign/employee identity;
+return notices show only confirmation quantities and their cumulative version.
+Deleted original orders/catalogue do not remove these records. Legacy paid returns
+use matching captured labels or honest retained IDs when labels no longer exist.
+
+New default-OFF settings in the private API `.env`:
+
+```env
+EMPLOYEE_REFERRAL_K2_SENDER_ENABLED=false
+EMPLOYEE_REFERRAL_K2_PORTAL_ORIGIN=
+EMPLOYEE_REFERRAL_K2_KEY=
+EMPLOYEE_REFERRAL_NOTICES_ENABLED=false
+```
+
+Switches accept only literal true/false, independently. Disabled lanes need no
+credentials. K2 ON requires an ASCII HTTPS origin without path/query/fragment or
+userinfo and a separate 64 lowercase-hex service key, distinct from K1/JWT/bots/
+campaign proxy. Its fixed route is `/api/v1/internal/employee-referrals/k2`.
+Notices use the existing notification token fallback and trusted group chat. Invalid
+lane configuration makes no claims/network and is reported without secret values.
+Provisioning, deployment and activation require their separate release decisions.
+
+From `packages/api`, using the same private `.env` and venv as API:
+
+```bash
+venv/bin/python -m src.employee_referrals.worker run
+venv/bin/python -m src.employee_referrals.worker health
+venv/bin/python -m src.employee_referrals.worker retry --lane k2 --event-id <UUIDv4>
+venv/bin/python -m src.employee_referrals.worker retry --lane notice --event-id <UUIDv4>
+```
+
+The separate PM2 process `employee-referral-worker`, namespace biotact, has one fork,
+no API port, and independent supervised lanes. Claims use short DB-clock transactions,
+SKIP LOCKED, durable attempts/generation and a 30s lease. Network starts after commit,
+with a total 10s deadline and 16384-byte raw response bound, verified TLS, no proxy
+environment/redirect/transport retry. Completion requires the same live generation.
+K2 retries send exact stored bytes with a fresh timestamp/HMAC. Only a strict matching
+commit receipt completes K2. Projection conflict/incomplete is acknowledged but
+reported as ack_unready; it is not repaired by resending. Notices make one sendMessage
+attempt and require positive message_id. The old campaign paid callers are suppressed
+by retained fact ownership, independently of flags/ACK; ordinary notices still use
+existing best-effort delivery and identify orders as «Без реферала». Invoice-created
+notices remain a distinct existing event.
+
+There are at most five automatic attempts. K2 delays are1/2/4/8 seconds; notices
+60/300/1800/7200 seconds with bounded Retry-After. Expired fifth leases block without
+another send. SIGTERM cancels tasks and closes resources; SIGKILL leaves leases to
+expire. Unknown Telegram network/commit outcomes can produce external duplicates on
+retry; exactly-once Telegram and complete historical notice delivery are not promised.
+Selected local retry requires repaired enabled configuration, increments generation
+and clears attempts only for an eligible blocked job. Conflict/storage/protocol/
+invalid_request/payload_limit are quarantined; terminal/legacy/missing returns count0.
+No bulk retry, public admin route or notice reconstruction is available.
+
+Health has an8s DB deadline and outputs only per-lane aggregate counts, oldest ages,
+aged>15min, safe categories and ack_unready: exit0 healthy/disabled,1 enabled lane
+blocked/aged/unready,2 configuration/storage unavailable. It proves local readiness,
+not successful delivery or count completeness. Current lane-cycle status is emitted
+at least every20s during bounded operation. SQL echo is refused before worker reads;
+private scopes suppress SQL/HTTPX/token URL/log/SDK payloads while unrelated telemetry
+remains active. Do not print `.env`, raw PM2 jlist or private database payloads.
+
+### Cutover and compatible recovery
+
+Migration b6a3c8d1e240 follows exact G5b head b5b2e7f9a341. Before schema/source
+cutover pause affected API/worker writers; capture OFF alone does not pause late
+payments/returns. Every existing paid/return source gets pending K2 and a terminal
+legacy_unknown notice with null payload/receipt. Historical notices are never
+invented or automatically resent. App-role triggers protect references/payloads/
+history; missing source→job correspondence stops delivery as storage unavailable.
+Scratch downgrade requires empty new operational tables; production downgrade is
+not recovery. No destructive history cleanup is offered.
+
+After authorized backups/verified restore and compatible Portal/schema installation,
+from `/var/www/biotact` use the named lifecycle helpers:
+
+```bash
+bash ops/employee-referral-release.sh pause
+# Install compatible source and run packages/api: alembic upgrade head.
+bash ops/employee-referral-release.sh start
+bash ops/employee-referral-release.sh check
+bash ops/employee-referral-release.sh rollback <previous-compatible-SHA> true
+```
+
+Start performs named startOrRestart (first installation included), API restart,
+actual PM2 PID/cwd/interpreter/args/restart-count and worker health verification, then
+pm2 save. No restart/delete all or ref-bot operation is used. Before schema cutover,
+rollback to a pre-worker revision removes only the newly introduced process. After
+cutover an incompatible previous revision leaves affected writers paused and fails
+the release, even if migration outcome is uncertain; install a compatible head.
+Compatible rollback retains schema/facts/jobs, reinstalls its exact named worker and
+checks health. The workflow verifies existing API/catalogue as well. These local
+commands and tests do not prove served production SHA, proxy privacy, backup safety
+or activation readiness; those are separate release checks.

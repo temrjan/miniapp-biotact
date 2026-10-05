@@ -10,6 +10,7 @@ from src.auth.dependencies import get_current_user
 from src.common.exceptions import ForbiddenException
 from src.config import settings
 from src.database import get_db
+from src.employee_referrals.notices import invoice_referral_label, owns_paid
 from src.employee_referrals.paid import PaidUnavailableError, commit_paid
 from src.notifications.service import telegram_notifier
 from src.orders import service as orders_service
@@ -136,6 +137,7 @@ async def create_payment(
                 delivery_address=order.delivery_address,
                 invoice_uuid=result.uuid,
                 points_applied=order.points_applied,
+                referral_label=await invoice_referral_label(db, order.id),
             )
         except Exception as e:
             logger.error(f"Failed to send Telegram notification: {e}")
@@ -165,6 +167,8 @@ async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) ->
     Must run after the transaction is committed so the ``FOR UPDATE`` lock is not held across the
     Telegram network call (up to 10s) — same lesson as the points path.
     """
+    if await owns_paid(db, order_id):
+        return
     order = await orders_service.get_order_with_items(db, order_id)
     if not order:
         return

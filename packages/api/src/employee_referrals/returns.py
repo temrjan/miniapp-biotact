@@ -199,6 +199,9 @@ async def confirm(
             raise ReturnError("unavailable") from None
         await read_history(session, order_id, lock=True)
         return {"receipt": receipt(existing), "replayed": True}
+    from src.employee_referrals.notices import append_jobs
+
+    await append_jobs(session, row)
     return {"receipt": receipt(row), "replayed": False}
 
 

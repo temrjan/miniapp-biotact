@@ -298,13 +298,14 @@ async def test_cancel_during_telegram_keeps_committed_full_points_order(checkout
         await asyncio.Event().wait()
 
     monkeypatch.setattr(telegram_notifier, "notify_payment_success", held)
-    task = asyncio.create_task(h.create(h.body(points_to_apply=10000)))
+    # Campaign paid sends belong to the durable worker; this ordinary path still sends here.
+    task = asyncio.create_task(h.create(h.body(referral_token=None, points_to_apply=10000)))
     await asyncio.wait_for(ready.wait(), 3)
-    assert await h.state() == (1, 1, 1, 90000)
+    assert await h.state() == (1, 0, 0, 90000)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert await h.state() == (1, 1, 1, 90000)
+    assert await h.state() == (1, 0, 0, 90000)
 
 
 async def test_new_order_rollback_does_not_undo_independent_cleanup(checkout, monkeypatch):

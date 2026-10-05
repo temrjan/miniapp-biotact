@@ -26,7 +26,7 @@ Telegram Mini App для продажи БАДов (биологически а�
 | Уведомления | `notifications/` | — | Telegram-оповещения админам о заказах |
 | Загрузки | `uploads/` | — | Upload изображений товаров |
 | Campaign administration | `campaigns/` | [README](packages/api/src/campaigns/README.md) | Current shop admin authorization and bounded server-only portal proxy |
-| Employee referral registry/capture | `employee_referrals/` | [README](packages/api/src/employee_referrals/README.md) | Local K1 receiver and optional order snapshots, independently OFF by default |
+| Employee referral registry/capture | `employee_referrals/` | [README](packages/api/src/employee_referrals/README.md) | K1/capture, retained paid/returns, K2 worker and independent notices; activation OFF by default |
 
 ### Admin Panel (`admin-panel-v2/src/features/`)
 
@@ -155,6 +155,7 @@ pm2 status
 # biotact namespace:
 # - api         # FastAPI на порту 3001
 # - bot         # Telegram бот
+# - employee-referral-worker # K2 и независимые campaign notices
 
 # bots namespace:
 # - multicard-backend     # Платёжный proxy
@@ -217,12 +218,15 @@ Backend валидирует X-Init-Data через HMAC-SHA256 с токено�
 
 ### Порядок деплоя
 
-1. Подтянуть код: `git fetch origin main && git reset --hard origin/main`.
-2. Собрать `packages/frontend` и `admin-panel-v2`.
-3. Установить зависимости Python.
-4. Выполнить `alembic upgrade head` в `packages/api`.
-5. Перезапустить `api` и `bot` в PM2.
-6. Health-check через `curl` к `/health` и `/api/v1/products`.
+1. Сохранить предыдущую ревизию и остановить affected API/employee-referral-worker writers.
+2. Подтянуть код и собрать frontend/admin, установить зависимости Python.
+3. Выполнить `alembic upgrade head` при остановленных writers.
+4. `bash ops/employee-referral-release.sh start`: named worker startOrRestart,
+   API restart, actual worker runtime/health и `pm2 save`; затем прежний bot restart.
+5. Проверить `/health`, `/api/v1/products` и worker runtime/health.
+
+Подробные default-OFF настройки, CLI, cutover и ограничения — в
+[feature runbook](packages/api/src/employee_referrals/README.md#k2-delivery-and-independent-campaign-notices).
 
 ### Дисциплина миграций (expand-contract)
 
@@ -240,13 +244,13 @@ Backend валидирует X-Init-Data через HMAC-SHA256 с токено�
 
 ### Откат (rollback)
 
-Если миграция падает — деплой прерывается, код откатывается на предыдущую
-ревизию, сервисы НЕ перезапускаются. Продолжает работать предыдущая версия.
-
-Если health-check падает после рестарта — код откатывается, frontend и admin
-пересобираются из предыдущей ревизии (т.к. `dist/` не под git), сервисы
-перезапускаются. Схема БД остаётся от новой миграции — поэтому миграции
-должны быть аддитивными.
+При неудаче deployment возвращает только совместимый код и проверяет named worker.
+До schema cutover допустим pre-worker rollback с удалением только нового worker.
+После cutover возврат к producer без delivery hooks запрещён: affected API/worker
+остаются paused до установки совместимого head. Facts/jobs/schema сохраняются;
+production downgrade не выполняется. Ошибка health не считается успешным выпуском.
+При совместимом rollback frontend/admin пересобираются из предыдущей ревизии,
+поскольку `dist/` не хранится в Git. См. feature runbook и named ops helper.
 
 ## База данных
 

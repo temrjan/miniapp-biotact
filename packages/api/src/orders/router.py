@@ -10,6 +10,7 @@ from src.auth.dependencies import get_current_user, verify_admin_jwt
 from src.common.exceptions import ForbiddenException
 from src.database import get_db
 from src.employee_referrals.capture import CaptureUnavailableError, capture_requested
+from src.employee_referrals.notices import owns_paid
 from src.employee_referrals.paid import PaidUnavailableError, commit_paid
 from src.loyalty.service import InsufficientPointsError
 from src.notifications.service import telegram_notifier
@@ -141,37 +142,38 @@ async def create_order(
         # its only send. Failure must not fail the order — the debit is already committed; mirror
         # of the payments-router pattern.
         try:
-            items_data = [
-                {
-                    "product_name": item.product_name,
-                    "quantity": item.quantity,
-                    "product_price": item.product_price,
-                    "is_sale_at_order": item.is_sale_at_order,
-                    "regular_price_at_order": item.regular_price_at_order,
-                    # Форма выпуска для отдела продаж. Заказ, покрытый баллами целиком, до
-                    # платёжного роутера не доходит вовсе — если не отдать slug здесь, отгрузка
-                    # такого заказа готовится вслепую, в отличие от карточных.
-                    #
-                    # ⚠️ ЗАВИСИМОСТЬ: товар доступен здесь только потому, что `create_order`
-                    # заканчивается `db.refresh(order)` (`orders/service.py:302`) — refresh
-                    # каскадом перезагружает `order.items`, а связь `OrderItem.product` объявлена
-                    # `lazy="joined"` (`orders/models.py:132`) и приезжает тем же JOIN'ом.
-                    # Уберут refresh — обращение к `item.product` упадёт, уведомление молча не
-                    # уйдёт (блок ниже глотает исключения). Это стережёт тест
-                    # `test_notifications_release_form_points_path`.
-                    "slug": item.product.slug if item.product else None,
-                }
-                for item in order.items
-            ]
-            await telegram_notifier.notify_payment_success(
-                order_number=order.order_number,
-                total=float(order.total),
-                items=items_data,
-                customer_name=order.delivery_name,
-                customer_phone=order.delivery_phone,
-                delivery_address=order.delivery_address,
-                points_applied=order.points_applied,
-            )
+            if not await owns_paid(db, order.id):
+                items_data = [
+                    {
+                        "product_name": item.product_name,
+                        "quantity": item.quantity,
+                        "product_price": item.product_price,
+                        "is_sale_at_order": item.is_sale_at_order,
+                        "regular_price_at_order": item.regular_price_at_order,
+                        # Форма выпуска для отдела продаж. Заказ, покрытый баллами целиком, до
+                        # платёжного роутера не доходит вовсе — если не отдать slug здесь, отгрузка
+                        # такого заказа готовится вслепую, в отличие от карточных.
+                        #
+                        # ⚠️ ЗАВИСИМОСТЬ: товар доступен здесь только потому, что `create_order`
+                        # заканчивается `db.refresh(order)` (`orders/service.py:302`) — refresh
+                        # каскадом перезагружает `order.items`, а связь `OrderItem.product` объявлена
+                        # `lazy="joined"` (`orders/models.py:132`) и приезжает тем же JOIN'ом.
+                        # Уберут refresh — обращение к `item.product` упадёт, уведомление молча не
+                        # уйдёт (блок ниже глотает исключения). Это стережёт тест
+                        # `test_notifications_release_form_points_path`.
+                        "slug": item.product.slug if item.product else None,
+                    }
+                    for item in order.items
+                ]
+                await telegram_notifier.notify_payment_success(
+                    order_number=order.order_number,
+                    total=float(order.total),
+                    items=items_data,
+                    customer_name=order.delivery_name,
+                    customer_phone=order.delivery_phone,
+                    delivery_address=order.delivery_address,
+                    points_applied=order.points_applied,
+                )
         except Exception:  # notification is best-effort, never blocks money
             logger.error("Failed to send Telegram notification")
 

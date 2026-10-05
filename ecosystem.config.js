@@ -1,6 +1,19 @@
 module.exports = {
   apps: [
     {
+      name: "employee-referral-worker",
+      namespace: "biotact",
+      cwd: "/var/www/biotact/packages/api",
+      script: "/var/www/biotact/packages/api/venv/bin/python",
+      args: "-m src.employee_referrals.worker run",
+      interpreter: "none",
+      exec_mode: "fork",
+      autorestart: true,
+      max_restarts: 5,
+      min_uptime: 5000,
+      max_memory_restart: "512M"
+    },
+    {
       name: "api",
       namespace: "biotact",
       cwd: "/var/www/biotact/packages/api",

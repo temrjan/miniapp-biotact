@@ -80,13 +80,18 @@ def test_return_additive_shared_sequence_and_restricted_role():
             )
         original = paid_fingerprint()
         for operation, target in [
-            ("upgrade", "head"),
+            ("upgrade", "b5b2e7f9a341"),
             ("downgrade", "b5a1d6e8f230"),
-            ("upgrade", "head"),
+            ("upgrade", "b5b2e7f9a341"),
         ]:
             alembic(operation, target)
             assert paid_fingerprint() == original
+        # Current metadata includes G6a; validate it, then return to this historical transition.
+        alembic("upgrade", "head")
         alembic("check")
+        with connection.cursor() as cur:
+            cur.execute("TRUNCATE employee_referral_k2_delivery, employee_referral_notice_delivery")
+        alembic("downgrade", "b5b2e7f9a341")
         with connection.cursor() as cur:
             cur.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier(role)))
             cur.execute(
@@ -155,6 +160,9 @@ def test_return_additive_shared_sequence_and_restricted_role():
         with connection.cursor() as cur:
             cur.execute("SELECT nextval('employee_referral_paid_outbox_id_seq')")
             assert cur.fetchone()[0] == 3
+        # Only the owned scratch superuser clears operational fixtures for the empty roundtrip.
+        with connection.cursor() as cur:
+            cur.execute("TRUNCATE employee_referral_k2_delivery, employee_referral_notice_delivery")
         alembic("downgrade", "base")
         alembic("upgrade", "head")
         alembic("check")
