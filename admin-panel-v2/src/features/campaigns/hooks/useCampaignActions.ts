@@ -55,8 +55,9 @@ export class CampaignController {
     }
     this.listeners.forEach(listener => listener())
   }
-  isCurrent = (session: number) => session === this.state.session && this.actorId !== null
+  isCurrent = (session: number) => session === this.state.session && this.actorId !== null && this.state.status !== 'accessDenied'
   private deny() {
+    this.state = { ...this.state, session: this.state.session + 1 }
     this.update({ ...idleState(), status: 'accessDenied', attempt: this.state.attempt, message: 'Доступ к акциям запрещён. Проверьте полномочия заново.' })
     if (this.actorId !== null) {
       void this.client.cancelQueries({ queryKey: ['campaigns', this.actorId] })
@@ -65,6 +66,7 @@ export class CampaignController {
   }
   async read<T>(send: () => Promise<T>): Promise<T> {
     const session = this.state.session
+    if (!this.isCurrent(session)) throw new CampaignApiError(null, false)
     try {
       const value = await send()
       if (!this.isCurrent(session)) throw new CampaignApiError(null, false)
@@ -75,10 +77,18 @@ export class CampaignController {
     }
   }
   async authorize(): Promise<void> {
+    const session = this.state.session
+    if (this.actorId === null) return
     try {
-      await this.read(() => campaignsApi.list(1))
+      await campaignsApi.list(1)
+      if (session !== this.state.session || this.actorId === null) return
+      this.state = { ...this.state, session: session + 1 }
+      void this.client.cancelQueries({ queryKey: ['campaigns', this.actorId] })
+      this.client.removeQueries({ queryKey: ['campaigns', this.actorId] })
       this.update({ ...idleState(), attempt: this.state.attempt, status: this.state.attempt ? 'unknown' : 'idle' })
-    } catch { /* read keeps the explicit refusal; no privileged state is restored. */ }
+    } catch (error: unknown) {
+      if (session === this.state.session && error instanceof CampaignApiError && (error.code === 'admin_forbidden' || error.code === 'invalid_admin_auth')) this.deny()
+    }
   }
   async execute(intent: WriteIntent): Promise<CampaignRecord | null> {
     this.syncActor()

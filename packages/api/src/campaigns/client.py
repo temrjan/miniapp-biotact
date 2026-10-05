@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from src.campaigns.results import MAX_BODY, CampaignResults
 from src.campaigns.schemas import (
     BoundaryModel,
     CampaignError,
@@ -152,6 +153,56 @@ def _decode(
     raise ValueError("Unconfirmed portal response")
 
 
+def decode_results(response: httpx.Response, campaign_id: int) -> CampaignResults:
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate field")
+            result[key] = value
+        return result
+
+    def nonfinite(_value: str) -> None:
+        raise ValueError("Invalid number")
+
+    if response.headers.get("content-type", "").split(";", 1)[
+        0
+    ].strip().lower() != "application/json" or "no-store" not in [
+        v.strip().lower() for v in response.headers.get("cache-control", "").split(",")
+    ]:
+        raise ValueError("Invalid response headers")
+    value = json.loads(response.content, object_pairs_hook=unique_object, parse_constant=nonfinite)
+    if response.status_code != 200:
+        mapping = {
+            (401, "invalid_service_auth"): "campaign_service_unavailable",
+            (404, "campaign_not_found"): "campaign_not_found",
+            (422, "invalid_request"): "invalid_request",
+            (503, "service_unavailable"): "service_unavailable",
+        }
+        if (
+            isinstance(value, dict)
+            and set(value) == {"detail"}
+            and isinstance(value["detail"], dict)
+            and set(value["detail"]) == {"code"}
+            and isinstance(value["detail"]["code"], str)
+        ):
+            code = mapping.get((response.status_code, value["detail"]["code"]))
+            if code is not None:
+                # Explicit branches retain the campaign allowlist's literal type.
+                if code == "campaign_service_unavailable":
+                    raise CampaignError("campaign_service_unavailable")
+                if code == "campaign_not_found":
+                    raise CampaignError("campaign_not_found")
+                if code == "invalid_request":
+                    raise CampaignError("invalid_request")
+                raise CampaignError("service_unavailable")
+        raise ValueError("Invalid refusal")
+    dto = CampaignResults.model_validate(value)
+    if dto.campaign_id != str(campaign_id):
+        raise ValueError("Unexpected campaign identity")
+    return dto
+
+
 class PortalClient:
     def __init__(self, http: httpx.AsyncClient, config: Settings) -> None:
         self.http = http
@@ -199,6 +250,35 @@ class PortalClient:
             raise CampaignError(
                 "campaign_result_unknown" if outcome is not None else "campaign_service_unavailable"
             ) from exc
+        finally:
+            _private_http.reset(context)
+
+    async def results(self, campaign_id: int) -> CampaignResults:
+        origin = self.config.campaign_portal_origin
+        token = self.config.campaign_service_token.get_secret_value()
+        if not valid_portal_origin(origin) or not token.strip():
+            raise CampaignError("campaign_service_unavailable")
+        context = _private_http.set(True)
+        try:
+            async with asyncio.timeout(OPERATION_TIMEOUT):
+                async with self.http.stream(
+                    "GET",
+                    origin + PORTAL_PATH + f"/{campaign_id}/results",
+                    headers={"Authorization": f"Bearer {token}"},
+                    follow_redirects=False,
+                    timeout=OPERATION_TIMEOUT,
+                ) as response:
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                        if len(body) + len(chunk) > MAX_BODY:
+                            raise ValueError("Response overflow")
+                        body.extend(chunk)
+                    buffered = httpx.Response(
+                        response.status_code, headers=response.headers, content=bytes(body)
+                    )
+                    return await asyncio.to_thread(decode_results, buffered, campaign_id)
+        except (TimeoutError, httpx.HTTPError, ValueError, RecursionError) as exc:
+            raise CampaignError("campaign_service_unavailable") from exc
         finally:
             _private_http.reset(context)
 

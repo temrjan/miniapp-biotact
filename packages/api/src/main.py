@@ -120,7 +120,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(EntryPrivacyMiddleware, prefix=settings.api_v1_prefix)
     app.add_middleware(ReturnPrivacyMiddleware, prefix=settings.api_v1_prefix)
-    app.add_middleware(CountPrivacy)
+    app.add_middleware(CountPrivacy, campaign_prefix=settings.api_v1_prefix + "/admin/campaigns/")
     app.include_router(count_router)
     app.include_router(referral_returns_router, prefix=settings.api_v1_prefix)
     app.include_router(referral_entry_router, prefix=settings.api_v1_prefix)
