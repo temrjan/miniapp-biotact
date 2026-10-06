@@ -28,6 +28,23 @@ const results = () => within(screen.getByRole('region', { name: 'Результ�
 describe('Mounted administrator Results journey', () => {
   beforeEach(() => { sessionStorage.clear(); actor(); vi.spyOn(console, 'error').mockImplementation(() => {}) })
   afterEach(() => { close?.(); close = undefined; vi.restoreAllMocks(); useAuthStore.getState().clearAuth() })
+  it('keeps one Results panel and form across repeated record and result refreshes', async () => {
+    page(() => success())
+    await screen.findByText('Employee A')
+    const user = userEvent.setup()
+    for (let refresh = 0; refresh < 3; refresh++) {
+      await user.click(screen.getByRole('button', { name: 'Обновить запись' }))
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Обновить запись' })).toBeEnabled())
+      expect(screen.getAllByRole('region', { name: 'Результаты' })).toHaveLength(1)
+      await user.click(results().getByRole('button', { name: 'Обновить результаты' }))
+      expect(await results().findByRole('row', { name: 'Всего по акции 5 1 4' })).toBeVisible()
+      expect(screen.getAllByRole('region', { name: 'Результаты' })).toHaveLength(1)
+      expect(document.querySelectorAll('form')).toHaveLength(1)
+    }
+    const keyWarnings = vi.mocked(console.error).mock.calls.filter(call =>
+      call.some(value => typeof value === 'string' && value.includes('same key')))
+    expect(keyWarnings).toHaveLength(0)
+  })
   it('shows exact rows, disclosure/time, clears stale numbers while refreshing and after failure', async () => {
     const delayed = deferred<Reply>(); let reads = 0
     const view = page(() => ++reads === 1 ? success() : reads === 2 ? delayed.promise : refusal(503, 'service_unavailable'))
