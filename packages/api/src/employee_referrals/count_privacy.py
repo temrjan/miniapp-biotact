@@ -1,6 +1,7 @@
 """Readback privacy before CORS/validation, through late send and SDK capture."""
 
 import logging
+import re
 from contextvars import ContextVar
 from urllib.parse import unquote
 
@@ -23,8 +24,21 @@ def install() -> None:
 
     def factory(*args: object, **kwargs: object) -> logging.LogRecord:
         record = previous(*args, **kwargs)
-        if _private.get() or (
-            record.name.startswith(("httpx", "httpcore")) and PATH in unquote(record.getMessage())
+        message = (
+            unquote(record.getMessage())
+            if record.name.startswith(("httpx", "httpcore", "uvicorn.access"))
+            else ""
+        )
+        private_result = (
+            re.search(
+                r"/api/v1/(?:admin|internal)/campaigns/[^/?\s\"]+/results(?:[/ ?\"]|$)", message
+            )
+            is not None
+        )
+        if (
+            _private.get()
+            or private_result
+            or (record.name.startswith(("httpx", "httpcore")) and PATH in message)
         ):
             if record.name == "uvicorn.access":
                 status = (
@@ -51,18 +65,24 @@ def install() -> None:
 
 
 class CountPrivacy:
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, campaign_prefix: str = "/api/v1/admin/campaigns/") -> None:
         self.app = app
+        self.campaign_prefix = campaign_prefix
         install()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         path = scope.get("path", "")
-        if scope["type"] != "http" or not (path == PATH or path.startswith(PATH + "/")):
+        is_results = path.startswith(self.campaign_prefix) and path.rstrip("/").endswith("/results")
+        if scope["type"] != "http" or not (
+            is_results or path == PATH or path.startswith(PATH + "/")
+        ):
             await self.app(scope, receive, send)
             return
         token = _private.set(True)
         if sentry_sdk.get_client().get_integration(StarletteIntegration) is not None:
             sentry_sdk.get_isolation_scope().set_tag("biotact_referral_count", "yes")
+        if is_results and sentry_sdk.get_client().get_integration(StarletteIntegration) is not None:
+            sentry_sdk.get_isolation_scope().set_tag("biotact_campaign_results", "yes")
         started = False
 
         async def private_send(message: Message) -> None:
@@ -74,7 +94,7 @@ class CountPrivacy:
                     "headers": [
                         (k, v)
                         for k, v in message.get("headers", [])
-                        if k.lower() != b"cache-control"
+                        if k.lower() not in {b"cache-control", b"etag", b"last-modified"}
                     ]
                     + [(b"cache-control", b"no-store")],
                 }
@@ -83,13 +103,22 @@ class CountPrivacy:
         try:
             with sentry_sdk.isolation_scope() as event_scope:
                 event_scope.set_tag("biotact_referral_count", "yes")
-                if scope["method"] not in {"POST", "OPTIONS"}:
+                if is_results:
+                    event_scope.set_tag("biotact_campaign_results", "yes")
+                if not is_results and scope["method"] not in {"POST", "OPTIONS"}:
                     await error("invalid_request", 405)(scope, receive, private_send)
                     return
                 try:
                     await self.app(scope, receive, private_send)
                 except Exception:
                     if not started:
-                        await error("unavailable")(scope, receive, private_send)
+                        if is_results:
+                            from src.campaigns.router import error_response
+
+                            await error_response("campaign_service_unavailable")(
+                                scope, receive, private_send
+                            )
+                        else:
+                            await error("unavailable")(scope, receive, private_send)
         finally:
             _private.reset(token)

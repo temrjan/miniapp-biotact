@@ -11,6 +11,7 @@ from starlette.types import Receive, Scope, Send
 
 from src.campaigns.client import PortalClient
 from src.campaigns.dependencies import authorize_campaign, campaign_client, write_outcome
+from src.campaigns.results import CampaignResults
 from src.campaigns.schemas import (
     CampaignError,
     CampaignPage,
@@ -170,3 +171,17 @@ async def end(
 @router.get("/{campaign_id}/k1-sync", response_model=CampaignSync)
 async def sync(campaign_id: CampaignId, client: Client) -> CampaignSync:
     return await client.sync(campaign_id)
+
+
+@router.get("/{campaign_id}/results", response_model=CampaignResults)
+async def results(
+    request: Request,
+    campaign_id: Annotated[int, Path(gt=0, le=9223372036854775807)],
+    client: Client,
+) -> CampaignResults:
+    if request.query_params:
+        raise CampaignError("invalid_request")
+    async for chunk in request.stream():
+        if chunk:
+            raise CampaignError("invalid_request")
+    return await client.results(campaign_id)

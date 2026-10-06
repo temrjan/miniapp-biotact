@@ -3,7 +3,7 @@ import type { AxiosRequestConfig } from 'axios'
 import { apiClient } from '@/shared/api/client'
 
 export interface CapturedRequest { method: string; url: string; body: unknown; params: Record<string, unknown> }
-export interface Reply { status: number; data: unknown }
+export interface Reply { status: number; data: unknown; headers?: Record<string, string> }
 export function installHttp(handler: (request: CapturedRequest) => Reply | Promise<Reply>) {
   const original = apiClient.defaults.adapter
   const requests: CapturedRequest[] = []
@@ -13,7 +13,7 @@ export function installHttp(handler: (request: CapturedRequest) => Reply | Promi
       params: (config.params ?? {}) as Record<string, unknown> }
     requests.push(request)
     const reply = await handler(request)
-    const response = { ...reply, statusText: '', headers: {}, config }
+    const response = { ...reply, statusText: '', headers: reply.headers ?? {}, config }
     if (reply.status >= 400) throw new AxiosError('Synthetic HTTP refusal', 'ERR_BAD_RESPONSE', config, undefined, response)
     return response
   }
