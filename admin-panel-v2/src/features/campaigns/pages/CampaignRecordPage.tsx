@@ -21,7 +21,7 @@ export function CampaignRecordPage() {
       {query.isFetching && <p role="status">Загрузка записи…</p>}
       {query.isError && <p role="alert">{query.error.message}</p>}
       {query.data && <CampaignSyncPanel key={`${state.session}:${id}:${query.data.updated_at}`} campaign={query.data} />}
-      {query.data && <CampaignResultsPanel key={`${state.session}:${id}`} campaignId={id} />}
+      {query.data && <CampaignResultsPanel key={`results:${state.session}:${id}`} campaignId={id} />}
       {query.data ? <CampaignForm key={`${state.session}:${id}`} initial={query.data} available={!query.isError && !query.isFetching} /> : <CampaignRecoveryPanel />}
     </>}
   </div>
