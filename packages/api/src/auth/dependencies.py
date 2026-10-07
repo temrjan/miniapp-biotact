@@ -1,10 +1,12 @@
 """Auth dependencies for FastAPI."""
 
+import re
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.service import get_or_create_user
@@ -61,37 +63,60 @@ async def get_current_admin(
     return current_user
 
 
-async def verify_admin_jwt(
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
-) -> int:
-    """Verify an ADMIN JWT and return user_id. Lightweight — no DB lookup.
-
-    Only the admin token opens the admin surface: ``type="admin"``, signed with ``secret_key``,
-    issued by ``/admin/auth/login`` (:func:`src.auth.admin_router.create_admin_token`).
-
-    PR-S removed a second accepted token (``type="access"`` signed with ``jwt_secret``). It carried
-    no role at all, so anyone able to obtain one from the self-registration circuit reached every
-    endpoint guarded by this dependency; that circuit is gone with it.
-
-    Decoded with ``settings.algorithm`` — the very setting the issuer signs with. The previous code
-    decoded with ``settings.jwt_algorithm``, a separate field that merely happened to hold the same
-    ``"HS256"``: it worked by coincidence, not by contract.
-    """
+def _admin_subject(credentials: HTTPAuthorizationCredentials, *, lightweight: bool = False) -> int:
+    """Validate claims before touching SQL, preserving both existing refusal conventions."""
     try:
-        payload = jwt.decode(
+        if credentials.scheme.lower() != "bearer":
+            raise ValueError("Invalid scheme")
+        payload: dict[str, object] = jwt.decode(
             credentials.credentials,
             settings.secret_key.get_secret_value(),
             algorithms=[settings.algorithm],
+            options={"require_exp": True, "verify_sub": False},
         )
-        sub = payload.get("sub")
-        if payload.get("type") == "admin" and sub is not None:
-            return int(sub)
-    except (JWTError, ValueError, TypeError) as exc:
-        raise HTTPException(status_code=401, detail="Invalid token") from exc
-    raise HTTPException(status_code=401, detail="Invalid token")
+        if type(payload.get("exp")) is not int:
+            raise ValueError("Invalid expiration")
+    except (JWTError, ValueError, TypeError, OverflowError):
+        if lightweight:
+            raise HTTPException(status_code=401, detail="Invalid token") from None
+        raise UnauthorizedException("Invalid or expired token") from None
+
+    if payload.get("type") != "admin" or "sub" not in payload:
+        if lightweight:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        raise ForbiddenException(
+            "Not an admin token" if payload.get("type") != "admin" else "Admin access required"
+        )
+    sub = payload["sub"]
+    if not isinstance(sub, str) or not re.fullmatch(r"[1-9][0-9]{0,9}", sub):
+        raise UnauthorizedException("Invalid token")
+    user_id = int(sub)
+    if user_id > 2147483647:
+        raise UnauthorizedException("Invalid token")
+    return user_id
 
 
-# Type aliases for cleaner code
+async def _current_admin(
+    db: AsyncSession, credentials: HTTPAuthorizationCredentials, *, lightweight: bool = False
+) -> User:
+    user_id = _admin_subject(credentials, lightweight=lightweight)
+    user = await db.scalar(
+        select(User).where(User.id == user_id).execution_options(populate_existing=True)
+    )
+    if user is None or not user.is_admin or not user.is_active:
+        raise ForbiddenException("Admin access required")
+    return user
+
+
+async def verify_admin_jwt(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    credentials: HTTPAuthorizationCredentials = Depends(_security),
+) -> int:
+    """Legacy integer-returning adapter; current rights are checked on every request."""
+    return (await _current_admin(db, credentials, lightweight=True)).id
+
+
+# Customer initData aliases stay unchanged.
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AdminUser = Annotated[User, Depends(get_current_admin)]
 
@@ -100,35 +125,15 @@ async def require_admin(
     db: Annotated[AsyncSession, Depends(get_db)],
     credentials: HTTPAuthorizationCredentials = Depends(_security),
 ) -> User:
-    """Strong admin gate: an admin-typed token AND ``is_admin`` confirmed in the database.
+    """Canonical admin JWT AND current active administrator rule."""
+    return await _current_admin(db, credentials)
 
-    Use this — not :func:`verify_admin_jwt` — for operations that change state irreversibly.
-    ``verify_admin_jwt`` is deliberately lightweight (no DB round-trip), so it cannot notice a
-    revoked account or a token whose subject no longer exists; freezing a lottery draw must not
-    hang on a check that weak.
 
-    This is the CANONICAL copy. Five functionally identical ones live in ``analytics/router.py``,
-    ``crm/router.py``, ``crm/admin_router.py``, ``broadcasts/admin_router.py`` and
-    ``users/admin_router.py``; they already differ cosmetically, which is how drift starts.
-    Collapsing them onto this one is a backlog item — deliberately NOT done here, so that PR-5.3
-    stays additive and no working router changes.
-    """
-    try:
-        payload = jwt.decode(
-            credentials.credentials,
-            settings.secret_key.get_secret_value(),
-            algorithms=[settings.algorithm],
-        )
-    except JWTError as exc:
-        raise UnauthorizedException("Invalid or expired token") from exc
-
-    if payload.get("type") != "admin":
-        raise ForbiddenException("Not an admin token")
-
-    sub = payload.get("sub")
-    if sub is None:
-        raise ForbiddenException("Admin access required")
-    user = await db.get(User, int(sub))
-    if user is None or not user.is_admin:
-        raise ForbiddenException("Admin access required")
-    return user
+async def require_admin_header(db: AsyncSession, authorization: str | None) -> User:
+    """Adapter for the existing Header-based router dependencies and /auth/me."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise UnauthorizedException("Missing authorization header")
+    return await require_admin(
+        db=db,
+        credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials=authorization[7:]),
+    )

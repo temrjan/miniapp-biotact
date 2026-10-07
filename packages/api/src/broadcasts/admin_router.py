@@ -3,16 +3,15 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
-from jose import JWTError, jwt
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import require_admin_header
 from src.broadcasts import service
 from src.broadcasts.models import Broadcast, BroadcastStatus
 from src.broadcasts.schemas import BroadcastCreate, BroadcastListResponse, BroadcastResponse
 from src.common.exceptions import BadRequestException, NotFoundException
-from src.config import settings
 from src.database import get_db
 from src.users.models import User
 
@@ -25,44 +24,8 @@ async def require_admin(
     db: Annotated[AsyncSession, Depends(get_db)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> User:
-    """Require admin JWT token from admin panel."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization header",
-        )
-
-    token = authorization.replace("Bearer ", "")
-
-    try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key.get_secret_value(),
-            algorithms=[settings.algorithm],
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        ) from None
-
-    if payload.get("type") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not an admin token",
-        )
-
-    user_id = int(payload.get("sub", 0))
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-
-    if not user or not user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-
-    return user
+    """Delegate to the shared current-account rule, preserving this router's signature."""
+    return await require_admin_header(db, authorization)
 
 
 AdminUser = Annotated[User, Depends(require_admin)]

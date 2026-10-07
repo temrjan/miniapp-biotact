@@ -27,8 +27,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from httpx import AsyncClient
 from jose import jwt
+from sqlalchemy import delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import Settings, settings
+from src.users.models import User
 
 # One endpoint per mounted router surface that declares ``Depends(verify_admin_jwt)``.
 # Paths carry the prefixes from ``main.py``; methods without a body are preferred so the response
@@ -133,7 +136,10 @@ async def test_user_access_token_is_refused_on_admin_surface(
     # is what catches a future "let's also accept access tokens" written against `secret_key`.
     for label, token in (
         ("legacy signature", _user_access_token()),
-        ("admin key, type=access", _user_access_token(secret=settings.secret_key.get_secret_value())),
+        (
+            "admin key, type=access",
+            _user_access_token(secret=settings.secret_key.get_secret_value()),
+        ),
     ):
         resp = await _call(client, method, path, token)
         assert resp.status_code == 401, (
@@ -175,7 +181,7 @@ async def test_removed_login_circuit_has_no_routes(
 
 @pytest.mark.parametrize(("method", "path"), [(p.values[0], p.values[1]) for p in ADMIN_SURFACES])
 async def test_admin_token_still_opens_admin_surface(
-    client: AsyncClient, method: str, path: str
+    client: AsyncClient, test_db: AsyncSession, method: str, path: str
 ) -> None:
     """POSITIVE CONTROL — the admin token keeps working on every surface.
 
@@ -183,8 +189,81 @@ async def test_admin_token_still_opens_admin_surface(
     so 404/422 are the honest answers of a handler that was ALLOWED to run. Without this test
     "refuse everything" would satisfy the refusal half above and silently kill the admin panel.
     """
+    test_db.add(User(id=1, telegram_id=1, is_admin=True, is_active=True))
+    await test_db.commit()
     resp = await _call(client, method, path, _admin_token())
-    assert resp.status_code != 401, (
+    assert resp.status_code not in (401, 403), (
         f"{method} {path} rejected a valid ADMIN token ({resp.status_code}) — the admin panel "
         "would be locked out"
     )
+
+
+LOCAL_SURFACES = [
+    ("GET", "/api/v1/analytics/dashboard"),
+    ("GET", "/api/v1/crm/customers"),
+    ("GET", "/api/v1/admin/crm/leads"),
+    ("GET", "/api/v1/admin/broadcasts"),
+    ("GET", "/api/v1/admin/users"),
+    ("GET", "/api/v1/admin/auth/me"),
+    ("GET", "/api/v1/admin/lottery/current"),
+]
+
+
+@pytest.mark.parametrize(
+    ("method", "path"), [(p.values[0], p.values[1]) for p in ADMIN_SURFACES] + LOCAL_SURFACES
+)
+@pytest.mark.parametrize("change", ["revoke", "inactive", "delete"])
+async def test_old_admin_token_retires_on_next_request(
+    client, test_db, method, path, change, monkeypatch
+):
+    monkeypatch.setattr(settings, "loyalty_enabled", True)
+    test_db.add(User(id=1, telegram_id=1, is_admin=True, is_active=True))
+    await test_db.commit()
+    token = _admin_token()
+    positive = await _call(client, method, path, token)
+    assert positive.status_code not in (401, 403)
+    if change == "delete":
+        await test_db.execute(delete(User).where(User.id == 1))
+    else:
+        await test_db.execute(
+            update(User)
+            .where(User.id == 1)
+            .values(**{"is_admin" if change == "revoke" else "is_active": False})
+        )
+    await test_db.commit()
+    refused = await _call(client, method, path, token)
+    assert refused.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"sub": "1", "type": "admin"},
+        {"sub": "1", "type": "admin", "exp": "9999999999"},
+        {"sub": "1", "type": "admin", "exp": 1},
+        {"sub": "01", "type": "admin", "exp": 9999999999},
+        {"sub": "2147483648", "type": "admin", "exp": 9999999999},
+        {"sub": [], "type": "admin", "exp": 9999999999},
+        {"sub": 1, "type": "admin", "exp": 9999999999},
+    ],
+)
+async def test_malformed_admin_claims_refuse(client, claims):
+    token = jwt.encode(claims, settings.secret_key.get_secret_value(), algorithm=settings.algorithm)
+    for path in ("/api/v1/admin/orders", "/api/v1/admin/auth/me"):
+        response = await _call(client, "GET", path, token)
+        assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("claims", "canonical_status"),
+    [
+        ({"type": "admin", "exp": 9999999999}, 403),
+        ({"type": "access", "sub": "1", "exp": 9999999999}, 403),
+    ],
+)
+async def test_wrapper_claim_statuses_preserved(client, claims, canonical_status):
+    token = jwt.encode(claims, settings.secret_key.get_secret_value(), algorithm=settings.algorithm)
+    assert (await _call(client, "GET", "/api/v1/admin/orders", token)).status_code == 401
+    assert (
+        await _call(client, "GET", "/api/v1/admin/auth/me", token)
+    ).status_code == canonical_status

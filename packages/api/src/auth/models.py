@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -65,3 +65,28 @@ class AdminUser(Base):
 
     def __repr__(self) -> str:
         return f"<AdminUser(id={self.id}, email={self.email})>"
+
+
+class AdminPasswordAccount(Base):
+    """Named credential only; current roles and profile belong to User."""
+
+    __tablename__ = "admin_password_accounts"
+    __table_args__ = (
+        CheckConstraint(
+            "login ~ '^[a-z][a-z0-9_.-]{2,63}$' AND login <> 'biotact'",
+            name="ck_admin_password_login",
+        ),
+        CheckConstraint(
+            r"password_hash ~ '^\$2b\$12\$[./A-Za-z0-9]{53}$'",
+            name="ck_admin_password_hash",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    login: Mapped[str] = mapped_column(String(64), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(60))
+
+    def __repr__(self) -> str:
+        return f"<AdminPasswordAccount(user_id={self.user_id})>"

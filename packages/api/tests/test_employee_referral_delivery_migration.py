@@ -149,13 +149,16 @@ def test_additive_legacy_cutover_and_immutable_operational_role():
                 with pytest.raises(psycopg2.errors.CheckViolation):
                     cur.execute(statement)
             cur.execute("RESET ROLE")
+        with connection.cursor() as cur:
+            cur.execute("SELECT version_num FROM alembic_version")
+            head_before_refusal = cur.fetchone()[0]
         assert "Referral delivery history prevents downgrade" in migrate(
             "downgrade", "b5b2e7f9a341", ok=False
         )
         assert fingerprint() == before
         with connection.cursor() as cur:
             cur.execute("SELECT version_num FROM alembic_version")
-            assert cur.fetchone()[0] == "b6a3c8d1e240"
+            assert cur.fetchone()[0] == head_before_refusal
             cur.execute("TRUNCATE employee_referral_k2_delivery,employee_referral_notice_delivery")
         migrate("downgrade", "b5b2e7f9a341")
         assert fingerprint() == before

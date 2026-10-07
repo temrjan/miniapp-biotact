@@ -26,7 +26,7 @@ describe('Badge', () => {
     expect(badge.className).toContain('secondary');
   });
 
-  it('applies outline variant', () => {
+  it('applies outline-solid variant', () => {
     render(<Badge variant="outline">Ожидание</Badge>);
     const badge = screen.getByText('Ожидание');
     expect(badge.className).toContain('text-foreground');

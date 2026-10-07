@@ -2,7 +2,7 @@
 
 First tests of the CRM router at all. Seeding commits through a second sessionmaker on the
 same test DB (READ COMMITTED visibility), mirroring test_loyalty_summary.py; the admin JWT
-comes from the shared ``admin_headers`` conftest fixture (sub=1 → a committed admin user).
+comes from the local ``admin_headers`` fixture (sub=1 → a committed admin user).
 Also covers ``purchased_products``: the regression guard for the explicit OrderItem join
 (the pre-fix relationship select produced a cartesian product and broke the endpoint).
 """
@@ -10,6 +10,7 @@ Also covers ``purchased_products``: the regression guard for the explicit OrderI
 import time
 from decimal import Decimal
 
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from jose import jwt
@@ -538,3 +539,14 @@ async def test_customers_rejects_non_admin_token(client: AsyncClient) -> None:
     )
     resp = await client.get(CUSTOMERS_URL, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+@pytest.fixture
+def admin_headers() -> dict[str, str]:
+    """This dataset seeds its own real administrator at id=1."""
+    token = jwt.encode(
+        {"sub": "1", "type": "admin", "exp": int(time.time()) + 3600},
+        settings.secret_key.get_secret_value(),
+        algorithm=settings.algorithm,
+    )
+    return {"Authorization": "Bearer " + token}

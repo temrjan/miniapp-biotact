@@ -220,7 +220,7 @@ export function BannersListPage() {
                 )}
               >
                 {/* Preview */}
-                <div className="w-48 h-24 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                <div className="w-48 h-24 rounded-lg overflow-hidden bg-muted shrink-0">
                   {banner.image_url ? (
                     <img
                       src={banner.image_url}
@@ -243,7 +243,7 @@ export function BannersListPage() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
-                    <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
                     <Input
                       type="text"
                       defaultValue={banner.link_url || ''}
@@ -255,7 +255,7 @@ export function BannersListPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   {/* Move up/down */}
                   <div className="flex flex-col">
                     <Button

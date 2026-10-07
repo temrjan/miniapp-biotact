@@ -16,7 +16,7 @@ export function CampaignResultsPanel({ campaignId }: { campaignId: number }) {
   })
   if (state.status === 'accessDenied' || actorId === null) return null
   const report = !query.isFetching && !query.isError ? query.data : undefined
-  return <section aria-label="Результаты" className="rounded-lg border p-4 space-y-3 break-words">
+  return <section aria-label="Результаты" className="rounded-lg border p-4 space-y-3 wrap-break-word">
     <h2 className="font-semibold">Результаты</h2>
     {query.isFetching ? <p role="status">Загрузка результатов…</p> : query.isError ?
       <p role="alert">Не удалось получить результаты. Повторите позже.</p> : report && <>
@@ -28,7 +28,7 @@ export function CampaignResultsPanel({ campaignId }: { campaignId: number }) {
             <table className="w-full text-sm">
               <thead><tr>{['Сотрудник', 'Оплачено, шт.', 'Возвращено, шт.', 'Итого, шт.'].map(text => <th key={text} scope="col" className="p-2 text-left">{text}</th>)}</tr></thead>
               <tbody>{report.items.map(row => <tr key={row.employee_code}>
-                <th scope="row" className="p-2 text-left font-normal break-words">{row.employee_display_name}{row.state !== 'observed' && <p role="alert">{failureText[row.state]}</p>}</th>
+                <th scope="row" className="p-2 text-left font-normal wrap-break-word">{row.employee_display_name}{row.state !== 'observed' && <p role="alert">{failureText[row.state]}</p>}</th>
                 <td className="p-2">{row.totals?.paid_quantity ?? '—'}</td><td className="p-2">{row.totals?.returned_quantity ?? '—'}</td><td className="p-2">{row.totals?.net_quantity ?? '—'}</td>
               </tr>)}</tbody>
               {report.totals && <tfoot><tr><th scope="row" className="p-2 text-left">Всего по акции</th><td className="p-2">{report.totals.paid_quantity}</td><td className="p-2">{report.totals.returned_quantity}</td><td className="p-2">{report.totals.net_quantity}</td></tr></tfoot>}

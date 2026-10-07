@@ -26,9 +26,6 @@ export const useLogin = () => {
       setAuth(data.user, data.access_token)
       navigate('/dashboard')
     },
-    onError: (error: unknown) => {
-      console.error('Login failed:', error)
-    },
   })
 }
 
