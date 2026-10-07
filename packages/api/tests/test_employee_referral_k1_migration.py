@@ -34,19 +34,21 @@ def test_additive_migration_preserves_legacy_objects_rows_and_parity():
         return result.stdout + result.stderr
 
     def fingerprint(connection):
+        # Compare the legacy schema, excluding the independently tested additive
+        # credentials table; alembic check below still covers all current models.
         with connection.cursor() as cursor:
             cursor.execute("""SELECT tablename, indexname, indexdef FROM pg_indexes
-                WHERE schemaname='public' AND tablename NOT LIKE 'employee_referral_%'
+                WHERE schemaname='public' AND tablename NOT LIKE 'employee_referral_%' AND tablename <> 'admin_password_accounts'
                 ORDER BY tablename, indexname""")
             indexes = cursor.fetchall()
             cursor.execute("""SELECT table_name, column_name, data_type, is_nullable, column_default
                 FROM information_schema.columns WHERE table_schema='public'
-                AND table_name NOT LIKE 'employee_referral_%' ORDER BY table_name, ordinal_position""")
+                AND table_name NOT LIKE 'employee_referral_%' AND table_name <> 'admin_password_accounts' ORDER BY table_name, ordinal_position""")
             columns = cursor.fetchall()
             cursor.execute("""SELECT c.relname, con.conname, pg_get_constraintdef(con.oid)
                 FROM pg_constraint con JOIN pg_class c ON c.oid=con.conrelid
                 JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
-                AND c.relname NOT LIKE 'employee_referral_%' ORDER BY 1,2""")
+                AND c.relname NOT LIKE 'employee_referral_%' AND c.relname <> 'admin_password_accounts' ORDER BY 1,2""")
             constraints = cursor.fetchall()
             rows = {}
             for table in ("referrers", "referral_invites", "users", "orders", "point_ledger"):
