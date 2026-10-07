@@ -51,7 +51,7 @@ export function CampaignSyncPanel({ campaign }: { campaign: CampaignRecord }) {
     return () => window.clearTimeout(timer)
   }, [observation])
   const valid = observation?.data.campaign_state === campaign.state
-  return <section aria-label="Доставка в магазин" className="rounded-lg border p-4 space-y-3 break-words">
+  return <section aria-label="Доставка в магазин" className="rounded-lg border p-4 space-y-3 wrap-break-word">
     <h2 className="font-semibold">Доставка в магазин</h2>
     {query.isError || observation && !valid ? <p role="alert">Не удалось проверить доставку. Повторите позже.</p> :
       !observation ? <p role="status">Проверяется доставка в магазин…</p> : <>
