@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.config import settings
 from src.database import Base, get_db
 from src.main import app
+from src.users.models import User
 
 # Test database URL
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/biotact_test_db"
@@ -110,11 +111,13 @@ def prod_timezone():
     time.tzset()
 
 
-@pytest.fixture
-def admin_headers() -> dict[str, str]:
-    """Auth headers with admin JWT for protected endpoints."""
+@pytest_asyncio.fixture
+async def admin_headers(test_db: AsyncSession) -> dict[str, str]:
+    """A real committed administrator, separate from customer fixtures."""
+    test_db.add(User(id=900001, telegram_id=990900001, is_admin=True, is_active=True))
+    await test_db.commit()
     payload = {
-        "sub": "1",
+        "sub": "900001",
         "type": "admin",
         "exp": int(time.time()) + 3600,
     }

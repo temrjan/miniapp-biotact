@@ -13,7 +13,7 @@ Telegram Mini App для продажи БАДов (биологически а�
 
 | Фича | Путь | Feature README | Что делает |
 |------|------|----------------|------------|
-| Авторизация | `auth/` | — | X-Init-Data HMAC + JWT для админки + email-код |
+| Authorization | `auth/` | [README](packages/api/src/auth/README.md) | Customer initData; named/compat password and Telegram-code administrator JWT with current rights |
 | Товары | `products/` | — | CRUD, поиск, категории, featured |
 | Категории | `categories/` | — | Дерево категорий |
 | Заказы | `orders/` | — | Корзина → заказ → статусы |

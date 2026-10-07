@@ -7,10 +7,22 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from jose import jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.dependencies import require_admin_header
+from src.auth.models import AdminPasswordAccount
+from src.auth.passwords import (
+    COMPAT_LOGIN,
+    DUMMY_HASH,
+    PasswordServiceUnavailable,
+    VerificationCapacity,
+    check_hash,
+    normalize_login,
+    password_bytes,
+)
 from src.config import settings
 from src.database import get_db
 from src.users.models import User
@@ -230,47 +242,17 @@ async def check_code_status(
     if code_data["telegram_id"] is None:
         return CodeStatusResponse(status="pending")
 
-    # Code was verified - create session
     telegram_id = code_data["telegram_id"]
-    user_data = code_data["user_data"]
-
-    # Check if admin
-    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
+    result = await db.execute(
+        select(User)
+        .where(User.telegram_id == telegram_id)
+        .execution_options(populate_existing=True)
+    )
     user = result.scalar_one_or_none()
-
-    if not user:
-        # Create user
-        user = User(
-            telegram_id=telegram_id,
-            username=user_data.get("username"),
-            first_name=user_data.get("first_name"),
-            last_name=user_data.get("last_name"),
-        )
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-
-    # Check admin access
-    is_admin_allowed = telegram_id in ADMIN_TELEGRAM_IDS or user.is_admin
-
-    if not is_admin_allowed:
+    if telegram_id not in ADMIN_TELEGRAM_IDS or not user or not user.is_admin or not user.is_active:
         del AUTH_CODES[code]
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. You are not an admin.",
-        )
-
-    # Mark as admin if in whitelist
-    if telegram_id in ADMIN_TELEGRAM_IDS and not user.is_admin:
-        user.is_admin = True
-        await db.flush()
-
-    await db.commit()
-
-    # Create token
+        raise HTTPException(status_code=403, detail="Access denied. You are not an admin.")
     token = create_admin_token(user.id, user.telegram_id)
-
-    # Remove used code
     del AUTH_CODES[code]
 
     return CodeStatusResponse(
@@ -354,42 +336,8 @@ async def get_current_admin(
     db: Annotated[AsyncSession, Depends(get_db)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Get current admin user from token."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization header",
-        )
-
-    token = authorization.replace("Bearer ", "")
-
-    try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key.get_secret_value(),
-            algorithms=[settings.algorithm],
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        ) from exc
-
-    if payload.get("type") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not an admin token",
-        )
-
-    user_id = int(payload.get("sub", 0))
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-
-    if not user or not user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
+    """Get the currently authorized admin, without creating or granting an identity."""
+    user = await require_admin_header(db, authorization)
 
     return {
         "id": user.id,
@@ -408,8 +356,9 @@ async def get_current_admin(
 class LoginRequest(BaseModel):
     """Simple login request."""
 
-    username: str
-    password: str
+    model_config = ConfigDict(strict=True, extra="forbid")
+    username: str = Field(max_length=128)
+    password: SecretStr
 
 
 class LoginResponse(BaseModel):
@@ -420,16 +369,12 @@ class LoginResponse(BaseModel):
     user: dict[str, Any]
 
 
-# Admin credentials loaded from environment variables
-ADMIN_CREDENTIALS = {
-    "biotact": {
-        "password": settings.admin_password.get_secret_value(),
-        "telegram_id": settings.admin_telegram_id,
-        "first_name": "Admin",
-        "last_name": "User",
-        "username": "biotact",
-    }
-}
+_verification_capacity = VerificationCapacity()
+
+
+def _login_refused(client_ip: str) -> HTTPException:
+    record_login_attempt(client_ip, success=False)
+    return HTTPException(status_code=401, detail="Invalid username or password")
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -438,68 +383,65 @@ async def admin_login(
     http_request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> LoginResponse:
-    """Simple password-based login for admin panel with rate limiting."""
-
-    # Get client IP for rate limiting
+    """Authenticate a named/compat credential; token issuance never grants a role."""
     client_ip = get_client_ip(http_request)
-
-    # Check rate limit
     is_allowed, wait_seconds = check_rate_limit(client_ip)
     if not is_allowed:
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            status_code=429,
             detail=f"Too many login attempts. Try again in {wait_seconds} seconds.",
             headers={"Retry-After": str(wait_seconds)},
         )
+    try:
+        login = normalize_login(request.username, allow_compat=True)
+        value = request.password.get_secret_value()
+        encoded = value.encode("utf-8") if login == COMPAT_LOGIN else password_bytes(value)
+        if not encoded:
+            raise ValueError("Invalid password")
+    except ValueError:
+        raise _login_refused(client_ip) from None
 
-    # Check credentials
-    if request.username not in ADMIN_CREDENTIALS:
-        record_login_attempt(client_ip, success=False)
+    try:
+        with _verification_capacity.admit():
+            if settings.database_echo or db.get_bind().engine.echo:
+                raise PasswordServiceUnavailable()
+            if login == COMPAT_LOGIN:
+                configured = settings.admin_password.get_secret_value()
+                user = await db.scalar(
+                    select(User)
+                    .where(User.telegram_id == settings.admin_telegram_id)
+                    .execution_options(populate_existing=True)
+                )
+                matches = bool(configured) and _hmac.compare_digest(
+                    encoded, configured.encode("utf-8")
+                )
+            else:
+                account = await db.scalar(
+                    select(AdminPasswordAccount)
+                    .where(AdminPasswordAccount.login == login)
+                    .execution_options(populate_existing=True)
+                )
+                matches = await check_hash(
+                    encoded, account.password_hash if account else DUMMY_HASH
+                )
+                user = (
+                    await db.scalar(
+                        select(User)
+                        .where(User.id == account.user_id)
+                        .execution_options(populate_existing=True)
+                    )
+                    if account
+                    else None
+                )
+            if not matches or not user or not user.is_admin or not user.is_active:
+                raise _login_refused(client_ip)
+            token = create_admin_token(user.id, user.telegram_id)
+    except (PasswordServiceUnavailable, SQLAlchemyError):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
+            status_code=503, detail="Authentication temporarily unavailable"
+        ) from None
 
-    creds = ADMIN_CREDENTIALS[request.username]
-
-    if not _hmac.compare_digest(request.password, str(creds["password"])):
-        record_login_attempt(client_ip, success=False)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
-
-    # Successful login - record and clear attempts
     record_login_attempt(client_ip, success=True)
-
-    # Get or create user
-    telegram_id = creds["telegram_id"]
-
-    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
-    user = result.scalar_one_or_none()
-
-    if not user:
-        # Create user
-        user = User(
-            telegram_id=telegram_id,
-            username=creds.get("username"),
-            first_name=creds.get("first_name"),
-            last_name=creds.get("last_name"),
-            is_admin=True,
-        )
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-    elif not user.is_admin:
-        # Make admin
-        user.is_admin = True
-        await db.flush()
-
-    await db.commit()
-
-    # Create token
-    token = create_admin_token(user.id, user.telegram_id)
-
     return LoginResponse(
         access_token=token,
         user={
@@ -508,6 +450,6 @@ async def admin_login(
             "username": user.username,
             "first_name": user.first_name,
             "last_name": user.last_name,
-            "is_admin": user.is_admin,
+            "is_admin": True,
         },
     )

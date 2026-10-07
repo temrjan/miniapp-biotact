@@ -20,6 +20,12 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 import src.models_registry  # noqa: F401 — единый реестр моделей (паритет/create_all)
 from src.analytics.router import router as analytics_router
 from src.auth.admin_router import router as admin_auth_router
+from src.auth.privacy import (
+    AuthPrivacyMiddleware,
+    filter_auth_telemetry,
+    is_private_auth,
+    unavailable,
+)
 from src.banners.router import router as banners_router
 from src.banners.router import settings_router
 from src.broadcasts.admin_router import router as admin_broadcasts_router
@@ -37,7 +43,6 @@ from src.employee_referrals.entry import router as referral_entry_router
 from src.employee_referrals.entry_privacy import EntryPrivacyMiddleware
 from src.employee_referrals.order_privacy import (
     OrderPrivacyMiddleware,
-    filter_referral_telemetry,
     is_private_order,
     order_paths,
 )
@@ -87,8 +92,8 @@ def create_app() -> FastAPI:
             dsn=settings.sentry_dsn,
             integrations=[FastApiIntegration(), SqlalchemyIntegration()],
             traces_sample_rate=0.1,
-            before_send=filter_referral_telemetry,
-            before_send_transaction=filter_referral_telemetry,
+            before_send=filter_auth_telemetry,
+            before_send_transaction=filter_auth_telemetry,
             environment="production" if not settings.debug else "development",
         )
         logger.info("Sentry initialized")
@@ -121,6 +126,8 @@ def create_app() -> FastAPI:
     app.add_middleware(EntryPrivacyMiddleware, prefix=settings.api_v1_prefix)
     app.add_middleware(ReturnPrivacyMiddleware, prefix=settings.api_v1_prefix)
     app.add_middleware(CountPrivacy, campaign_prefix=settings.api_v1_prefix + "/admin/campaigns/")
+    auth_prefix = settings.api_v1_prefix + "/admin/auth"
+    app.add_middleware(AuthPrivacyMiddleware, prefix=auth_prefix)
     app.include_router(count_router)
     app.include_router(referral_returns_router, prefix=settings.api_v1_prefix)
     app.include_router(referral_entry_router, prefix=settings.api_v1_prefix)
@@ -265,6 +272,10 @@ def create_app() -> FastAPI:
     async def order_validation_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        if is_private_auth(request.scope, auth_prefix):
+            return JSONResponse(
+                status_code=422, content={"detail": "Invalid authentication request"}
+            )
         if not is_private_order(request.scope, private_order_paths):
             return await request_validation_exception_handler(request, exc)
         # Pydantic's input/context can contain the raw referral token or its enclosing body.
@@ -279,6 +290,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+        if is_private_auth(request.scope, auth_prefix):
+            logger.error("Administrator authentication service failure")
+            return unavailable()
         if is_private_order(request.scope, private_order_paths):
             logger.error("Order data conflict | path=%s", request.scope["path"])
         else:
@@ -290,6 +304,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(OperationalError)
     async def operational_error_handler(request: Request, exc: OperationalError) -> JSONResponse:
+        if is_private_auth(request.scope, auth_prefix):
+            logger.error("Administrator authentication service failure")
+            return unavailable()
         if is_private_order(request.scope, private_order_paths):
             logger.error("Order database unavailable | path=%s", request.scope["path"])
         else:
@@ -301,6 +318,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        if is_private_auth(request.scope, auth_prefix):
+            logger.error("Administrator authentication service failure")
+            return unavailable()
         if is_private_order(request.scope, private_order_paths):
             logger.error("Order request failed | path=%s", request.scope["path"])
         else:

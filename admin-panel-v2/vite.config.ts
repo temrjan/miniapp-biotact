@@ -16,7 +16,7 @@ export default defineConfig({
     setupFiles: './src/test/setup.ts',
     coverage: {
       provider: 'v8', reporter: ['text', 'json', 'json-summary'],
-      include: ['src/features/campaigns/**/*.{ts,tsx}'],
+      include: ['src/features/campaigns/**/*.{ts,tsx}', 'src/features/auth/hooks/useAuth.ts'],
       exclude: ['**/*.test.*', '**/test/**', '**/types/**'],
     },
   },
