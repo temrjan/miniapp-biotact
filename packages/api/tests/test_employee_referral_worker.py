@@ -296,6 +296,17 @@ esac
         stub.chmod(0o755)
     workflow = (root / ".github/workflows/deploy.yml").read_text()
     payload = textwrap.dedent(workflow.split("<< 'SCRIPT'\n", 1)[1].split("          SCRIPT", 1)[0])
+    # The root-installed guard is an external operator prerequisite. Model its
+    # fixed path locally; the new workflow ordering has separate real Bash tests.
+    guard = fake / "guard"
+    guard.write_text(
+        '#!/usr/bin/env bash\nprintf "guard %s\\n" "$*" >> "$G6A_PM2_TRACE"\nexit "${FAKE_GUARD_EXIT:-0}"\n'
+    )
+    guard.chmod(0o755)
+    sudo = bin_dir / "sudo"
+    sudo.write_text('#!/usr/bin/env bash\nshift 2\nexec "$@"\n')
+    sudo.chmod(0o755)
+    payload = payload.replace("/usr/local/sbin/biotact-referral-maintenance", str(guard))
     prefix = shell.split("; bash ops/", 1)[0] + "; "
 
     def deploy(**changes):
