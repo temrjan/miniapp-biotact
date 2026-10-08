@@ -87,7 +87,7 @@ async def test_commit_replay_and_conflicting_raw_bytes(k1):
     assert first.json()["registry"]["participant_count"] == 1
     replica, tokens, receipts = await k1.rows()
     assert len(tokens) == len(receipts) == 1
-    assert replica.valid_until - replica.issued_at == timedelta(seconds=60)
+    assert replica.valid_until - replica.issued_at == timedelta(seconds=300)
     replay = await k1.post()
     assert replay.json()["replayed"] is True
     assert replay.json()["receipt"] == first.json()["receipt"]

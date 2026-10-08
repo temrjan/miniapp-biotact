@@ -40,7 +40,7 @@ class CampaignReplica(Base):
             name="ck_employee_referral_campaigns_end",
         ),
         CheckConstraint(
-            "valid_until = issued_at + interval '60 seconds'",
+            "valid_until - issued_at IN (interval '60 seconds', interval '300 seconds')",
             name="ck_employee_referral_campaigns_lease",
         ),
     )

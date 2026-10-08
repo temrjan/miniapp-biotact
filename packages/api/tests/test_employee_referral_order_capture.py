@@ -146,7 +146,7 @@ async def test_valid_mixed_and_duplicate_lines_are_server_snapshots(checkout):
         assert header.campaign_id == header.content_revision == 1
         assert header.product_id == 39
         assert header.currency == "UZS"
-        assert header.valid_until - header.issued_at == timedelta(seconds=60)
+        assert header.valid_until - header.issued_at == timedelta(seconds=300)
         assert header.issued_at <= header.captured_at < header.valid_until
         assert sorted(line.quantity for line in lines) == [2, 3]
         assert {line.order_item_id for line in lines} == {

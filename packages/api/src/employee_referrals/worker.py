@@ -9,19 +9,25 @@ import signal
 import time
 from collections.abc import Sequence
 from datetime import timedelta
+from pathlib import Path
 from typing import NoReturn
 from uuid import UUID
 
 import httpx
-from sqlalchemy import func, select
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
 from src.employee_referrals.delivery_models import K2Delivery, NoticeDelivery
 from src.employee_referrals.delivery_privacy import private_operation, private_scope
 from src.employee_referrals.delivery_store import Lane, claim_job, complete, now, replay_k2, retry
+from src.employee_referrals.maintenance import admission, register_participant
+from src.employee_referrals.models import CampaignReplica
 from src.employee_referrals.paid_models import PaidOutbox
 from src.employee_referrals.return_models import ReturnOutbox
+from src.employee_referrals.schemas import LEASE_SECONDS
 from src.employee_referrals.transport import LaneConfig, send_k2, send_notice
 
 logger = logging.getLogger(__name__)
@@ -63,19 +69,22 @@ async def deliver_one(
     lane: Lane,
     config: LaneConfig,
 ) -> bool:
-    if not config.enabled or not config.valid(lane):
-        return False
-    claim = await claim_job(sessions, lane)
-    if claim is None:
-        return False
-    if lane == "k2":
-        result = await send_k2(client, config, claim.body, claim.snapshot, claim.digest)
-    else:
-        if claim.notice is None:
-            raise ValueError("Missing display payload")
-        result = await send_notice(client, config, claim.notice)
-    await complete(sessions, claim, result)
-    return True
+    async with admission("shop") as allowed:
+        if not allowed:
+            return False
+        if not config.enabled or not config.valid(lane):
+            return False
+        claim = await claim_job(sessions, lane)
+        if claim is None:
+            return False
+        if lane == "k2":
+            result = await send_k2(client, config, claim.body, claim.snapshot, claim.digest)
+        else:
+            if claim.notice is None:
+                raise ValueError("Missing display payload")
+            result = await send_notice(client, config, claim.notice)
+        await complete(sessions, claim, result)
+        return True
 
 
 async def run_lane(
@@ -193,6 +202,63 @@ async def health(
     return output, 1 if degraded else 0
 
 
+def migration_head() -> str | None:
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    return ScriptDirectory.from_config(config).get_current_head()
+
+
+async def maintenance_health(
+    sessions: async_sessionmaker[AsyncSession], config: dict[Lane, LaneConfig]
+) -> tuple[dict[str, object], int]:
+    async with sessions() as session:
+        await session.execute(text("SET TRANSACTION READ ONLY"))
+        expected = await asyncio.to_thread(migration_head)
+        schemas = list(await session.scalars(text("SELECT version_num FROM alembic_version")))
+        schema = schemas[0] if len(schemas) == 1 and isinstance(schemas[0], str) else ""
+        leased = sum(
+            [
+                await session.scalar(
+                    select(func.count()).select_from(model).where(model.state == "leased")
+                )
+                or 0
+                for model in (K2Delivery, NoticeDelivery)
+            ]
+        )
+        invalid = any(not cfg.valid(lane) for lane, cfg in config.items())
+        blocked = sum(
+            [
+                (
+                    await session.scalar(
+                        select(func.count()).select_from(model).where(model.state == "blocked")
+                    )
+                    or 0
+                )
+                for model in (K2Delivery, NoticeDelivery)
+            ]
+        )
+        stored_lease = await session.scalar(
+            select(
+                func.max(
+                    func.extract("epoch", CampaignReplica.valid_until - CampaignReplica.issued_at)
+                )
+            )
+        )
+        maximum_lease = 0 if stored_lease is None else int(stored_lease)
+        ready = bool(schema and schema == expected and not invalid and not leased)
+        _, delivery_status = await health(sessions, config)
+        return {
+            "confirmation_seconds": LEASE_SECONDS,
+            "stored_confirmation_seconds": maximum_lease,
+            "healthy": delivery_status == 0,
+            "schema": schema,
+            "schema_ready": bool(schema and schema == expected),
+            "leased": leased,
+            "enabled": config["k2"].enabled,
+            "blocked": blocked,
+            "ready": ready,
+        }, 0 if ready else 1
+
+
 class Parser(argparse.ArgumentParser):
     def error(self, _message: str) -> NoReturn:
         raise ValueError("Invalid operator request")
@@ -200,7 +266,9 @@ class Parser(argparse.ArgumentParser):
 
 async def command(argv: Sequence[str]) -> int:
     parser = Parser(add_help=False)
-    parser.add_argument("action", choices=("run", "health", "retry", "replay-k2"))
+    parser.add_argument(
+        "action", choices=("run", "health", "maintenance-health", "retry", "replay-k2")
+    )
     parser.add_argument("--lane", choices=("k2", "notice"))
     parser.add_argument("--event-id")
     try:
@@ -240,6 +308,7 @@ async def command(argv: Sequence[str]) -> int:
         return 2
     try:
         if args.action == "run":
+            await asyncio.to_thread(register_participant, "shop")
             stop = asyncio.Event()
             loop = asyncio.get_running_loop()
             tasks = [
@@ -267,7 +336,9 @@ async def command(argv: Sequence[str]) -> int:
                     loop.remove_signal_handler(sig)
             return 0
         async with asyncio.timeout(8):
-            if args.action == "health":
+            if args.action == "maintenance-health":
+                data, code = await maintenance_health(sessions, config)
+            elif args.action == "health":
                 data, code = await health(sessions, config)
             else:
                 if event is None:
