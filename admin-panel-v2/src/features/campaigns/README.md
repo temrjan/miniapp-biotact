@@ -63,3 +63,11 @@ of current confirmation; it does not infer whether a lost renewal reached the
 shop. A sync failure preserves the saved campaign and never disables End or
 resolves an uncertain write. Current-account refusals clear protected data through
 the existing campaign controller.
+
+Results shows a complete campaign participant count and continuous row numbers.
+The validated report is displayed locally in pages of 20 employees, retaining
+server order. Previous/next controls appear when more than one page is needed;
+page changes make no request. Sales totals always cover the complete campaign.
+An explicit results refresh returns to the first page and hides the old count,
+rows and page controls while loading or after failure. The count describes
+retained participants of this campaign, not all employee registrations.

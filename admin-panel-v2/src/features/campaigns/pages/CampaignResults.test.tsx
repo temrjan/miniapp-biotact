@@ -25,6 +25,21 @@ function page(results: () => Reply | Promise<Reply>) {
 }
 const success = (data: unknown = resultFixture()): Reply => ({ status: 200, data, headers: { 'cache-control': 'no-store' } })
 const results = () => within(screen.getByRole('region', { name: 'Результаты' }))
+function participants(count: number) {
+  const report = resultFixture()
+  report.items = Array.from({ length: count }, (_, index) => ({
+    employee_code: `${(index + 1).toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`,
+    employee_display_name: `Employee ${index + 1}`, state: 'observed' as const,
+    totals: resultTotals('1', '0', '1'),
+  }))
+  report.totals = resultTotals(String(count), '0', String(count))
+  return report
+}
+function employeeRows() {
+  const body = results().getAllByRole('rowgroup')[1]
+  if (!body) throw new Error('Missing employee rows')
+  return within(body).queryAllByRole('row')
+}
 describe('Mounted administrator Results journey', () => {
   beforeEach(() => { sessionStorage.clear(); actor(); vi.spyOn(console, 'error').mockImplementation(() => {}) })
   afterEach(() => { close?.(); close = undefined; vi.restoreAllMocks(); useAuthStore.getState().clearAuth() })
@@ -49,8 +64,8 @@ describe('Mounted administrator Results journey', () => {
     const delayed = deferred<Reply>(); let reads = 0
     const view = page(() => ++reads === 1 ? success() : reads === 2 ? delayed.promise : refusal(503, 'service_unavailable'))
     await screen.findByText('Employee A')
-    expect(results().getByRole('row', { name: 'Employee A 3 1 2' })).toBeVisible()
-    expect(results().getByRole('row', { name: 'Employee C 0 0 0' })).toBeVisible()
+    expect(results().getByRole('row', { name: '1 Employee A 3 1 2' })).toBeVisible()
+    expect(results().getByRole('row', { name: '3 Employee C 0 0 0' })).toBeVisible()
     expect(results().getByRole('row', { name: 'Всего по акции 5 1 4' })).toBeVisible()
     expect(results().getByText(/Прочитано: 2026-10-05 17:00:00 · Ташкент · UTC\+05:00/)).toBeVisible()
     expect(results().getByText(/Данные получены порталом/)).toBeVisible()
@@ -105,5 +120,75 @@ describe('Mounted administrator Results journey', () => {
     await act(async () => { await view.controller.authorize() })
     expect(await screen.findByText('Employee A')).toBeVisible()
     expect(view.controller.getSnapshot().session).toBeGreaterThan(session)
+  })
+  it('paginates 70 participants with continuous numbers and whole-campaign totals without extra requests', async () => {
+    const read = vi.fn(() => success(participants(70)))
+    page(read)
+    await screen.findByText('Employee 1')
+    expect(results().getByRole('columnheader', { name: '№' })).toBeVisible()
+    expect(results().getByText('Участников акции: 70')).toBeVisible()
+    const user = userEvent.setup()
+    for (let number = 1; number <= 4; number++) {
+      const first = (number - 1) * 20 + 1, last = Math.min(number * 20, 70)
+      expect(employeeRows().map(row => within(row).getAllByRole('cell')[0]?.textContent)).toEqual(
+        Array.from({ length: last - first + 1 }, (_, index) => String(first + index)),
+      )
+      expect(results().getByRole('row', { name: `${first} Employee ${first} 1 0 1` })).toBeVisible()
+      expect(results().getByRole('row', { name: `${last} Employee ${last} 1 0 1` })).toBeVisible()
+      expect(results().getByText(`Строки ${first}–${last} из 70 · Страница ${number} из 4`)).toBeVisible()
+      expect(results().getByRole('row', { name: 'Всего по акции 70 0 70' })).toBeVisible()
+      const previous = results().getByRole('button', { name: 'Предыдущая страница' })
+      const next = results().getByRole('button', { name: 'Следующая страница' })
+      if (number === 1) expect(previous).toBeDisabled()
+      else expect(previous).toBeEnabled()
+      if (number === 4) expect(next).toBeDisabled()
+      else { expect(next).toBeEnabled(); await user.click(next) }
+    }
+    await user.click(results().getByRole('button', { name: 'Предыдущая страница' }))
+    expect(results().getByText('Строки 41–60 из 70 · Страница 3 из 4')).toBeVisible()
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+  it.each([0, 1, 20, 21])('shows the complete participant count and pagination boundary for %i rows', async count => {
+    page(() => success(participants(count)))
+    await screen.findByRole('region', { name: 'Результаты' })
+    expect(await results().findByText(`Участников акции: ${count}`)).toBeVisible()
+    expect(employeeRows()).toHaveLength(Math.min(count, 20))
+    if (count <= 20) expect(results().queryByRole('button', { name: 'Следующая страница' })).not.toBeInTheDocument()
+    else {
+      await userEvent.setup().click(results().getByRole('button', { name: 'Следующая страница' }))
+      expect(employeeRows()).toHaveLength(1)
+      expect(results().getByRole('row', { name: '21 Employee 21 1 0 1' })).toBeVisible()
+      expect(results().getByRole('button', { name: 'Следующая страница' })).toBeDisabled()
+    }
+  })
+  it('refreshes a paginated report from page one and hides stale participant counts and controls', async () => {
+    const pending = deferred<Reply>(), read = vi.fn()
+      .mockReturnValueOnce(success(participants(70))).mockReturnValueOnce(pending.promise)
+    page(read)
+    await screen.findByText('Employee 1')
+    const user = userEvent.setup()
+    await user.click(results().getByRole('button', { name: 'Следующая страница' }))
+    await user.click(results().getByRole('button', { name: 'Следующая страница' }))
+    await user.click(results().getByRole('button', { name: 'Обновить результаты' }))
+    expect(results().queryByRole('table')).not.toBeInTheDocument()
+    expect(results().queryByText(/Участников акции:/)).not.toBeInTheDocument()
+    expect(results().queryByRole('button', { name: 'Следующая страница' })).not.toBeInTheDocument()
+    await act(async () => { pending.resolve(success(participants(21))) })
+    expect(await results().findByText('Строки 1–20 из 21 · Страница 1 из 2')).toBeVisible()
+    expect(results().getByText('Участников акции: 21')).toBeVisible()
+    expect(employeeRows()).toHaveLength(20)
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+  it('keeps an incomplete participant visible on the second page without inventing aggregate totals', async () => {
+    const report = participants(21), last = report.items[20]
+    if (!last) throw new Error('Missing incomplete participant')
+    last.state = 'incomplete'; last.totals = null; report.state = 'incomplete'; report.totals = null
+    page(() => success(report))
+    await screen.findByText('Employee 1')
+    expect(results().getByText('Участников акции: 21')).toBeVisible()
+    expect(results().getByText('Общий итог недоступен: не все строки проверены.')).toBeVisible()
+    await userEvent.setup().click(results().getByRole('button', { name: 'Следующая страница' }))
+    expect(results().getByRole('row', { name: '21 Employee 21 Данные неполные — — —' })).toBeVisible()
+    expect(results().queryByText('Всего по акции')).not.toBeInTheDocument()
   })
 })
