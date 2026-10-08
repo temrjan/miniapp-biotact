@@ -61,7 +61,7 @@ The campaign row is locked, including first-message races. A single transaction 
 receipt identity, known revision content, immutable campaign metadata, token ownership,
 and body time against PostgreSQL `clock_timestamp()` after the lock. New future-issued
 bodies return 422; expired bodies may be recorded, without making the roster fresh.
-`valid_until = issued_at + 60 seconds`, never arrival time. Exact committed replay does
+`valid_until = issued_at + 300 seconds`, never arrival time. Exact committed replay does
 not recheck body time against the changed clock and never extends the lease.
 
 - First/higher revision: replace current roster and deadline (`applied`).
@@ -167,7 +167,7 @@ contains employee identity, campaign identity or the referral token.
 
 Capture holds a campaign share lock conflicting with K1 receiver writes until the
 order transaction ends. It refreshes the replica/current roster after acquiring the
-lock and checks the PostgreSQL wall clock afterward. The local 60-second lease is
+lock and checks the PostgreSQL wall clock afterward. The local 300-second lease is
 never extended by checkout. A successful capture copies the campaign/employee
 identity, currency and all separate server-priced lines for that campaign product,
 including duplicate requested lines; other basket products stay ordinary.
@@ -450,3 +450,22 @@ Compatible rollback retains schema/facts/jobs, reinstalls its exact named worker
 checks health. The workflow verifies existing API/catalogue as well. These local
 commands and tests do not prove served production SHA, proxy privacy, backup safety
 or activation readiness; those are separate release checks.
+
+
+## Confirmation lifetime compatibility
+
+New confirmations last exactly 300 seconds; renewal still targets every 20 seconds.
+Wire schema version 1 retains its field shape with a controlled semantic expansion:
+the portal capability release must accept exactly 60 or 300 seconds before this emitter is
+released. Existing 60-second replicas, receipts and order snapshots are not rewritten.
+The SQL constraint allows only these two durations. Reverse migration refuses while a
+non-60-second replica remains, including ended history. Replay returns original receipt
+and current registry without renewal. Planned campaign end stays an independent cutoff;
+manual early end/roster omission during disconnection can remain stale for up to 5 minutes.
+
+Deployment uses the host's fixed `biotact-referral-maintenance` root controller before
+stopping API/worker and after final health. Prerequisite installation, rollback capability
+floor and recovery are documented in the portal's `ops/referral-maintenance.md`. The
+installed controller and both registered admission workers must precede publication of
+this guarded workflow. Source checkout does not install root tools. A legacy rollback is
+refused before reset/restart; the five-attempt delivery budget is not reset automatically.

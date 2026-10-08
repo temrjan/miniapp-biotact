@@ -19,7 +19,7 @@ from pydantic import (
 )
 
 MAX_BIGINT = 9223372036854775807
-LEASE_SECONDS = 60
+LEASE_SECONDS = 300
 State = Literal["published", "ended"]
 Outcome = Literal["applied", "renewed", "unchanged", "superseded"]
 ErrorCode = Literal[

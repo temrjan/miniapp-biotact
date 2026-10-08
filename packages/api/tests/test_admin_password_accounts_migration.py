@@ -91,7 +91,7 @@ def test_account_migration_native_constraints_and_guarded_roundtrip():
             assert "admin_password_accounts is not empty; downgrade refused" in output
             with conn.cursor() as cur:
                 cur.execute("SELECT version_num FROM alembic_version")
-                assert cur.fetchone()[0] == "b6d4e8f2a301"
+                assert cur.fetchone()[0] == "c4f8a921d730"
                 cur.execute("SELECT row_to_json(t)::text FROM admin_password_accounts t")
                 assert cur.fetchall() == stored
                 cur.execute("DELETE FROM users WHERE id=901")
