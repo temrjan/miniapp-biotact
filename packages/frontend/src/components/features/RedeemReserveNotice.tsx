@@ -33,6 +33,7 @@ export function RedeemReserveNotice({
     <Card className="p-4 space-y-3" data-testid="redeem-reserve-notice">
       <p className="text-sm text-[var(--text-muted)]">
         {t('checkout.redeem.reserved', { points: formatPrice(reservedPoints) })}
+        {!reservedUntil && ' ' + t('checkout.redeem.awaitingConfirmation')}
         {reservedUntil &&
           ' ' +
             t('checkout.redeem.reservedUntil', {

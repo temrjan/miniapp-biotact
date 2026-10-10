@@ -1,5 +1,6 @@
 """Upgrade/down/up parity and preservation on a newly owned scratch database."""
 
+import json
 import os
 import subprocess
 import sys
@@ -101,8 +102,20 @@ def test_additive_migration_preserves_legacy_objects_rows_and_parity():
                 if direction == "upgrade":
                     # K1's historical head remains independently reversible; parity is
                     # defined against all current models, including later additive tables.
+                    alembic("upgrade", "c4f8a921d730")
+                    assert fingerprint(connection) == before
                     alembic("upgrade", "head")
                     assert "No new upgrade operations detected" in alembic("check")
+                    # Later size migration adds columns/tables intentionally. Every
+                    # preexisting row field must still match, and downgrade must
+                    # restore the exact pre-size legacy schema and data below.
+                    current_rows = fingerprint(connection)[3]
+                    for table, old_rows in before[3].items():
+                        assert len(current_rows[table]) == len(old_rows)
+                        for old, current in zip(old_rows, current_rows[table], strict=True):
+                            original, actual = json.loads(old[0]), json.loads(current[0])
+                            assert {key: actual[key] for key in original} == original
+                    alembic("downgrade", "c4f8a921d730")
                     assert fingerprint(connection) == before
                     alembic("downgrade", "72a6cf91b3d0")
             print(

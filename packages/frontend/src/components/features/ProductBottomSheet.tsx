@@ -1,3 +1,4 @@
+import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
 import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ShoppingCart, Plus, Minus, X } from 'lucide-react';
@@ -8,15 +9,16 @@ import { useCartStore, useCartItemQuantity } from '@/stores/cartStore';
 import { useHaptic } from '@/hooks/useTelegram';
 import { useTranslation } from '@/i18n';
 import type { Product } from '@/types';
+import { SizeSelector } from '@/components/features/SizeSelector';
 
 // API response type
-interface ApiProduct extends ApiProductPrice {
+interface ApiProduct extends ApiProductPrice, ApiSizeStock {
   id: number;
   name: string;
   description: string | null;
   image_url: string | null;
   category_id: number;
-  stock_quantity: number;
+  stock_quantity: number | null;
   is_in_stock: boolean;
   is_purchasable: boolean;
 }
@@ -31,6 +33,7 @@ function mapApiProduct(api: ApiProduct): Product {
     categoryId: String(api.category_id),
     inStock: api.is_in_stock,
     isPurchasable: api.is_purchasable,
+    ...mapSizeStock(api),
   };
 }
 
@@ -45,9 +48,11 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localQuantity, setLocalQuantity] = useState(1);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  if (selectedSize && !product?.availableSizes?.includes(selectedSize)) setSelectedSize(null);
   const lastFetchedId = useRef<string | null>(null);
 
-  const cartQuantity = useCartItemQuantity(productId ?? '');
+  const cartQuantity = useCartItemQuantity(productId ?? '', selectedSize);
   const addItem = useCartStore((state) => state.addItem);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const haptic = useHaptic();
@@ -65,6 +70,7 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
   useEffect(() => {
     if (!productId || !isOpen) {
       setProduct(null);
+      setSelectedSize(null);
       setError(null);
       lastFetchedId.current = null;
       return;
@@ -116,20 +122,20 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
   }, [localQuantity, haptic]);
 
   const handleAddToCart = useCallback(() => {
-    if (!product) return;
+    if (!product || !product.inStock || product.isPurchasable === false || isSizedPurchaseBlocked(product) || (product.requiresSize && !selectedSize)) return;
 
     haptic.success();
 
     if (cartQuantity > 0) {
       // Update quantity if already in cart
-      updateQuantity(product.id, localQuantity);
+      updateQuantity(product.id, localQuantity, selectedSize);
     } else {
       // Add new item
-      addItem(product, localQuantity);
+      addItem(product, localQuantity, selectedSize);
     }
 
     onClose();
-  }, [product, localQuantity, cartQuantity, addItem, updateQuantity, haptic, onClose]);
+  }, [product, selectedSize, localQuantity, cartQuantity, addItem, updateQuantity, haptic, onClose]);
 
   const handleClose = useCallback(() => {
     haptic.light();
@@ -200,6 +206,7 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
           )}
 
           {/* Quantity Controls */}
+          {product.requiresSize && <SizeSelector sizes={product.availableSizes ?? []} selected={selectedSize} onChange={setSelectedSize} />}
           <div className="flex items-center justify-center gap-4 py-2">
             <button
               onClick={handleDecrement}
@@ -225,7 +232,7 @@ export function ProductBottomSheet({ productId, isOpen, onClose }: ProductBottom
           {product.isPurchasable !== false && (
             <button
               onClick={handleAddToCart}
-              disabled={!product.inStock}
+              disabled={!product.inStock || isSizedPurchaseBlocked(product) || (product.requiresSize && !selectedSize)}
               className="w-full py-4 rounded-xl bg-[var(--primary)] text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
             >
               <ShoppingCart size={20} />

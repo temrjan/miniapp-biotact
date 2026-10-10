@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_user, verify_admin_jwt
+from src.auth.dependencies import get_current_user
 from src.common.exceptions import ForbiddenException
 from src.database import get_db
 from src.employee_referrals.capture import CaptureUnavailableError, capture_requested
@@ -15,6 +15,7 @@ from src.employee_referrals.paid import PaidUnavailableError, commit_paid
 from src.loyalty.service import InsufficientPointsError
 from src.notifications.service import telegram_notifier
 from src.orders import service
+from src.orders.dependencies import authorize_order_status
 from src.orders.models import Order
 from src.orders.schemas import (
     OrderCreate,
@@ -65,16 +66,17 @@ async def create_order(
                 "message": "Referral capture unavailable",
             },
         ) from exc
+    user_id = user.id
     if order_data.points_to_apply > 0:
         try:
-            await service.expire_stale_partials(db, user_id=user.id)
+            await service.expire_stale_partials(db, user_id=user_id)
             await db.commit()
         except Exception:  # cleanup is best-effort, never blocks a new order
-            logger.error("stale-partial cleanup failed for user %s", user.id)
+            logger.error("stale-partial cleanup failed for user %s", user_id)
             await db.rollback()
 
     try:
-        order = await service.create_order(db, order_data, user_id=user.id)
+        order = await service.create_order(db, order_data, user_id=user_id)
     except CaptureUnavailableError as exc:
         raise HTTPException(
             status_code=503,
@@ -146,6 +148,7 @@ async def create_order(
                 items_data = [
                     {
                         "product_name": item.product_name,
+                        "size": item.size,
                         "quantity": item.quantity,
                         "product_price": item.product_price,
                         "is_sale_at_order": item.is_sale_at_order,
@@ -275,7 +278,9 @@ async def get_order(
 
 
 @router.patch(
-    "/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(verify_admin_jwt)]
+    "/{order_id}/status",
+    response_model=OrderResponse,
+    dependencies=[Depends(authorize_order_status)],
 )
 async def update_order_status(
     order_id: int,

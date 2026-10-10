@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import WebApp from '@twa-dev/sdk';
+import { cartMatchesOrder } from '@/utils/order';
 
 import { api, ApiError } from '@/api/client';
 import type { OrderStatus, PaymentStatus } from '@/types';
@@ -50,6 +51,7 @@ const TERMINAL_PAYMENT_STATUSES: readonly PaymentStatus[] = ['failed', 'refunded
 const TERMINAL_ORDER_STATUS: OrderStatus = 'cancelled';
 
 interface OrderStatusResponse {
+  items?: unknown;
   payment_status?: PaymentStatus | null;
   status?: OrderStatus | null;
 }
@@ -87,9 +89,13 @@ export function useClearCartOnPaidOrder(): void {
     isCheckingRef.current = true;
     try {
       const order = await api.get<OrderStatusResponse>(`/orders/${pending.orderId}`);
+      if (pending.stockManaged && usePendingOrderStore.getState().pending?.orderId !== pending.orderId) {
+        return;
+      }
 
       if (isPaid(order)) {
-        useCartStore.getState().clearCart();
+        const cart = useCartStore.getState();
+        if (!pending.stockManaged || cartMatchesOrder(cart.items, order.items)) cart.clearCart();
         forgetOrder();
         return;
       }
@@ -99,6 +105,9 @@ export function useClearCartOnPaidOrder(): void {
       }
       // Иначе заказ ещё в пути (`unpaid` / `pending`) — памятку держим, повторим позже.
     } catch (error: unknown) {
+      if (pending.stockManaged && usePendingOrderStore.getState().pending?.orderId !== pending.orderId) {
+        return;
+      }
       if (error instanceof ApiError && FORGET_ON_HTTP_STATUSES.includes(error.status)) {
         forgetOrder();
         return;

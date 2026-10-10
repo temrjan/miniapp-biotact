@@ -1,3 +1,4 @@
+import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { ShoppingCart, Percent, Truck, Clock } from 'lucide-react';
@@ -13,7 +14,7 @@ import type { Product } from '@/types';
 // Types
 // ═══════════════════════════════════════════════════════════════════
 
-interface ApiProduct {
+interface ApiProduct extends ApiSizeStock {
   id: number;
   name: string;
   price: number;
@@ -21,7 +22,7 @@ interface ApiProduct {
   image_url: string | null;
   description: string | null;
   category_id: number;
-  stock_quantity: number;
+  stock_quantity: number | null;
   is_in_stock: boolean;
   is_purchasable: boolean;
 }
@@ -48,6 +49,7 @@ function mapApiProductToProduct(p: ApiProduct): Product {
     categoryId: String(p.category_id),
     inStock: p.is_in_stock,
     isPurchasable: p.is_purchasable,
+    ...mapSizeStock(p),
   };
 }
 
@@ -147,6 +149,7 @@ function RamadanProductCard({
   formatPrice,
   buttonText,
 }: RamadanProductCardProps) {
+  const { t } = useTranslation();
   const handleCardClick = useCallback(() => {
     onNavigate(product.id);
   }, [onNavigate, product.id]);
@@ -154,9 +157,11 @@ function RamadanProductCard({
   const handleAddToCart = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      onAddToCart(product);
+      if (isSizedPurchaseBlocked(product)) return;
+      if (product.requiresSize) onNavigate(product.id);
+      else onAddToCart(product);
     },
-    [onAddToCart, product]
+    [onAddToCart, onNavigate, product]
   );
 
   return (
@@ -214,13 +219,13 @@ function RamadanProductCard({
 
           {/* Add to cart button with gold tint */}
           {product.isPurchasable !== false && (
-            <div
+            <button type="button" disabled={isSizedPurchaseBlocked(product)}
               onClick={handleAddToCart}
               className="w-full py-2.5 text-[#B8860B] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity bg-gradient-to-r from-[#D4A843]/5 via-[#D4A843]/10 to-[#D4A843]/5"
             >
               <ShoppingCart size={14} />
-              {buttonText}
-            </div>
+              {isSizedPurchaseBlocked(product) ? t('product.outOfStock') : buttonText}
+            </button>
           )}
         </div>
       </div>

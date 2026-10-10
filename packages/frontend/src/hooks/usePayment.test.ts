@@ -91,12 +91,58 @@ const bodyOf = (endpoint: string) =>
 
 beforeEach(() => {
   postMock.mockReset();
+  vi.mocked(api.get).mockReset();
   navigateMock.mockReset();
   openLinkMock.mockReset();
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   usePendingOrderStore.getState().forgetOrder();
   // jsdom does not implement window.alert — stub it so error paths don't blow up the test.
   vi.spyOn(window, 'alert').mockImplementation(() => {});
+});
+
+const sizedItems: CartItem[] = [{ productId: '39', size: 'L', quantity: 1, product: { ...product, id: '39', inStock: true, requiresSize: true, availableSizes: ['L', 'XL'] } }];
+
+it('saves a sized order before invoice creation and resumes it after an unknown invoice result', async () => {
+  let invoices = 0;
+  postMock.mockImplementation(async (endpoint) => {
+    if (endpoint === '/orders') {
+      expect(usePendingOrderStore.getState().creationUnknown).toBe(true);
+      return { id: 39, order_number: 'ORD-SIZE', total: 30000, payment_status: 'unpaid', points_applied: 5000 };
+    }
+    expect(usePendingOrderStore.getState().pending?.orderId).toBe(39);
+    if (++invoices === 1) throw new ApiError('Unknown', 502, { detail: { code: 'payment_outcome_unknown', order_id: 39 } });
+    return { payment_url: 'https://pay/same', payment_uuid: 'owned', order_id: 39 };
+  });
+  vi.mocked(api.get).mockResolvedValue({ id: 39, order_number: 'ORD-SIZE', payment_status: 'pending', items: [{ product_id: 39, size: 'L', quantity: 1 }] });
+  const { result } = renderPay({ items: sizedItems });
+  await act(async () => result.current.pay());
+  expect(usePendingOrderStore.getState().pending?.stockManaged).toBe(true);
+  await act(async () => result.current.pay());
+  expect(callsTo('/orders')).toHaveLength(1);
+  expect(callsTo('/orders/quote')).toHaveLength(1);
+  expect(callsTo('/payments/create')).toHaveLength(2);
+  expect(openLinkMock).toHaveBeenCalledWith('https://pay/same');
+});
+
+it('does not repeat size order creation when its response was lost', async () => {
+  postMock.mockRejectedValue(new ApiError('Response lost', 500));
+  const { result } = renderPay({ items: sizedItems });
+  await act(async () => result.current.pay());
+  expect(usePendingOrderStore.getState().creationUnknown).toBe(true);
+  await act(async () => result.current.pay());
+  expect(callsTo('/orders')).toHaveLength(1);
+  expect(callsTo('/payments/create')).toHaveLength(0);
+  expect(navigateMock).toHaveBeenCalledWith('/orders');
+});
+
+it('requires resolution of a saved size order before paying a changed basket', async () => {
+  usePendingOrderStore.getState().rememberOrder(39, 'earlier-basket');
+  vi.mocked(api.get).mockResolvedValue({ id: 39, order_number: 'ORD-SIZE', payment_status: 'pending', items: [{ product_id: 39, size: 'XL', quantity: 1 }] });
+  const { result } = renderPay({ items: sizedItems });
+  await act(async () => result.current.pay());
+  expect(postMock).not.toHaveBeenCalled();
+  expect(navigateMock).toHaveBeenCalledWith('/orders');
+  expect(usePendingOrderStore.getState().pending?.orderId).toBe(39);
 });
 
 describe('usePayment', () => {

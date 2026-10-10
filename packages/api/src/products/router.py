@@ -56,8 +56,11 @@ def localize_product(product: Product, lang: Language) -> dict[str, Any]:
         "sale_price": product.sale_price,
         "old_price": product.old_price,
         "currency": product.currency,
-        "stock_quantity": product.stock_quantity,
-        "is_in_stock": product.is_in_stock,
+        "stock_quantity": None if product.requires_size else product.stock_quantity,
+        "requires_size": product.requires_size,
+        "available_sizes": product.available_sizes,
+        "is_in_stock": product.is_in_stock
+        and (not product.requires_size or bool(product.available_sizes)),
         "is_purchasable": is_purchasable,
         "image_url": product.image_url,
         # JSONB automatically converts to List[str] - no json.loads needed!

@@ -78,9 +78,10 @@ interface ProductFormProps {
   onSubmit: (data: ProductFormData) => void
   isLoading?: boolean
   submitError?: unknown
+  merchantIsInStock?: boolean | undefined
 }
 
-export const ProductForm = ({ product, onSubmit, isLoading, submitError }: ProductFormProps) => {
+export const ProductForm = ({ product, onSubmit, isLoading, submitError, merchantIsInStock }: ProductFormProps) => {
   const navigate = useNavigate()
 
   const { data: categoriesData } = useCategories({ page: 1, size: 100, active_only: false })
@@ -105,8 +106,8 @@ export const ProductForm = ({ product, onSubmit, isLoading, submitError }: Produ
           sale_price: product.sale_price == null ? null : Number(product.sale_price),
           old_price: product.old_price ? Number(product.old_price) : null,
           currency: product.currency || 'UZS',
-          stock_quantity: product.stock_quantity,
-          is_in_stock: product.is_in_stock,
+          stock_quantity: product.stock_quantity ?? undefined,
+          is_in_stock: merchantIsInStock ?? product.is_in_stock,
           image_url: product.image_url,
           video_url: product.video_url,
           images: product.images || [],
@@ -158,7 +159,13 @@ export const ProductForm = ({ product, onSubmit, isLoading, submitError }: Produ
   const isInStock = watch('is_in_stock')
 
   return (
-    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form noValidate onSubmit={handleSubmit((data) => {
+      if (product?.requires_size) {
+        const metadata = { ...data }
+        delete metadata.stock_quantity
+        onSubmit(metadata)
+      } else onSubmit(data)
+    })} className="space-y-6">
       {/* Basic Information */}
       <Card>
         <CardHeader>
@@ -267,6 +274,7 @@ export const ProductForm = ({ product, onSubmit, isLoading, submitError }: Produ
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            {!product?.requires_size && (
             <div className="space-y-2">
               <Label htmlFor="stock_quantity">Количество на складе</Label>
               <Input
@@ -275,6 +283,7 @@ export const ProductForm = ({ product, onSubmit, isLoading, submitError }: Produ
                 {...register('stock_quantity', { valueAsNumber: true })}
               />
             </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="category_id">Категория</Label>

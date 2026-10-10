@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,16 +136,44 @@ def _reserve_filters(
     expiry cutoff, because a reservation past it is reclaimed by
     :func:`~src.orders.service.expire_stale_partials` on the customer's very next attempt.
     """
+    ordinary: list[ColumnElement[bool]] = [
+        Order.size_stock_protocol.is_(None),
+        Order.payment_status.in_(("unpaid", "pending")),
+    ]
+    if created_after is not None:
+        ordinary.append(Order.created_at >= created_after)
     filters = [
         Order.user_id == user_id,
-        Order.payment_status.in_(("unpaid", "pending")),
         Order.points_applied > 0,
+        or_(and_(*ordinary), marked_reservation()),
     ]
     if exclude_order_id is not None:
         filters.append(Order.id != exclude_order_id)
-    if created_after is not None:
-        filters.append(Order.created_at >= created_after)
     return filters
+
+
+def marked_reservation() -> ColumnElement[bool]:
+    return and_(
+        Order.size_stock_protocol == "size_stock_v1",
+        Order.size_owner_state.in_(("not_started", "creating", "live", "cancelling", "uncertain")),
+        Order.accepted_settlement.is_(False),
+    )
+
+
+async def get_quote_balance(db: AsyncSession, user_id: int) -> int:
+    """Exclude durable marked holds in one snapshot; retain legacy quote/cleanup behavior."""
+    balance = (
+        select(func.coalesce(func.sum(PointLedger.amount), 0))
+        .where(PointLedger.user_id == user_id)
+        .scalar_subquery()
+    )
+    held = (
+        select(func.coalesce(func.sum(Order.points_applied), 0))
+        .where(Order.user_id == user_id, marked_reservation())
+        .scalar_subquery()
+    )
+    result = await db.execute(select(balance - held))
+    return max(0, int(result.scalar_one()))
 
 
 async def _reserved_points(
@@ -190,7 +218,10 @@ async def _live_reserve(
     result = await db.execute(
         select(
             func.coalesce(func.sum(Order.points_applied), 0),
-            func.min(Order.created_at),
+            case(
+                (func.bool_or(Order.size_stock_protocol == "size_stock_v1"), None),
+                else_=func.min(Order.created_at),
+            ),
         ).where(
             *_reserve_filters(user_id=user_id, exclude_order_id=None, created_after=created_after)
         )

@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -62,6 +64,10 @@ class Product(Base):
     # Stock
     stock_quantity: Mapped[int] = mapped_column(Integer, default=0)
     is_in_stock: Mapped[bool] = mapped_column(Boolean, default=True)
+    size_cutover_blocked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
+    sizes_initialized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Media
     image_url: Mapped[str | None] = mapped_column(String(500))
@@ -117,6 +123,51 @@ class Product(Base):
 
     # Relationships
     category: Mapped[Optional["Category"]] = relationship(back_populates="products")
+    sizes: Mapped[list["ProductSize"]] = relationship(lazy="selectin")
+
+    @property
+    def requires_size(self) -> bool:
+        return bool(self.sizes) or self.sizes_initialized_at is not None
+
+    @property
+    def available_sizes(self) -> list[str]:
+        available = {row.size for row in self.sizes if row.available_quantity > 0}
+        return [size for size in ("L", "XL", "2XL") if size in available]
 
     def __repr__(self) -> str:
         return f"<Product(id={self.id}, name={self.name})>"
+
+
+class ProductSize(Base):
+    """The sole available-to-sell balance of a configured size."""
+
+    __tablename__ = "product_sizes"
+    __table_args__ = (
+        UniqueConstraint("product_id", "size", name="uq_product_sizes_product_size"),
+        CheckConstraint("available_quantity >= 0", name="product_sizes_quantity_ck"),
+        CheckConstraint("size IN ('L', 'XL', '2XL')", name="product_sizes_label_ck"),
+        CheckConstraint("revision >= 0", name="product_sizes_revision_ck"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="RESTRICT"))
+    size: Mapped[str] = mapped_column(String(3))
+    available_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0", default=0)
+
+
+class SizeStockRecord(Base):
+    """Protected durable evidence of initialization, recovery and received returns."""
+
+    __tablename__ = "size_stock_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="RESTRICT"))
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="RESTRICT"))
+    action: Mapped[str] = mapped_column(String(40))
+    actor: Mapped[str] = mapped_column(String(200))
+    reason: Mapped[str] = mapped_column(Text)
+    evidence_ref: Mapped[str | None] = mapped_column(Text)
+    expected_revision: Mapped[int | None] = mapped_column(BigInteger)
+    result: Mapped[dict[str, object]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

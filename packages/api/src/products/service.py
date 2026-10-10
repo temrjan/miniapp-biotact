@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from sqlalchemy.orm import joinedload
 
 from src.products.models import Product
 from src.products.schemas import ProductCreate, ProductUpdate
+from src.products.stock import lock_products
 
 
 class SaleInvariantError(Exception):
@@ -100,7 +102,9 @@ async def create_product(
     db.add(product)
     await _flush_product(db)
     await db.refresh(product)
-    return product
+    loaded = await get_product_by_id(db, product.id)
+    assert loaded is not None
+    return loaded
 
 
 async def update_product(
@@ -113,11 +117,16 @@ async def update_product(
     JSONB fields (images, advantages) are automatically converted by SQLAlchemy.
     No need for json.dumps anymore!
     """
-    product = await get_product_by_id(db, product_id)
+    product = (await lock_products(db, {product_id})).get(product_id)
     if not product:
         return None
 
     update_dict = update_data.model_dump(exclude_unset=True)
+    if product.requires_size and "stock_quantity" in update_dict:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "legacy_stock_not_editable", "product_id": product_id, "size": None},
+        )
     _validate_sale(
         update_dict.get("price", product.price),
         update_dict.get("is_sale", product.is_sale),
@@ -149,9 +158,12 @@ async def delete_product(
     product_id: int,
 ) -> bool:
     """Delete product."""
-    product = await get_product_by_id(db, product_id)
+    product = (await lock_products(db, {product_id})).get(product_id)
     if not product:
         return False
+
+    if product.requires_size or product.sizes_initialized_at is not None:
+        raise HTTPException(status_code=409, detail={"code": "size_configuration_exists"})
 
     await db.delete(product)
     return True

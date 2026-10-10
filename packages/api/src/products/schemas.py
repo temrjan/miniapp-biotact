@@ -3,7 +3,9 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from src.products.models import Product
 
 
 class ProductBase(BaseModel):
@@ -19,7 +21,7 @@ class ProductBase(BaseModel):
     is_sale: bool = False
     sale_price: Decimal | None = Field(None, gt=0, decimal_places=2)
     currency: str = Field(default="UZS", max_length=3)
-    stock_quantity: int = Field(default=0, ge=0)
+    stock_quantity: int | None = Field(default=0, ge=0)
     is_in_stock: bool = True
     image_url: str | None = None
     images: list[str] | None = Field(
@@ -58,7 +60,7 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
-    pass
+    stock_quantity: int = Field(default=0, ge=0)
 
 
 class ProductUpdate(BaseModel):
@@ -113,6 +115,25 @@ class ProductResponse(ProductBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    stock_quantity: int | None = None
+    requires_size: bool = False
+    available_sizes: list[str] = Field(default_factory=list)
+    is_purchasable: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def public_inventory(cls, value: object) -> object:
+        """All translations and product writes use the same public inventory boundary."""
+        if not isinstance(value, Product):
+            return value
+        data = {field: getattr(value, field) for field in cls.model_fields if hasattr(value, field)}
+        data["stock_quantity"] = None if value.requires_size else value.stock_quantity
+        data["is_in_stock"] = value.is_in_stock and (
+            not value.requires_size or bool(value.available_sizes)
+        )
+        category = value.__dict__.get("category")
+        data["is_purchasable"] = category.is_purchasable if category is not None else True
+        return data
 
 
 class ProductLocalizedResponse(BaseModel):
@@ -126,7 +147,9 @@ class ProductLocalizedResponse(BaseModel):
     sale_price: Decimal | None = None
     old_price: Decimal | None = None
     currency: str
-    stock_quantity: int
+    stock_quantity: int | None
+    requires_size: bool = False
+    available_sizes: list[str] = Field(default_factory=list)
     is_in_stock: bool
     is_purchasable: bool = True
     image_url: str | None = None

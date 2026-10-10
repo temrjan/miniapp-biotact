@@ -57,9 +57,11 @@ def test_lease_expansion_and_refused_downgrade_preserve_revision_and_data():
             return rows, revision, cursor.fetchone()[0]
 
     old_rows = snapshot()[0]
-    alembic("upgrade", "head")
+    alembic("upgrade", "c4f8a921d730")
     assert snapshot()[0] == old_rows
     assert snapshot()[1] == "c4f8a921d730"
+    alembic("upgrade", "head")
+    assert snapshot()[0] == old_rows
     assert "No new upgrade operations detected" in alembic("check")
     for seconds in (-60, 0, 59, 60.000001, 299, 300.000001, 301):
         with pytest.raises(psycopg2.errors.CheckViolation), connection.cursor() as cursor:

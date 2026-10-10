@@ -16,7 +16,10 @@ const product = {
 
 function renderPage(edit = false, overrides = {}) {
   vi.spyOn(apiClient, 'get').mockImplementation(async (url) => ({
-    data: url.includes('/categories') ? { items: [], total: 0 } : { ...product, ...overrides },
+    data: url.includes('/categories') ? { items: [], total: 0 } : url.includes('/sizes') ? {
+      product_id: 1, merchant_is_in_stock: true,
+      sizes: ['L', 'XL', '2XL'].map((size) => ({ size, available_quantity: 0, revision: 7 })),
+    } : { ...product, ...overrides },
   }))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   render(
@@ -54,6 +57,20 @@ describe('Product sale form (R7)', () => {
     vi.spyOn(apiClient, 'patch').mockResolvedValue({ data: product })
   })
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('keeps the merchant flag from protected inventory while saving depleted sized metadata separately', async () => {
+    const user = renderPage(true, { requires_size: true, stock_quantity: null, is_in_stock: false });
+    expect(await screen.findByRole('checkbox', { name: 'В наличии' })).toBeChecked();
+    expect(screen.queryByLabelText('Количество на складе')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('XL', { exact: true })).toHaveValue(0);
+    await user.click(screen.getByRole('button', { name: 'Обновить' }));
+    expect(await screen.findByText('Описание и цена сохранены.')).toBeVisible();
+    expect(apiClient.patch).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(apiClient.patch).mock.calls[0];
+    expect(call?.[0]).not.toContain('/sizes');
+    expect(call?.[1]).toMatchObject({ is_in_stock: true });
+    expect(call?.[1]).not.toHaveProperty('stock_quantity');
+  });
 
   it('should show a field error and prevent saving when a sale has no price', async () => {
     const user = renderPage()

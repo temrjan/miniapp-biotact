@@ -1,3 +1,4 @@
+import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
 import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { useState, useEffect, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -11,6 +12,7 @@ import { useTranslation } from '@/i18n';
 import { useLanguage } from '@/stores/languageStore';
 import { productsApi } from '@/api';
 import type { Product } from '@/types';
+import { SizeSelector } from '@/components/features/SizeSelector';
 
 /** Parse **bold** markdown into React nodes */
 function parseBold(text: string): ReactNode[] {
@@ -23,7 +25,7 @@ function parseBold(text: string): ReactNode[] {
   });
 }
 
-interface ApiProduct extends ApiProductPrice {
+interface ApiProduct extends ApiProductPrice, ApiSizeStock {
   id: number;
   name: string;
   name_uz: string | null;
@@ -33,7 +35,8 @@ interface ApiProduct extends ApiProductPrice {
   image_url: string | null;
   images: string[] | null;
   category_id: number;
-  stock_quantity: number;
+  stock_quantity: number | null;
+  is_in_stock: boolean;
   is_purchasable: boolean;
   additional_info_title: string | null;
   additional_info_title_uz: string | null;
@@ -61,9 +64,10 @@ function mapProduct(api: ApiProduct, lang: string): ExtendedProduct {
     imageUrl: api.image_url || '',
     images: api.images || undefined,
     categoryId: String(api.category_id),
-    inStock: true,
+    inStock: api.requires_size ? api.is_in_stock : true,
     isPurchasable: api.is_purchasable,
-    quantity: api.stock_quantity,
+    ...mapSizeStock(api),
+    quantity: api.stock_quantity ?? undefined,
     additionalInfoTitle: isUz && api.additional_info_title_uz ? api.additional_info_title_uz : api.additional_info_title || undefined,
     additionalInfo: isUz && api.additional_info_uz ? api.additional_info_uz : api.additional_info || undefined,
     disclaimer: isUz && api.disclaimer_uz ? api.disclaimer_uz : api.disclaimer || undefined,
@@ -93,6 +97,8 @@ export function ProductPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  if (selectedSize && !product?.availableSizes?.includes(selectedSize)) setSelectedSize(null);
 
   useBackButton();
 
@@ -116,6 +122,7 @@ export function ProductPage() {
         if (!active) return;
         const mappedProduct = mapProduct(response as unknown as ApiProduct, language);
         setProduct(mappedProduct);
+        setSelectedSize(null);
         if (mappedProduct.categoryId) {
           const similarResponse = await productsApi.getProducts({
             categoryId: mappedProduct.categoryId,
@@ -136,9 +143,9 @@ export function ProductPage() {
   }, [productId, language]);
 
   const handleAddToCart = () => {
-    if (product) {
+    if (product && product.inStock && product.isPurchasable !== false && !isSizedPurchaseBlocked(product) && (!product.requiresSize || selectedSize)) {
       haptic.success();
-      addItem(product);
+      addItem(product, 1, selectedSize);
     }
   };
 
@@ -247,10 +254,13 @@ export function ProductPage() {
             )}
           </div>
           {product.isPurchasable !== false && (
-            <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddToCart} className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2">
+            <>
+            {product.requiresSize && <SizeSelector sizes={product.availableSizes ?? []} selected={selectedSize} onChange={setSelectedSize} />}
+            <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddToCart} disabled={!product.inStock || isSizedPurchaseBlocked(product) || (product.requiresSize && !selectedSize)} className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2 disabled:opacity-50">
               <ShoppingCart size={20} />
               {t('product.addToCart')}
             </motion.button>
+            </>
           )}
           <div className="h-px bg-[var(--border)]" />
           {product.description && (

@@ -28,6 +28,9 @@ export interface Product {
   images?: string[] | undefined;
   categoryId: string;
   inStock: boolean;
+  isActive?: boolean | undefined;
+  requiresSize?: boolean | undefined;
+  availableSizes?: string[] | undefined;
   isPurchasable?: boolean | undefined;
   quantity?: number | undefined;
   weight?: string | undefined;
@@ -51,6 +54,7 @@ export interface CartItem {
   productId: string;
   product: Product;
   quantity: number;
+  size?: string | null | undefined;
 }
 
 export interface Cart {

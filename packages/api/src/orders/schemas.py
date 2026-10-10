@@ -2,8 +2,9 @@
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Annotated
 
-from pydantic import BaseModel, Field, StrictStr, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_serializer
 
 
 # Order Item schemas
@@ -15,6 +16,7 @@ class OrderItemBase(BaseModel):
     product_price: Decimal
     quantity: int = Field(ge=1)
     total: Decimal
+    size: str | None = None
 
 
 class OrderItemCreate(BaseModel):
@@ -30,6 +32,7 @@ class OrderItemCreate(BaseModel):
     # Upper bound guards against an absurd invoice (quantity=1_000_000 → a billion-sum charge).
     # It is NOT stock control: ``stock_quantity`` is not enforced anywhere yet.
     quantity: int = Field(ge=1, le=99)
+    size: str | None = Field(None, max_length=20, strict=True)
 
 
 class OrderItemResponse(OrderItemBase):
@@ -116,6 +119,51 @@ class OrderListResponse(BaseModel):
     pages: int
 
 
+class SizeStockLine(BaseModel):
+    order_item_id: int
+    size: str
+    allocated_quantity: int
+    restored_quantity: int
+
+
+class SizeStockDetails(BaseModel):
+    protocol: str
+    owner_state: str
+    revision: int
+    dispatched_at: datetime | None
+    lines: list[SizeStockLine]
+
+
+class AdminOrderResponse(OrderResponse):
+    size_stock: SizeStockDetails | None = None
+
+
+class AdminOrderListResponse(BaseModel):
+    items: list[AdminOrderResponse]
+    total: int
+    page: int
+    size: int
+    pages: int
+
+
+class SizeReturnLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    order_item_id: StrictInt
+    quantity: Annotated[StrictInt, Field(gt=0, le=2147483647)]
+
+
+class SizeReturnRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: Annotated[StrictInt, Field(ge=0)]
+    reason: str = Field(min_length=1, max_length=2000)
+    items: list[SizeReturnLine] = Field(min_length=1)
+
+
+class SizeReturnResponse(BaseModel):
+    revision: int
+    lines: list[SizeStockLine]
+
+
 class ReleaseReservationsResponse(BaseModel):
     """Result of the customer releasing the points their unfinished orders were holding.
 
@@ -145,6 +193,7 @@ class QuoteLine(BaseModel):
     quantity: int
     unit_price: Decimal
     line_total: Decimal
+    size: str | None = None
 
     @field_serializer("unit_price", "line_total")
     def serialize_money(self, value: Decimal) -> str:

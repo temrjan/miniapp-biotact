@@ -1,3 +1,4 @@
+import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
 import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,13 +23,13 @@ interface ApiCategory {
   image_url: string | null;
 }
 
-interface ApiProduct extends ApiProductPrice {
+interface ApiProduct extends ApiProductPrice, ApiSizeStock {
   id: number;
   name: string;
   image_url: string | null;
   description: string | null;
   category_id: number;
-  stock_quantity: number;
+  stock_quantity: number | null;
   is_in_stock: boolean;
   is_purchasable: boolean;
 }
@@ -89,6 +90,7 @@ function mapApiProductToProduct(api: ApiProduct): Product {
     categoryId: String(api.category_id),
     inStock: api.is_in_stock,
     isPurchasable: api.is_purchasable,
+    ...mapSizeStock(api),
   };
 }
 
@@ -112,9 +114,11 @@ function ProductCard({
   const handleAddToCart = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      onAddToCart(product);
+      if (isSizedPurchaseBlocked(product)) return;
+      if (product.requiresSize) onNavigate(product.id);
+      else onAddToCart(product);
     },
-    [onAddToCart, product]
+    [onAddToCart, onNavigate, product]
   );
 
   return (
@@ -167,13 +171,13 @@ function ProductCard({
 
         {/* Нижняя зона: иконка + текст "В корзину" */}
         {product.isPurchasable !== false && (
-          <div
+          <button type="button" disabled={isSizedPurchaseBlocked(product)}
             onClick={handleAddToCart}
-            className="w-full py-2.5 text-[var(--primary)] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity border-t border-[var(--border)]/50"
+            className="w-full py-2.5 text-[var(--primary)] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity border-t border-[var(--border)]/50 disabled:opacity-50"
           >
             <ShoppingCart size={14} />
-            {buttonText}
-          </div>
+            {isSizedPurchaseBlocked(product) ? t('product.outOfStock') : buttonText}
+          </button>
         )}
       </div>
     </motion.div>

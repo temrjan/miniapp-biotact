@@ -64,6 +64,72 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('a paid size order keeps a basket edited since that order and resolves the saved reference', async () => {
+  useCartStore
+    .getState()
+    .addItem(
+      { ...product, id: '39', requiresSize: true, inStock: true, availableSizes: ['L', 'XL'] },
+      2,
+      'XL'
+    );
+  usePendingOrderStore.getState().rememberOrder(42, 'original-L-basket');
+  getMock.mockResolvedValue({
+    payment_status: 'paid',
+    status: 'confirmed',
+    items: [{ product_id: 39, size: 'L', quantity: 1 }],
+  });
+  await act(async () => renderHook(() => useClearCartOnPaidOrder()));
+  expect(useCartStore.getState().items[0]).toMatchObject({ size: 'XL', quantity: 2 });
+  expect(usePendingOrderStore.getState().pending).toBeNull();
+});
+
+it('a paid size order clears its matching basket', async () => {
+  useCartStore
+    .getState()
+    .addItem(
+      { ...product, id: '39', requiresSize: true, inStock: true, availableSizes: ['L'] },
+      2,
+      'L'
+    );
+  usePendingOrderStore.getState().rememberOrder(42, 'original-L-basket');
+  getMock.mockResolvedValue({
+    payment_status: 'paid',
+    status: 'confirmed',
+    items: [{ product_id: 39, size: 'L', quantity: 2 }],
+  });
+  await act(async () => renderHook(() => useClearCartOnPaidOrder()));
+  expect(useCartStore.getState().items).toEqual([]);
+  expect(usePendingOrderStore.getState().pending).toBeNull();
+});
+
+it.each(['failed', 'missing'])(
+  'a delayed %s result cannot forget a newer size order',
+  async (result) => {
+    usePendingOrderStore.getState().rememberOrder(42, 'old-size-basket');
+    let resolve: ((value: unknown) => void) | undefined;
+    let reject: ((error: Error) => void) | undefined;
+    getMock.mockImplementation(
+      () =>
+        new Promise((done, fail) => {
+          resolve = done;
+          reject = fail;
+        })
+    );
+    renderHook(() => useClearCartOnPaidOrder());
+    usePendingOrderStore.getState().rememberOrder(43, 'new-size-basket');
+    await act(async () => {
+      if (result === 'failed') {
+        if (!resolve) throw new Error('No order read started');
+        resolve({ payment_status: 'failed', status: 'cancelled' });
+      } else {
+        if (!reject) throw new Error('No order read started');
+        reject(new ApiError('not found', 404));
+      }
+    });
+    expect(usePendingOrderStore.getState().pending?.orderId).toBe(43);
+  }
+);
+
 describe('useClearCartOnPaidOrder', () => {
   it('старт приложения + заказ оплачен → корзина пуста, памятка снята', async () => {
     withCartAndPending();
@@ -158,10 +224,7 @@ describe('useClearCartOnPaidOrder', () => {
       renderHook(() => useClearCartOnPaidOrder());
     });
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Pending order check failed:',
-      expect.any(Error)
-    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Pending order check failed:', expect.any(Error));
   });
 
   // 401 достижим: initData живёт 24 часа — ровно столько же, сколько памятка. 408 — наш

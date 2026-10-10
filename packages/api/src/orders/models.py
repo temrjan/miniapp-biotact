@@ -6,7 +6,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
@@ -45,6 +47,12 @@ class Order(Base):
         # every partial redemption. A composite index keeps it index-only as order volume grows; the
         # standalone ``user_id`` index (below) stays for the order-list queries. Non-unique.
         Index("ix_orders_user_id_payment_status", "user_id", "payment_status"),
+        CheckConstraint(
+            "size_stock_protocol IS NULL OR (size_stock_protocol = 'size_stock_v1' AND "
+            "size_owner_state IS NOT NULL AND size_owner_state IN ('not_started', 'creating', 'live', 'cancelling', "
+            "'uncertain', 'paid', 'cancelled', 'refunded'))",
+            name="orders_size_owner_ck",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -66,6 +74,18 @@ class Order(Base):
     payment_uuid: Mapped[str | None] = mapped_column(String(100), index=True)
     payment_status: Mapped[str | None] = mapped_column(String(20), default="unpaid")
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    size_stock_protocol: Mapped[str | None] = mapped_column(String(20))
+    size_owner_state: Mapped[str | None] = mapped_column(String(20))
+    size_revision: Mapped[int] = mapped_column(BigInteger, server_default="0", default=0)
+    creation_token: Mapped[str | None] = mapped_column(String(36))
+    cancellation_token: Mapped[str | None] = mapped_column(String(36))
+    owned_invoice_uuid: Mapped[str | None] = mapped_column(String(100), unique=True)
+    checkout_url: Mapped[str | None] = mapped_column(Text)
+    accepted_settlement: Mapped[bool] = mapped_column(
+        Boolean, server_default="false", default=False
+    )
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    legacy_vest_creation_token: Mapped[str | None] = mapped_column(String(36))
 
     # Totals
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -116,11 +136,39 @@ class Order(Base):
     def __repr__(self) -> str:
         return f"<Order(id={self.id}, number={self.order_number})>"
 
+    @property
+    def size_stock(self) -> dict[str, object] | None:
+        """Protected administrative projection; never included in buyer schemas."""
+        if self.size_stock_protocol is None:
+            return None
+        return {
+            "protocol": self.size_stock_protocol,
+            "owner_state": self.size_owner_state,
+            "revision": self.size_revision,
+            "dispatched_at": self.dispatched_at,
+            "lines": [
+                {
+                    "order_item_id": item.id,
+                    "size": item.size,
+                    "allocated_quantity": item.allocated_quantity,
+                    "restored_quantity": item.restored_quantity,
+                }
+                for item in self.items
+                if item.size_id is not None
+            ],
+        }
+
 
 class OrderItem(Base):
     """Order item model."""
 
     __tablename__ = "order_items"
+    __table_args__ = (
+        CheckConstraint(
+            "0 <= restored_quantity AND restored_quantity <= allocated_quantity",
+            name="order_items_restoration_ck",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(
@@ -139,6 +187,10 @@ class OrderItem(Base):
     regular_price_at_order: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    size: Mapped[str | None] = mapped_column(String(3))
+    size_id: Mapped[int | None] = mapped_column(ForeignKey("product_sizes.id", ondelete="RESTRICT"))
+    allocated_quantity: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    restored_quantity: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
 
     # Relationships
     order: Mapped["Order"] = relationship(back_populates="items")

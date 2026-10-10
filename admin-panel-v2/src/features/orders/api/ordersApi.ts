@@ -8,6 +8,10 @@ import type {
 } from '../types/order.types';
 
 export const ordersApi = {
+  returnSizes: async (id: number, data: { expected_revision: number; reason: string; items: { order_item_id: number; quantity: number }[] }) => {
+    const response = await apiClient.post<{ revision: number; lines: { order_item_id: number; restored_quantity: number }[] }>(`/admin/orders/${id}/size-returns`, data);
+    return response.data;
+  },
   // Get paginated list of orders
   getAll: async (params?: OrdersParams): Promise<OrderListResponse> => {
     const queryParams: Record<string, string> = {};
