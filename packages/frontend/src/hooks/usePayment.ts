@@ -8,10 +8,11 @@ import { LOYALTY_ME_KEY } from '@hooks/useLoyalty';
 import { usePendingOrderStore } from '@stores/pendingOrderStore';
 import { useTranslation } from '@/i18n';
 import { api, ApiError } from '@/api/client';
-import { buildOrderRequest, type OrderQuote } from '@/utils/order';
+import { buildOrderRequest, cartMatchesOrder, type OrderQuote } from '@/utils/order';
 import { ROUTES } from '@/utils/constants';
 import type { CartItem } from '@/types';
 import { referralContext, isReferralEntryEnabled } from '@/employeeReferrals/runtime';
+import { needsSizeChoice } from '@/utils/size';
 
 interface OrderResponse {
   id: number;
@@ -21,6 +22,8 @@ interface OrderResponse {
   // `points_applied` is how many points were spent (0 for a pure card order).
   payment_status: string;
   points_applied: number;
+  status?: string;
+  items?: unknown;
 }
 
 interface PaymentResponse {
@@ -128,12 +131,50 @@ export function usePayment({
     haptic.success();
     const version = requestVersion.current;
     let settled = false;
+    let submittingSizedOrder = false;
     const formatQuoteTotal = (quote: OrderQuote) =>
       Number(quote.total).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) +
       ' ' +
       t('currency.sum');
     try {
       const orderRequest = buildOrderRequest(items, { deliveryAddress, phone, name }, redeemPoints);
+      const orderKey = JSON.stringify(orderRequest);
+      const saved = usePendingOrderStore.getState();
+      const stockManaged = items.some((item) => item.product.requiresSize || item.size);
+      if (saved.creationUnknown) {
+        alert(t('checkout.creationUnknown'));
+        navigate('/orders');
+        return;
+      }
+      if (saved.pending?.stockManaged) {
+        const order = await api.get<OrderResponse>(`/orders/${saved.pending.orderId}`);
+        if (order.payment_status === 'paid') {
+          if (cartMatchesOrder(items, order.items)) navigate(`${ROUTES.PAYMENT_SUCCESS}?order_id=${order.order_number}&id=${order.id}`);
+          else { saved.forgetOrder(); navigate('/orders'); }
+          return;
+        }
+        if (order.payment_status === 'failed' || order.payment_status === 'refunded') {
+          saved.forgetOrder();
+          alert(t('checkout.existingOrderClosed'));
+          return;
+        }
+        if (!cartMatchesOrder(items, order.items)) {
+          alert(t('checkout.existingOrder'));
+          navigate('/orders');
+          return;
+        }
+        const payment = await api.post<PaymentResponse>('/payments/create', {
+          order_id: order.id, return_url: window.location.origin + '/payment/success?order_id=' + order.order_number + '&id=' + order.id,
+        });
+        WebApp.openLink(payment.payment_url);
+        settled = true;
+        return;
+      }
+      if (items.some(needsSizeChoice)) {
+        alert(t('checkout.chooseSizeInCart'));
+        navigate('/cart');
+        return;
+      }
       const quote = await api.post<OrderQuote>('/orders/quote', orderRequest);
       if (version !== requestVersion.current) return;
       onQuote(quote);
@@ -144,21 +185,27 @@ export function usePayment({
         return;
       if (version !== requestVersion.current) return;
       const referralToken = referralContext.tokenForOrder();
+      submittingSizedOrder = stockManaged;
+      // Fence a lost response, including reload during the request. No automatic order replay.
+      if (stockManaged) saved.markCreationUnknown();
       const order = await api.post<OrderResponse>('/orders', {
         ...orderRequest,
         quote_fingerprint: quote.quote_fingerprint,
         ...(referralToken === undefined ? {} : { referral_token: referralToken }),
       });
+      submittingSizedOrder = false;
+      if (stockManaged) rememberOrder(order.id, orderKey);
+      if (stockManaged) void queryClient.invalidateQueries({ queryKey: LOYALTY_ME_KEY });
       settled = true;
 
       // Full points coverage is settled server-side (paid + confirmed) — no Multicard leg. Reuse the
       // existing success page (it clears the cart on mount); calling /payments/create would 400.
       if (order.payment_status === 'paid') {
-        navigate(`${ROUTES.PAYMENT_SUCCESS}?order_id=${order.order_number}`);
+        navigate(`${ROUTES.PAYMENT_SUCCESS}?order_id=${order.order_number}${stockManaged ? '&id=' + order.id : ''}`);
         return;
       }
 
-      const returnUrl = window.location.origin + '/payment/success?order_id=' + order.order_number;
+      const returnUrl = window.location.origin + '/payment/success?order_id=' + order.order_number + (stockManaged ? '&id=' + order.id : '');
       const payment = await api.post<PaymentResponse>('/payments/create', {
         order_id: order.id,
         return_url: returnUrl,
@@ -172,12 +219,47 @@ export function usePayment({
       // очисткой корзины — откроется ТАМ. Запоминаем заказ, чтобы очистить корзину у себя, когда
       // человек вернётся (`useClearCartOnPaidOrder`). Запоминаем `order.id` — числовой, тот, что
       // принимает `GET /orders/{order_id}`; `order_number` из адреса возврата здесь не годится.
-      rememberOrder(order.id);
+      if (!stockManaged) rememberOrder(order.id);
       WebApp.openLink(payment.payment_url);
     } catch (error) {
       settled = false;
+      if (submittingSizedOrder) {
+        if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408) {
+          usePendingOrderStore.getState().forgetOrder();
+        } else {
+          alert(t('checkout.creationUnknown'));
+          navigate('/orders');
+          return;
+        }
+      }
       if (version !== requestVersion.current) return;
       haptic.error();
+      const pending = usePendingOrderStore.getState().pending;
+      if (error instanceof ApiError && error.status === 400 && pending?.stockManaged) {
+        try {
+          const order = await api.get<OrderResponse>(`/orders/${pending.orderId}`);
+          if (order.payment_status === 'paid') {
+            if (cartMatchesOrder(items, order.items)) navigate(`${ROUTES.PAYMENT_SUCCESS}?order_id=${order.order_number}&id=${order.id}`);
+            else { usePendingOrderStore.getState().forgetOrder(); navigate('/orders'); }
+            return;
+          }
+        } catch { /* Keep the reference when the follow-up read is unavailable. */ }
+      }
+      if (error instanceof ApiError && typeof error.data === 'object' && error.data !== null && 'detail' in error.data) {
+        const detail = error.data.detail;
+        if (typeof detail === 'object' && detail !== null && 'code' in detail && typeof detail.code === 'string') {
+          const code = detail.code;
+          if (['size_required', 'invalid_size', 'size_unavailable', 'size_cutover_pending'].includes(code)) {
+            alert(t('checkout.sizeUnavailable'));
+            navigate('/cart');
+            return;
+          }
+          if (['payment_processing', 'payment_outcome_unknown', 'payment_cancellation_pending', 'order_payment_closed'].includes(code)) {
+            alert(t(`checkout.${code}`));
+            return;
+          }
+        }
+      }
       // 422 = the amount broke a redeem rule (e.g. balance drained since the form read): clamp the
       // stepper to the server's max so the customer can retry. 409 = live-balance shortfall.
       if (error instanceof ApiError && error.status === 422) {

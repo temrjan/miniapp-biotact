@@ -17,9 +17,11 @@ import { RedeemStepper } from '@components/features/RedeemStepper';
 import { RedeemReserveNotice } from '@components/features/RedeemReserveNotice';
 import type { OrderQuote } from '@/utils/order';
 import type { CartItem } from '@/types';
+import { isSizedPurchaseBlocked, needsSizeChoice } from '@/utils/size';
 import { clampRedeem, maxRedeemable } from '@/utils/redeem';
 import { isLegalEnabled } from '@/legal/flag';
 import { ROUTES } from '@utils/constants';
+import { usePendingOrderStore } from '@/stores/pendingOrderStore';
 
 type CheckoutStep = 'phone' | 'delivery' | 'address' | 'confirm';
 type DeliveryType = 'delivery' | 'pickup';
@@ -61,6 +63,8 @@ export function CheckoutPage() {
   const { t } = useTranslation();
   const { profile, isLoading, fetchProfile, updatePhone } = useUserStore();
   const items = useCartItems();
+  const recovering = usePendingOrderStore((state) => state.creationUnknown || state.pending?.stockManaged === true);
+  const sizeBlocked = !recovering && items.some((item) => needsSizeChoice(item) || isSizedPurchaseBlocked(item.product));
   const cancelPriceRefresh = useRefreshCartPrices();
   const cartTotal = useCartTotalAmount();
   const [quoted, setQuoted] = useState<{ items: CartItem[]; quote: OrderQuote } | null>(null);
@@ -225,7 +229,7 @@ export function CheckoutPage() {
         return {
           text: isProcessing ? t('checkout.processing') : payText,
           onClick: pay,
-          isActive: !isProcessing,
+          isActive: !isProcessing && !sizeBlocked,
         };
       }
       default:
@@ -240,6 +244,7 @@ export function CheckoutPage() {
     amountDue,
     redeemPoints,
     isProcessing,
+    sizeBlocked,
     haptic,
     pay,
     handlePhoneContinue,
@@ -277,6 +282,7 @@ export function CheckoutPage() {
   return (
     <div className="min-h-screen pb-24 md:pb-4">
       <div className="p-3 space-y-4 max-w-4xl mx-auto">
+        {sizeBlocked && <Link to="/cart" className="block text-[var(--error)]">{t('checkout.chooseSizeInCart')}</Link>}
         {/* Progress dots */}
         <div className="flex items-center justify-center gap-2 mb-4">
           {(['phone', 'delivery', 'address', 'confirm'] as CheckoutStep[]).map((s, i) => (

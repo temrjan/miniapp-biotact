@@ -205,6 +205,21 @@ class MultiCardClient:
                 logger.error("Failed to delete invoice %s: %s", uuid, e)
                 return False
 
+    async def delete_owned_invoice(self, uuid: str) -> bool:
+        """Strict, single-UUID annulment for finite inventory; uncertain results stay held."""
+        try:
+            token = await self._get_token()
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.delete(
+                    f"{self.base_url}/payment/invoice/{uuid}", headers=self._get_headers(token)
+                )
+                response.raise_for_status()
+                result = response.json()
+                return isinstance(result, dict) and result.get("success") is True
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            logger.warning("Owned invoice annulment unconfirmed: uuid=%s", uuid, exc_info=True)
+            return False
+
 
 # Singleton instance
 multicard_client = MultiCardClient()
@@ -296,7 +311,9 @@ def build_ofd_items(order_items: list[OrderItem], *, amount_tiyins: int) -> list
                 else "0000000",
                 qty=qty,
                 price=unit_price,
-                name=item.product_name[:256],
+                name=(item.product_name[: 256 - len(f" ({item.size})")] + f" ({item.size})")
+                if item.size
+                else item.product_name[:256],
                 total=unit_price * qty,
                 vat=product.vat if product and product.vat else None,
             )

@@ -6,21 +6,25 @@ import { Card } from '@components/ui/Card';
 import { useBackButton } from '@hooks/useBackButton';
 import { useHaptic } from '@hooks/useTelegram';
 import { useTranslation } from '@/i18n';
-import { api } from '@/api/client';
+import { api, ApiError } from '@/api/client';
+import WebApp from '@twa-dev/sdk';
+import { usePendingOrderStore } from '@/stores/pendingOrderStore';
 
 interface OrderItem {
   id: number;
-  product_id: number;
+  product_id: number | null;
   product_name: string;
   product_price: number;
   quantity: number;
   total: number;
+  size?: string | null;
 }
 
 interface Order {
   id: number;
   order_number: string;
   status: string;
+  payment_status?: string;
   subtotal: number;
   delivery_fee: number;
   total: number;
@@ -61,6 +65,46 @@ export function OrdersPage() {
   const { t } = useTranslation();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [payingOrderId, setPayingOrderId] = useState<number | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const creationUnknown = usePendingOrderStore((state) => state.creationUnknown);
+  const pendingOrderId = usePendingOrderStore((state) => state.pending?.orderId);
+
+  const resumePayment = async (order: Order) => {
+    if (payingOrderId !== null) return;
+    setPayingOrderId(order.id);
+    setPaymentError(null);
+    usePendingOrderStore.getState().rememberOrder(order.id, 'history');
+    try {
+      const payment = await api.post<{ payment_url: string }>('/payments/create', {
+        order_id: order.id,
+        return_url: window.location.origin + '/payment/success?order_id=' + order.order_number + '&id=' + order.id,
+      });
+      WebApp.openLink(payment.payment_url);
+    } catch (error) {
+      if (error instanceof ApiError && typeof error.data === 'object' && error.data !== null && 'detail' in error.data) {
+        const detail = error.data.detail;
+        if (typeof detail === 'object' && detail !== null && 'code' in detail && typeof detail.code === 'string' &&
+          ['payment_processing', 'payment_outcome_unknown', 'payment_cancellation_pending', 'order_payment_closed'].includes(detail.code)) {
+          setPaymentError(t(`checkout.${detail.code}`));
+          if (detail.code === 'order_payment_closed') usePendingOrderStore.getState().forgetOrder();
+          return;
+        }
+      }
+      if (error instanceof ApiError && error.status === 400) {
+        try {
+          const current = await api.get<Order>(`/orders/${order.id}`);
+          if (current.payment_status === 'paid') {
+            navigate('/payment/success?order_id=' + current.order_number + '&id=' + current.id);
+            return;
+          }
+        } catch { /* Preserve the saved order when its current result is unavailable. */ }
+      }
+      setPaymentError(t('checkout.payment_outcome_unknown'));
+    } finally {
+      setPayingOrderId(null);
+    }
+  };
 
   useBackButton({ isVisible: true });
 
@@ -135,8 +179,10 @@ export function OrdersPage() {
   return (
     <div className="p-3 space-y-4 max-w-2xl mx-auto">
       <h1 className="text-xl font-bold">{t('orders.title')}</h1>
+      {paymentError && <p role="alert">{paymentError}</p>}
 
       {orders.map((order, index) => {
+        const sized = order.items.some((item) => item.size);
         const StatusIcon = statusIcons[order.status] || Clock;
         const statusColor = statusColors[order.status] || 'text-gray-500';
 
@@ -165,15 +211,15 @@ export function OrdersPage() {
               </div>
 
               <div className="space-y-2 mb-3">
-                {order.items.slice(0, 2).map((item) => (
+                {(sized ? order.items : order.items.slice(0, 2)).map((item) => (
                   <div key={item.id} className="flex justify-between text-sm">
                     <span className="text-[var(--text-secondary)] truncate flex-1 mr-2">
-                      {item.product_name} x{item.quantity}
+                      {item.product_name}{item.size ? ` (${item.size})` : ''} x{item.quantity}
                     </span>
                     <span>{formatPrice(item.total)}</span>
                   </div>
                 ))}
-                {order.items.length > 2 && (
+                {!sized && order.items.length > 2 && (
                   <p className="text-sm text-[var(--text-muted)]">
                     {t('orders.andMore', { count: order.items.length - 2 })}
                   </p>
@@ -184,6 +230,17 @@ export function OrdersPage() {
                 <span className="font-bold text-lg">{formatPrice(order.total)}</span>
                 <ChevronRight size={20} className="text-[var(--text-muted)]" />
               </div>
+              {sized && order.status !== 'cancelled' && (
+                order.payment_status === 'paid' ?
+                  ((creationUnknown || pendingOrderId === order.id) && <button onClick={() => {
+                    usePendingOrderStore.getState().rememberOrder(order.id, 'history');
+                    navigate('/payment/success?order_id=' + order.order_number + '&id=' + order.id);
+                  }}>{t('orders.status.confirmed')}</button>) :
+                  order.payment_status !== 'refunded' &&
+                  <button disabled={payingOrderId !== null} onClick={() => void resumePayment(order)} className="mt-3 text-[var(--primary)]">
+                    {t('orders.resumePayment')}
+                  </button>
+              )}
             </Card>
           </motion.div>
         );

@@ -1,3 +1,4 @@
+import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
 import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -19,7 +20,7 @@ interface ApiCategory {
   image_url: string | null;
 }
 
-interface ApiProduct extends ApiProductPrice {
+interface ApiProduct extends ApiProductPrice, ApiSizeStock {
   id: number;
   name: string;
   name_uz: string | null;
@@ -27,7 +28,8 @@ interface ApiProduct extends ApiProductPrice {
   description: string | null;
   image_url: string | null;
   category_id: number;
-  stock_quantity: number;
+  stock_quantity: number | null;
+  is_in_stock: boolean;
   is_purchasable: boolean;
 }
 
@@ -49,9 +51,10 @@ function mapProduct(api: ApiProduct): Product {
     ...mapProductPrice(api),
     imageUrl: api.image_url || '',
     categoryId: String(api.category_id),
-    inStock: api.stock_quantity > 0,
+    inStock: api.requires_size ? api.is_in_stock : (api.stock_quantity ?? 0) > 0,
     isPurchasable: api.is_purchasable,
-    quantity: api.stock_quantity,
+    ...mapSizeStock(api),
+    quantity: api.stock_quantity ?? undefined,
   };
 }
 
@@ -82,9 +85,11 @@ function ProductCard({
   const handleAddToCart = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      onAddToCart(product);
+      if (isSizedPurchaseBlocked(product)) return;
+      if (product.requiresSize) onProductClick(product.id);
+      else onAddToCart(product);
     },
-    [onAddToCart, product]
+    [onAddToCart, onProductClick, product]
   );
 
   return (
@@ -133,13 +138,13 @@ function ProductCard({
 
         {/* Нижняя зона: иконка + текст "В корзину" */}
         {product.isPurchasable !== false && (
-          <div
+          <button type="button" disabled={isSizedPurchaseBlocked(product)}
             onClick={handleAddToCart}
-            className="w-full py-2.5 text-[var(--primary)] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity border-t border-[var(--border)]/50"
+            className="w-full py-2.5 text-[var(--primary)] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer active:opacity-70 transition-opacity border-t border-[var(--border)]/50 disabled:opacity-50"
           >
             <ShoppingCart size={14} />
-            {buttonText}
-          </div>
+            {isSizedPurchaseBlocked(product) ? t('product.outOfStock') : buttonText}
+          </button>
         )}
       </div>
     </div>

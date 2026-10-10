@@ -26,6 +26,7 @@ from src.orders.models import Order, OrderItem
 class DisplayLine(StrictModel):
     order_item_id: PositiveId
     product_name: str
+    size: Annotated[str, Field(pattern=r"^(L|XL|2XL)$")] | None = None
     quantity: PositiveId
     product_price: str | None
     is_sale_at_order: bool | None
@@ -172,6 +173,7 @@ async def append_jobs(
             DisplayLine(
                 order_item_id=i.id,
                 product_name=i.product_name,
+                size=i.size,
                 quantity=i.quantity,
                 product_price=str(i.product_price),
                 is_sale_at_order=i.is_sale_at_order,
@@ -215,10 +217,16 @@ async def append_jobs(
             )
             names = {i.order_item_id: i.product_name for i in previous.lines}
         deltas = {int(i["order_item_id"]): int(i["quantity"]) for i in row.request_lines}
+        sizes = (
+            {i.order_item_id: i.size for i in previous.lines}
+            if job is not None and job.state != "legacy_unknown"
+            else {}
+        )
         lines = [
             DisplayLine(
                 order_item_id=i.order_item_id,
                 product_name=names.get(i.order_item_id, f"Товар №{i.order_item_id}"),
+                size=sizes.get(i.order_item_id),
                 quantity=i.quantity,
                 product_price=None,
                 is_sale_at_order=None,
@@ -347,7 +355,7 @@ def render(value: Notice) -> str:
             f"\nНакопленно возвращено этой версии: {returned}\nОсталось этой версии: {net}" + tail
         )
         blocks = [
-            f"{short(i.product_name)} (№{i.order_item_id}): возврат {i.delta}; накопленно {i.returned}; осталось {i.quantity - i.returned}"
+            f"{short(i.product_name)}{f' ({i.size})' if i.size else ''} (№{i.order_item_id}): возврат {i.delta}; накопленно {i.returned}; осталось {i.quantity - i.returned}"
             for i in value.lines
         ]
     message = start

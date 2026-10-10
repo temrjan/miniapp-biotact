@@ -48,7 +48,9 @@
     "price": "Narx",
     "quantity": "Miqdor",
     "total": "Jami",
-    "similar": "Oxshash mahsulotlar"
+    "similar": "Oxshash mahsulotlar",
+    "size": "O‘lcham",
+    "chooseSize": "O‘lchamni tanlang"
   },
   "cart": {
     "title": "Savat",
@@ -122,8 +124,18 @@
       "reservedUntil": "{time} dan keyin qayta urinib ko'ring.",
       "release": "Ballarni qaytarish",
       "releasing": "Qaytarilmoqda…",
-      "releaseFailed": "Hozir qaytarib bo'lmadi — to'lov hali o'tayotgan bo'lishi mumkin. Keyinroq urinib ko'ring."
-    }
+      "releaseFailed": "Hozir qaytarib bo'lmadi — to'lov hali o'tayotgan bo'lishi mumkin. Keyinroq urinib ko'ring.",
+      "awaitingConfirmation": "To‘lov yoki bekor qilish tasdiqlanishini kutmoqdamiz."
+    },
+    "chooseSizeInCart": "Savatda mavjud o‘lchamni tanlang.",
+    "sizeUnavailable": "Bu o‘lcham hozir mavjud emas. Savatda boshqa o‘lchamni tanlang.",
+    "creationUnknown": "Buyurtma yaratilganini tasdiqlab bo‘lmadi. Yangi xariddan oldin buyurtmalar ro‘yxatini tekshiring.",
+    "existingOrder": "Avval oldingi buyurtmani yakunlang yoki uning bekor qilinishi tasdiqlanishini kuting.",
+    "existingOrderClosed": "Oldingi buyurtma yopildi. Endi yangi xaridni rasmiylashtirishingiz mumkin.",
+    "payment_processing": "To‘lov hisobi yaratilmoqda. Kutib, to‘lovni qayta oching.",
+    "payment_outcome_unknown": "To‘lov hisobi natijasi aniqlashtirilmoqda. O‘lcham va ballar band bo‘lib qoladi.",
+    "payment_cancellation_pending": "To‘lov bekor qilinishi hali tasdiqlanmagan. O‘lcham va ballar band bo‘lib qoladi.",
+    "order_payment_closed": "Bu buyurtma uchun to‘lov yopilgan. Buyurtmalar ro‘yxatini tekshiring."
   },
   "profile": {
     "title": "Profil",
@@ -254,7 +266,8 @@
       "unpaid": "To'lanmagan",
       "pending": "To'lov kutilmoqda",
       "paid": "To'langan"
-    }
+    },
+    "resumePayment": "To‘lovni davom ettirish"
   },
   "payment": {
     "success": "To'lov muvaffaqiyatli amalga oshirildi!",

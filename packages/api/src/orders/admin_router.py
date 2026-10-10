@@ -1,6 +1,6 @@
 """Admin Orders API router."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -8,17 +8,29 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.auth.dependencies import verify_admin_jwt
+from src.auth.dependencies import require_admin, verify_admin_jwt
 from src.database import get_db
+from src.orders import service
+from src.orders.dependencies import authorize_order_status
 from src.orders.models import Order, OrderStatus
-from src.orders.schemas import OrderListResponse, OrderResponse, OrderStatusUpdate
+from src.orders.schemas import (
+    AdminOrderListResponse,
+    AdminOrderResponse,
+    OrderStatusUpdate,
+    SizeReturnRequest,
+    SizeReturnResponse,
+    SizeStockLine,
+)
+from src.payments.size_stock import PROTOCOL, conflict, lock_order, record
+from src.products.stock import restore_allocations
+from src.users.models import User
 
 router = APIRouter()
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
-@router.get("", response_model=OrderListResponse, dependencies=[Depends(verify_admin_jwt)])
+@router.get("", response_model=AdminOrderListResponse, dependencies=[Depends(verify_admin_jwt)])
 async def get_all_orders(
     db: DbSession,
     page: int = Query(1, ge=1),
@@ -28,7 +40,7 @@ async def get_all_orders(
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
     payment_status: str | None = Query(None),
-) -> OrderListResponse:
+) -> AdminOrderListResponse:
     """Get all orders with filtering and pagination (admin only)."""
 
     # Base query
@@ -79,7 +91,7 @@ async def get_all_orders(
     # Calculate pages
     pages = (total + size - 1) // size if total else 0
 
-    return OrderListResponse(
+    return AdminOrderListResponse(
         items=orders,  # type: ignore[arg-type]
         total=total or 0,
         page=page,
@@ -88,7 +100,9 @@ async def get_all_orders(
     )
 
 
-@router.get("/{order_id}", response_model=OrderResponse, dependencies=[Depends(verify_admin_jwt)])
+@router.get(
+    "/{order_id}", response_model=AdminOrderResponse, dependencies=[Depends(verify_admin_jwt)]
+)
 async def get_order_details(
     order_id: int,
     db: DbSession,
@@ -109,7 +123,9 @@ async def get_order_details(
 
 
 @router.patch(
-    "/{order_id}/status", response_model=OrderResponse, dependencies=[Depends(verify_admin_jwt)]
+    "/{order_id}/status",
+    response_model=AdminOrderResponse,
+    dependencies=[Depends(authorize_order_status)],
 )
 async def update_order_status_admin(
     order_id: int,
@@ -128,22 +144,50 @@ async def update_order_status_admin(
             detail="Order not found",
         )
 
-    # Update status
-    try:
-        new_status = OrderStatus(status_data.status)
-        order.status = new_status
+    updated = await service.update_order_status(db, order_id, status_data.status)
+    assert updated is not None
+    await db.commit()
+    return updated
 
-        # Set completed_at if delivered
-        if new_status == OrderStatus.DELIVERED:
-            order.completed_at = datetime.now(UTC)
 
-        await db.commit()
-        await db.refresh(order)
-
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid status: {status_data.status}",
-        ) from exc
-
-    return order
+@router.post("/{order_id}/size-returns")
+async def confirm_size_return(
+    order_id: int,
+    data: SizeReturnRequest,
+    db: DbSession,
+    admin: Annotated[User, Depends(require_admin)],
+) -> SizeReturnResponse:
+    order = await lock_order(db, order_id)
+    if order.size_stock_protocol != PROTOCOL or order.dispatched_at is None:
+        raise HTTPException(status_code=422, detail="A dispatched sized order is required")
+    if order.size_revision != data.expected_revision:
+        raise conflict("order_state_conflict")
+    quantities = {entry.order_item_id: entry.quantity for entry in data.items}
+    eligible = {item.id for item in order.items if item.size_id is not None}
+    if len(quantities) != len(data.items) or not quantities.keys() <= eligible:
+        raise HTTPException(status_code=422, detail="Supply each returned sized line once")
+    await restore_allocations(db, order, quantities)
+    order.size_revision += 1
+    lines = [
+        SizeStockLine(
+            order_item_id=item.id,
+            size=item.size or "",
+            allocated_quantity=item.allocated_quantity,
+            restored_quantity=item.restored_quantity,
+        )
+        for item in order.items
+        if item.id in quantities
+    ]
+    record(
+        db,
+        order,
+        "physical_return",
+        actor=f"admin:{admin.id}",
+        reason=data.reason,
+        evidence_ref=f"admin-return:order:{order.id}:revision:{data.expected_revision}",
+        expected_revision=data.expected_revision,
+        result={"revision": order.size_revision, "lines": [line.model_dump() for line in lines]},
+    )
+    response = SizeReturnResponse(revision=order.size_revision, lines=lines)
+    await db.commit()
+    return response

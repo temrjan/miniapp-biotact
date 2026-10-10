@@ -72,6 +72,7 @@ async def test_quote_is_read_only_and_legacy_agreement(client, maker, sent_messa
             "quantity": 1,
             "unit_price": "150000.00",
             "line_total": "150000.00",
+            "size": None,
         }
     ]
     refused = await client.post("/api/v1/orders", headers=_headers(80902), json=payload)

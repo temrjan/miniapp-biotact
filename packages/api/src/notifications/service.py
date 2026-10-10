@@ -123,6 +123,8 @@ class TelegramNotifier:
         lines = []
         for i, item in enumerate(items, 1):
             name = item.get("product_name", "Товар")
+            if item.get("size"):
+                name = f"{name} ({item['size']})"
             qty = item.get("quantity", 1)
             price = item.get("product_price", 0)
             # `.get`, не индексация: вызывающих мест три, и забытый ключ у любого из них не имеет

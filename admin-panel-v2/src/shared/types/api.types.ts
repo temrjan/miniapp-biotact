@@ -43,7 +43,9 @@ export interface Product {
   is_sale: boolean
   sale_price: number | string | null
   currency: string
-  stock_quantity: number
+  stock_quantity: number | null
+  requires_size?: boolean
+  available_sizes?: string[]
   is_in_stock: boolean
   image_url?: string
   images?: string[]

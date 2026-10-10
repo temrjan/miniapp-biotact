@@ -6,7 +6,7 @@ export type OrderStatus =
   | 'delivered' 
   | 'cancelled';
 
-export type PaymentStatus = 'unpaid' | 'paid' | 'refunded';
+export type PaymentStatus = 'unpaid' | 'pending' | 'paid' | 'failed' | 'refunded';
 
 export interface OrderItem {
   id: number;
@@ -15,6 +15,15 @@ export interface OrderItem {
   product_price: string;
   quantity: number;
   total: string;
+  size?: string | null;
+}
+
+export interface SizeStockDetails {
+  protocol: string;
+  owner_state: string;
+  revision: number;
+  dispatched_at: string | null;
+  lines: { order_item_id: number; size: string; allocated_quantity: number; restored_quantity: number }[];
 }
 
 export interface Order {
@@ -42,6 +51,7 @@ export interface Order {
   updated_at: string;
   completed_at: string | null;
   items: OrderItem[];
+  size_stock?: SizeStockDetails | null;
 }
 
 export interface OrderListResponse {
@@ -87,6 +97,8 @@ export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
 
 export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   unpaid: 'Не оплачен',
+  pending: 'Ожидает оплаты',
+  failed: 'Оплата закрыта',
   paid: 'Оплачен',
   refunded: 'Возврат',
 };

@@ -56,6 +56,7 @@ from src.loyalty.router import summary_router as loyalty_summary_router
 from src.orders.admin_router import router as admin_orders_router
 from src.orders.router import router as orders_router
 from src.payments.router import router as payments_router
+from src.products.admin_router import router as admin_products_router
 from src.products.router import router as products_router
 from src.uploads.router import router as uploads_router
 from src.users.admin_router import router as admin_users_router
@@ -143,6 +144,11 @@ def create_app() -> FastAPI:
         products_router,
         prefix=f"{settings.api_v1_prefix}/products",
         tags=["products"],
+    )
+    app.include_router(
+        admin_products_router,
+        prefix=f"{settings.api_v1_prefix}/admin/products",
+        tags=["admin-products"],
     )
 
     # Uploads router

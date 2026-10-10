@@ -14,9 +14,11 @@ from src.employee_referrals.notices import invoice_referral_label, owns_paid
 from src.employee_referrals.paid import PaidUnavailableError, commit_paid
 from src.notifications.service import telegram_notifier
 from src.orders import service as orders_service
+from src.payments import size_stock
 from src.payments.lifecycle import PaymentAmountMismatchError, process_payment_event
 from src.payments.schemas import (
     CreatePaymentRequest,
+    MultiCardPaymentResponse,
     PaymentCreateData,
     PaymentResponse,
     SuccessCallbackData,
@@ -58,7 +60,11 @@ async def create_payment(
     if order.user_id != user.id:
         raise ForbiddenException("Not your order")
 
-    if order.payment_status == "paid":
+    if order.size_stock_protocol == size_stock.PROTOCOL:
+        order = await size_stock.lock_order(db, order.id)
+        if order.size_owner_state != "not_started":
+            return size_stock.payment_response(order)
+    elif order.payment_status == "paid":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Order already paid",
@@ -96,8 +102,25 @@ async def create_payment(
         ofd=ofd_items,
     )
 
+    owned_response = None
+    legacy_token = None
+    if order.size_stock_protocol == size_stock.PROTOCOL:
+        owned_response, notify_created = await size_stock.create_owned_invoice(
+            db, order.id, payment_data
+        )
+        if not notify_created:
+            return owned_response
+    elif any(item.product_id == 39 for item in order.items):
+        legacy_token = await size_stock.claim_legacy_vest(db, order.id)
+
     try:
-        result = await multicard_client.create_invoice(payment_data)
+        result: MultiCardPaymentResponse | None
+        if owned_response is not None:
+            result = MultiCardPaymentResponse(
+                uuid=owned_response.payment_uuid, pay_url=owned_response.payment_url
+            )
+        else:
+            result = await multicard_client.create_invoice(payment_data)
         if not result:
             raise HTTPException(status_code=502, detail="Payment service returned no result")
 
@@ -105,18 +128,23 @@ async def create_payment(
         # TOCTOU between the paid-check above and here across the (up to 30s) Multicard call: a
         # concurrent success callback may have paid the order meanwhile, and a blind write would
         # stamp it back to pending over a real payment.
-        armed = await orders_service.try_arm_payment_attempt(db, order.id, payment_uuid=result.uuid)
+        armed = owned_response is not None or await orders_service.try_arm_payment_attempt(
+            db, order.id, payment_uuid=result.uuid
+        )
         if not armed:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Order already paid",
             )
+        if legacy_token is not None:
+            await size_stock.finish_legacy_vest(db, order.id, legacy_token, result.uuid)
 
         # Send Telegram notification about new order
         try:
             items_data = [
                 {
                     "product_name": item.product_name,
+                    "size": item.size,
                     "quantity": item.quantity,
                     "product_price": item.product_price,
                     "is_sale_at_order": item.is_sale_at_order,
@@ -175,6 +203,7 @@ async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) ->
     items_data = [
         {
             "product_name": item.product_name,
+            "size": item.size,
             "quantity": item.quantity,
             "product_price": item.product_price,
             "is_sale_at_order": item.is_sale_at_order,
@@ -200,7 +229,7 @@ async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) ->
 async def payment_callback(
     callback: SuccessCallbackData,
     db: DbSession,
-) -> dict[str, bool]:
+) -> dict[str, bool | str]:
     """Handle the success callback from Multicard (MD5-signed).
 
     Idempotent: a duplicate callback (Multicard repeats it on any 2xx timeout) is a no-op — the
@@ -220,6 +249,24 @@ async def payment_callback(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid signature",
+        )
+
+    order = await orders_service.get_order_by_number(db, callback.invoice_id)
+    if order is not None and order.size_stock_protocol == size_stock.PROTOCOL:
+        order_id = order.id
+        try:
+            accepted, newly = await size_stock.success_callback(db, order, callback)
+        except PaidUnavailableError:
+            raise HTTPException(503, detail={"code": "referral_paid_unavailable"}) from None
+        if newly:
+            try:
+                await _notify_paid(db, order_id, invoice_uuid=callback.uuid)
+            except Exception:
+                logger.error("Paid notification failed for order=%s", order_id)
+        return (
+            {"success": True}
+            if accepted
+            else {"success": False, "message": "Order payment is closed"}
         )
 
     try:
@@ -298,6 +345,11 @@ async def payment_webhook(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid signature",
         )
+
+    order = await orders_service.get_order_by_number(db, webhook.invoice_id)
+    if order is not None and order.size_stock_protocol == size_stock.PROTOCOL:
+        await size_stock.lifecycle_hint(db, order.id, webhook)
+        return {"success": True}
 
     try:
         outcome = await process_payment_event(

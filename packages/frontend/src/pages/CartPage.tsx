@@ -5,6 +5,9 @@ import { useNavigate } from 'react-router-dom';
 import { Card } from '@components/ui/Card';
 import { useHaptic } from '@hooks/useTelegram';
 import { useTranslation } from '@/i18n';
+import { cartLineKey, isSizedPurchaseBlocked, needsSizeChoice } from '@/utils/size';
+import { SizeSelector } from '@/components/features/SizeSelector';
+import { usePendingOrderStore } from '@/stores/pendingOrderStore';
 import {
   useCartStore,
   useCartItems,
@@ -23,7 +26,9 @@ export function CartPage() {
   const items = useCartItems();
   useRefreshCartPrices();
   const totalAmount = useCartTotalAmount();
-  const { updateQuantity, removeItem, clearCart } = useCartStore();
+  const { updateQuantity, removeItem, clearCart, chooseSize } = useCartStore();
+  const recovering = usePendingOrderStore((state) => state.creationUnknown || state.pending?.stockManaged === true);
+  const blocked = !recovering && items.some((item) => needsSizeChoice(item) || isSizedPurchaseBlocked(item.product));
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('ru-RU').format(price) + ' ' + t('currency.sum');
@@ -31,21 +36,21 @@ export function CartPage() {
 
   const handleCheckout = async () => {
     haptic.success();
-    navigate('/checkout');
+    navigate(recovering ? '/orders' : '/checkout');
   };
 
-  const handleQuantityChange = (productId: string, delta: number) => {
+  const handleQuantityChange = (productId: string, delta: number, size: string | null) => {
     haptic.selection();
-    const item = items.find((i) => i.productId === productId);
+    const item = items.find((i) => i.productId === productId && (i.size ?? null) === size);
     if (item) {
       const newQuantity = item.quantity + delta;
-      updateQuantity(productId, newQuantity);
+      updateQuantity(productId, newQuantity, size);
     }
   };
 
-  const handleRemove = (productId: string) => {
+  const handleRemove = (productId: string, size: string | null) => {
     haptic.warning();
-    removeItem(productId);
+    removeItem(productId, size);
   };
 
   if (items.length === 0) {
@@ -94,7 +99,7 @@ export function CartPage() {
       <AnimatePresence mode="popLayout">
         {items.map((item) => (
           <motion.div
-            key={item.productId}
+            key={cartLineKey(item)}
             layout
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -119,6 +124,10 @@ export function CartPage() {
               {/* Product Info */}
               <div className="flex-1 min-w-0">
                 <h3 className="font-medium truncate">{item.product.name}</h3>
+                {item.size && <p className="text-sm">{t('product.size')}: {item.size}</p>}
+                {item.product.requiresSize && <SizeSelector sizes={item.product.availableSizes ?? []}
+                  selected={needsSizeChoice(item) ? null : item.size ?? null}
+                  onChange={(size) => chooseSize(item.productId, item.size ?? null, size)} />}
                 {item.product.isSale && <span className="sale-badge">{t('product.sale')}</span>}
                 {item.product.isSale && <p className="text-[var(--text-muted)] text-sm line-through">{formatPrice(item.product.price)}</p>}
                 <p className="text-[var(--primary)] font-bold">
@@ -129,14 +138,14 @@ export function CartPage() {
                 <div className="flex items-center justify-between mt-2">
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleQuantityChange(item.productId, -1)}
+                      onClick={() => handleQuantityChange(item.productId, -1, item.size ?? null)}
                       className="neumorphic-sm w-8 h-8 flex items-center justify-center rounded-full"
                     >
                       <Minus size={14} />
                     </button>
                     <span className="w-6 text-center font-medium">{item.quantity}</span>
                     <button
-                      onClick={() => handleQuantityChange(item.productId, 1)}
+                      onClick={() => handleQuantityChange(item.productId, 1, item.size ?? null)}
                       className="neumorphic-sm w-8 h-8 flex items-center justify-center rounded-full"
                     >
                       <Plus size={14} />
@@ -144,7 +153,7 @@ export function CartPage() {
                   </div>
 
                   <button
-                    onClick={() => handleRemove(item.productId)}
+                    onClick={() => handleRemove(item.productId, item.size ?? null)}
                     className="text-[var(--error)] p-2"
                   >
                     <Trash2 size={18} />
@@ -167,11 +176,12 @@ export function CartPage() {
 
         {/* Checkout Button - стиль Telegram MainButton */}
         <motion.button
+          disabled={blocked}
           whileTap={{ scale: 0.98 }}
           onClick={handleCheckout}
           className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg"
         >
-          {t('cart.checkout')}
+          {t(recovering ? 'profile.myOrders' : 'cart.checkout')}
         </motion.button>
       </Card>
     </div>

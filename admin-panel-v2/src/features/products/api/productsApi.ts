@@ -46,7 +46,21 @@ export interface ProductCreateData {
 
 export type ProductUpdateData = Partial<ProductCreateData>
 
+export interface SizeInventory {
+  product_id: number
+  merchant_is_in_stock: boolean
+  sizes: { size: string; available_quantity: number; revision: number }[]
+}
+
 export const productsApi = {
+  getSizes: async (id: number): Promise<SizeInventory> => {
+    const response = await apiClient.get<SizeInventory>(`/admin/products/${id}/sizes`)
+    return response.data
+  },
+  updateSizes: async (id: number, sizes: { size: string; available_quantity: number; expected_revision: number }[]): Promise<SizeInventory> => {
+    const response = await apiClient.patch<SizeInventory>(`/admin/products/${id}/sizes`, { sizes })
+    return response.data
+  },
   getProducts: async (params: ProductsParams = {}): Promise<PaginatedResponse<Product>> => {
     const queryParams = new URLSearchParams()
 

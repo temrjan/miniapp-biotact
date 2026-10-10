@@ -39,12 +39,16 @@ export interface PendingOrder {
   orderId: number;
   /** Момент ухода на оплату, epoch ms — от него считается срок жизни памятки. */
   startedAt: number;
+  stockManaged?: boolean;
+  requestKey?: string;
 }
 
 interface PendingOrderState {
   pending: PendingOrder | null;
+  creationUnknown: boolean;
 
-  rememberOrder: (orderId: number) => void;
+  rememberOrder: (orderId: number, requestKey?: string) => void;
+  markCreationUnknown: () => void;
   forgetOrder: () => void;
 }
 
@@ -53,13 +57,15 @@ export const usePendingOrderStore = create<PendingOrderState>()(
     persist(
       (set) => ({
         pending: null,
+        creationUnknown: false,
 
-        rememberOrder: (orderId) => {
-          set({ pending: { orderId, startedAt: Date.now() } }, false, 'rememberOrder');
+        rememberOrder: (orderId, requestKey) => {
+          set({ pending: { orderId, startedAt: Date.now(), ...(requestKey !== undefined ? { stockManaged: true, requestKey } : {}) }, creationUnknown: false }, false, 'rememberOrder');
         },
+        markCreationUnknown: () => set({ creationUnknown: true }, false, 'creationUnknown'),
 
         forgetOrder: () => {
-          set({ pending: null }, false, 'forgetOrder');
+          set({ pending: null, creationUnknown: false }, false, 'forgetOrder');
         },
       }),
       {
@@ -72,5 +78,5 @@ export const usePendingOrderStore = create<PendingOrderState>()(
 
 /** Памятка просрочена — сверять её больше не нужно, снимаем без запроса к серверу. */
 export function isPendingOrderExpired(pending: PendingOrder, now: number = Date.now()): boolean {
-  return now - pending.startedAt > PENDING_ORDER_TTL_MS;
+  return !pending.stockManaged && now - pending.startedAt > PENDING_ORDER_TTL_MS;
 }

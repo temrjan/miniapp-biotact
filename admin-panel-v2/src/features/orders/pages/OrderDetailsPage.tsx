@@ -23,6 +23,7 @@ import {
 
 import { ReferralReturns } from '../components/ReferralReturns';
 import { useOrder, useUpdateOrderStatus } from '../hooks/useOrders';
+import { SizeReturnForm } from '../components/SizeReturnForm';
 import type { OrderStatus } from '../types/order.types';
 import { ORDER_STATUS_LABELS, ORDER_STATUS_COLORS, PAYMENT_STATUS_LABELS } from '../types/order.types';
 
@@ -40,7 +41,7 @@ export const OrderDetailsPage = () => {
   const navigate = useNavigate();
   const orderId = Number(id);
 
-  const { data: order, isLoading, error } = useOrder(orderId);
+  const { data: order, isLoading, error, refetch } = useOrder(orderId);
   const updateStatus = useUpdateOrderStatus();
 
   const handleStatusChange = (newStatus: OrderStatus) => {
@@ -148,7 +149,7 @@ export const OrderDetailsPage = () => {
                 <TableBody>
                   {order.items.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.product_name}</TableCell>
+                      <TableCell className="font-medium">{item.product_name}{item.size ? ` (${item.size})` : ''}</TableCell>
                       <TableCell className="text-right">
                         {formatCurrency(item.product_price, order.currency)}
                       </TableCell>
@@ -182,6 +183,11 @@ export const OrderDetailsPage = () => {
           {id && <ReferralReturns key={id} orderId={id} items={order.items} />}
 
           {/* Notes */}
+          {updateStatus.isError && <p role="alert">Статус не изменён. Оплата может ещё проходить; обновите заказ и проверьте его состояние.</p>}
+          {order.size_stock && <>
+            <p>Состояние оплаты: {order.size_stock.owner_state}</p>
+            <SizeReturnForm key={order.size_stock.revision} orderId={order.id} stock={order.size_stock} onReload={() => { void refetch() }} />
+          </>}
           {(order.customer_note || order.admin_note) && (
             <Card>
               <CardHeader>

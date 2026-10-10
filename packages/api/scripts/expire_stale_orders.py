@@ -17,12 +17,11 @@ so a daily run leaves orders permanently uncancellable. Hours, not days.
 import argparse
 import asyncio
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Раньше эта строка стояла первой среди src.* не ради моделей, а ради порядка: в пакетах жил цикл
@@ -32,8 +31,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 # дешевле, чем зависеть от того, какие модули подтянет цепочка импортов сегодня.
 import src.models_registry  # noqa: F401
 from src.config import settings
-from src.orders.models import Order, OrderStatus
-from src.orders.service import REDEEM_RESERVE_TIMEOUT, expire_stale_orders
+from src.orders.service import REDEEM_RESERVE_TIMEOUT, expire_stale_orders, stale_orders_query
 
 
 def _parse_args() -> argparse.Namespace:
@@ -60,19 +58,7 @@ async def main() -> int:
         if args.dry_run:
             # Считаем ТЕМ ЖЕ условием, что и уборка, но не трогаем ни базу, ни Multicard.
             async with session_factory() as session:
-                rows = (
-                    (
-                        await session.execute(
-                            select(Order).where(
-                                Order.status == OrderStatus.PENDING,
-                                Order.payment_status.in_(("unpaid", "pending")),
-                                Order.created_at < datetime.now(UTC) - max_age,
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
+                rows = (await session.execute(stale_orders_query(max_age))).scalars().all()
             print(f"dry-run: {len(rows)} order(s) older than {max_age} would be reclaimed")
             for order in rows:
                 print(f"  #{order.id} {order.order_number} points={order.points_applied}")

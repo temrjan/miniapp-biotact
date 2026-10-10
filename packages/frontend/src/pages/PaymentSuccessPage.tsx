@@ -1,12 +1,21 @@
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle, Home, Package } from 'lucide-react';
+import { CheckCircle, Clock, Home, Package } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { useHaptic } from '@hooks/useTelegram';
 import { useCartStore } from '@stores/cartStore';
 import { useTranslation } from '@/i18n';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
+import { cartMatchesOrder } from '@/utils/order';
+import { usePendingOrderStore } from '@/stores/pendingOrderStore';
+
+interface ConfirmedOrder {
+  payment_status: string;
+  items: { id: number; product_id: number | null; product_name: string; size: string | null; quantity: number }[];
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // PaymentSuccessPage Component
@@ -21,12 +30,28 @@ export function PaymentSuccessPage() {
 
   // Get order info from URL params if available
   const orderId = searchParams.get('order_id');
+  const stockManaged = searchParams.has('id');
+  const internalId = Number(searchParams.get('id'));
+  const { data: order, isError } = useQuery({
+    queryKey: ['payment-success', internalId],
+    queryFn: () => api.get<ConfirmedOrder>(`/orders/${internalId}`),
+    enabled: stockManaged && Number.isInteger(internalId) && internalId > 0,
+    retry: false,
+  });
+  const confirmed = !stockManaged || order?.payment_status === 'paid';
 
   // Clear cart on successful payment
   useEffect(() => {
-    clearCart();
+    if (stockManaged) {
+      if (order?.payment_status !== 'paid') return;
+      const pending = usePendingOrderStore.getState().pending;
+      if (pending?.stockManaged && pending.orderId !== internalId) return;
+      const cart = useCartStore.getState();
+      if (cartMatchesOrder(cart.items, order.items)) clearCart();
+      if (usePendingOrderStore.getState().pending?.orderId === internalId) usePendingOrderStore.getState().forgetOrder();
+    } else clearCart();
     haptic.success();
-  }, [clearCart, haptic]);
+  }, [clearCart, haptic, stockManaged, order, internalId]);
 
   const handleGoHome = () => {
     haptic.selection();
@@ -55,7 +80,7 @@ export function PaymentSuccessPage() {
             className="neumorphic w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6"
             style={{ background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' }}
           >
-            <CheckCircle size={48} className="text-white" />
+            {confirmed ? <CheckCircle size={48} className="text-white" /> : <Clock size={48} className="text-white" />}
           </motion.div>
 
           {/* Success Message */}
@@ -65,16 +90,19 @@ export function PaymentSuccessPage() {
             transition={{ delay: 0.3 }}
           >
             <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">
-              {t('payment.success')}
+              {t(confirmed ? 'payment.success' : 'checkout.payment_processing')}
             </h1>
             <p className="text-[var(--text-secondary)] mb-2">
-              {t('payment.successDescription')}
+              {t(confirmed ? 'payment.successDescription' : isError ? 'checkout.payment_outcome_unknown' : 'checkout.payment_processing')}
             </p>
             {orderId && (
               <p className="text-[var(--text-muted)] text-sm mb-6">
                 {t('orders.orderNumber')}: <span className="font-medium">{orderId}</span>
               </p>
             )}
+            {order?.items.map((item) => <p key={item.id} className="text-sm">
+              {item.product_name}{item.size ? ` (${item.size})` : ''} ×{item.quantity}
+            </p>)}
           </motion.div>
 
           {/* Info Card */}

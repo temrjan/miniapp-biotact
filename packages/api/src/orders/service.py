@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from src.employee_referrals.capture import capture_order, capture_requested
 from src.employee_referrals.paid import record_paid
@@ -26,6 +26,7 @@ from src.orders.schemas import (
 )
 from src.payments.service import multicard_client
 from src.products.models import Product
+from src.products.stock import lock_products, lock_sizes, size_error
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,8 @@ async def get_order_by_payment_uuid(
 async def _price_lines(
     db: AsyncSession,
     lines: list[OrderItemCreate],
+    *,
+    allocate: bool = False,
 ) -> tuple[list[OrderItem], Decimal, bool]:
     """Turn requested (product_id, quantity) lines into priced ``OrderItem`` rows + the subtotal.
 
@@ -205,7 +208,9 @@ async def _price_lines(
     products = (
         (
             await db.execute(
-                select(Product).where(
+                select(Product)
+                .options(joinedload(Product.category))
+                .where(
                     Product.id.in_(product_ids),
                     # ``is_active`` is how an admin takes a product off sale — the storefront filters
                     # on exactly this flag (products/service.py). Without it here, a delisted product
@@ -219,6 +224,13 @@ async def _price_lines(
         .all()
     )
     by_id = {product.id: product for product in products}
+    managed_ids = {pid for pid, product in by_id.items() if product.requires_size or pid == 39}
+    if allocate:
+        # Ordinary orders keep their existing locking behavior. Vest 39 also needs
+        # the product lock before initialization, so a cutover cannot miss an admission.
+        by_id.update(await lock_products(db, managed_ids))
+        by_id = {pid: product for pid, product in by_id.items() if product.is_active}
+        products = list(by_id.values())
 
     missing = sorted(product_ids - by_id.keys())
     if missing:
@@ -228,25 +240,71 @@ async def _price_lines(
     if out_of_stock:
         raise ProductOutOfStockError(out_of_stock)
 
+    sizes = (
+        await lock_sizes(db, managed_ids)
+        if allocate
+        else {row.id: row for product in products for row in product.sizes}
+    )
+    grouped: dict[tuple[int, str], OrderItem] = {}
     items: list[OrderItem] = []
     subtotal = Decimal("0")
     for line in lines:
         product = by_id[line.product_id]
+        if product.size_cutover_blocked:
+            raise size_error("size_cutover_pending", product.id, line.size, 409)
+        size_row = None
+        if product.requires_size:
+            if line.size is None:
+                raise size_error("size_required", product.id, None)
+            size_row = next(
+                (
+                    row
+                    for row in sizes.values()
+                    if row.product_id == product.id and row.size == line.size
+                ),
+                None,
+            )
+            if size_row is None:
+                raise size_error("invalid_size", product.id, line.size)
+            if product.category is not None and not product.category.is_purchasable:
+                raise size_error("size_unavailable", product.id, line.size, 409)
+        elif line.size is not None:
+            raise size_error("invalid_size", product.id, line.size)
         price = product.sale_price if product.is_sale else product.price
         assert price is not None  # products_sale_ck guarantees a price for active sales.
         line_total = price * line.quantity
         subtotal += line_total
-        items.append(
-            OrderItem(
-                product_id=product.id,
-                product_name=product.name,
-                product_price=price,
-                is_sale_at_order=product.is_sale,
-                regular_price_at_order=product.price,
-                quantity=line.quantity,
-                total=line_total,
-            )
+        if size_row is not None and (product.id, size_row.size) in grouped:
+            item = grouped[(product.id, size_row.size)]
+            item.quantity += line.quantity
+            item.total += line_total
+            continue
+        item = OrderItem(
+            product_id=product.id,
+            product_name=product.name,
+            product_price=price,
+            is_sale_at_order=product.is_sale,
+            regular_price_at_order=product.price,
+            quantity=line.quantity,
+            total=line_total,
+            size=line.size,
+            size_id=size_row.id if size_row is not None else None,
+            allocated_quantity=0,
+            restored_quantity=0,
         )
+        items.append(item)
+        if size_row is not None:
+            grouped[(product.id, size_row.size)] = item
+    for item in grouped.values():
+        assert item.size_id is not None
+        assert item.product_id is not None
+        row = sizes[item.size_id]
+        if row.available_quantity < item.quantity:
+            raise size_error("size_unavailable", item.product_id, item.size, 409)
+        if allocate:
+            row.available_quantity -= item.quantity
+            row.revision += 1
+            item.allocated_quantity = item.quantity
     return items, subtotal, any(product.is_sale for product in products)
 
 
@@ -271,13 +329,17 @@ def _quote_from_priced(
                 quantity=item.quantity,
                 unit_price=item.product_price,
                 line_total=item.total,
+                size=item.size,
             )
         )
     ceiling = max_redeemable(balance=balance, subtotal=subtotal, total=total)
     canonical = {
         "lines": sorted(
-            (line.model_dump(mode="json", exclude={"product_name"}) for line in lines),
-            key=lambda line: (line["product_id"], line["quantity"]),
+            (
+                line.model_dump(mode="json", exclude={"product_name"}, exclude_none=True)
+                for line in lines
+            ),
+            key=lambda line: (line["product_id"], line["quantity"], line.get("size", "")),
         ),
         "subtotal": f"{subtotal:.2f}",
         "delivery_fee": f"{DELIVERY_FEE:.2f}",
@@ -301,7 +363,7 @@ def _quote_from_priced(
 
 async def build_quote(db: AsyncSession, order_data: OrderCreate, user_id: int) -> OrderQuote:
     items, subtotal, _ = await _price_lines(db, order_data.items)
-    balance = await loyalty_service.get_balance(db, user_id)
+    balance = await loyalty_service.get_quote_balance(db, user_id)
     if order_data.points_to_apply > 0:
         _validate_redeem_amount(
             order_data.points_to_apply,
@@ -322,26 +384,40 @@ async def create_order(
     ``points_to_apply == 0`` (the default) is today's card path, byte-for-byte: the order is
     created ``pending``/``unpaid`` and money moves later via Multicard.
 
-    ``points_to_apply > 0`` spends that many Biotact Club points now — validated against the redeem
-    rules first (malformed amount → 422) — inside this one request (= one transaction: ``get_db``
-    commits at request end, any raise rolls everything back), so the redeem debit and the order row
-    live or die together. Full coverage (``points == total``) settles the order outright — ``paid``
-    + ``confirmed``, Multicard never contacted. A partial redemption keeps the order ``unpaid`` /
-    ``pending``: the points are debited now and the card is invoiced for the remainder later.
+    Full coverage (``points == total``) debits points and settles the order outright — ``paid``
+    + ``confirmed``, Multicard never contacted. A partial redemption reserves points and keeps
+    the order ``pending``/``unpaid`` until verified card settlement debits the reservation.
+    Admission validates the redeem rules and balance in the same transaction as the order and
+    any size allocation; a refusal rolls back every admission effect.
 
     Raises :class:`OrderValidationError` (unknown product / out of stock / invalid redeem amount)
     — the router maps it to 422 — and :class:`~src.loyalty.service.InsufficientPointsError` —
     mapped to 409, nothing persisted.
     """
-    # Refuse unsafe SQL echo before any pricing/K1 SQL for a canonical capture request.
+    # Refuse unsafe SQL echo before any order or referral SQL.
     capture_requested(order_data.referral_token)
-    items, subtotal, has_sale = await _price_lines(db, order_data.items)
+    # Establish the order identity before acquiring product/size/profile locks.
+    order = Order(
+        order_number=generate_order_number(),
+        user_id=user_id,
+        subtotal=Decimal("0"),
+        delivery_fee=DELIVERY_FEE,
+        total=Decimal("0"),
+        delivery_address=order_data.delivery_address,
+        delivery_phone=order_data.delivery_phone,
+        delivery_name=order_data.delivery_name,
+        customer_note=order_data.customer_note,
+        items=[],
+    )
+    db.add(order)
+    await db.flush()
+    items, subtotal, has_sale = await _price_lines(db, order_data.items, allocate=True)
     total = subtotal + DELIVERY_FEE
 
     points = order_data.points_to_apply
     balance = 0
     if points > 0 or order_data.quote_fingerprint is not None or has_sale:
-        balance = await loyalty_service.get_balance(db, user_id)
+        balance = await loyalty_service.get_quote_balance(db, user_id)
     if order_data.quote_fingerprint is not None or has_sale:
         quote = _quote_from_priced(items, subtotal, balance=balance, points=points)
         if order_data.quote_fingerprint is None:
@@ -351,18 +427,13 @@ async def create_order(
     if points > 0:
         _validate_redeem_amount(points, balance=balance, subtotal=subtotal, total=total)
 
-    order = Order(
-        order_number=generate_order_number(),
-        user_id=user_id,
-        subtotal=subtotal,
-        delivery_fee=DELIVERY_FEE,
-        total=total,
-        delivery_address=order_data.delivery_address,
-        delivery_phone=order_data.delivery_phone,
-        delivery_name=order_data.delivery_name,
-        customer_note=order_data.customer_note,
-    )
+    order.subtotal = subtotal
+    order.total = total
     is_full = points > 0 and total - points == 0
+    if any(item.size_id is not None for item in items):
+        order.size_stock_protocol = "size_stock_v1"
+        order.size_owner_state = "paid" if is_full else "not_started"
+        order.accepted_settlement = is_full
     if points > 0:
         order.points_applied = points
         # A partial redemption keeps the default unpaid/pending — the pending order row itself is
@@ -452,7 +523,12 @@ async def expire_stale_partials(
     """
     filters = [
         Order.user_id == user_id,
-        Order.payment_status.in_(("unpaid", "pending")),
+        or_(
+            and_(
+                Order.size_stock_protocol.is_(None), Order.payment_status.in_(("unpaid", "pending"))
+            ),
+            loyalty_service.marked_reservation(),
+        ),
         Order.points_applied > 0,
     ]
     if max_age is not None:
@@ -501,12 +577,7 @@ async def expire_stale_orders(
 
     Run frequency is a correctness constraint, not housekeeping — see the comment above.
     """
-    filters = [
-        Order.status == OrderStatus.PENDING,
-        Order.payment_status.in_(("unpaid", "pending")),
-        Order.created_at < datetime.now(UTC) - max_age,
-    ]
-    stale = (await db.execute(select(Order).where(*filters))).scalars().all()
+    stale = (await db.execute(stale_orders_query(max_age))).scalars().all()
 
     released_orders = released_points = blocked_orders = 0
     for index, order in enumerate(stale):
@@ -530,6 +601,21 @@ async def expire_stale_orders(
     )
 
 
+def stale_orders_query(max_age: timedelta) -> Select[tuple[Order]]:
+    """The same read-only selection for dry-run and apply, including all held marked orders."""
+    return select(Order).where(
+        or_(
+            and_(
+                Order.size_stock_protocol.is_(None),
+                Order.status == OrderStatus.PENDING,
+                Order.payment_status.in_(("unpaid", "pending")),
+            ),
+            loyalty_service.marked_reservation(),
+        ),
+        Order.created_at < datetime.now(UTC) - max_age,
+    )
+
+
 async def _expire_partial(db: AsyncSession, order: Order) -> bool:
     """Expire ONE stale partial: delete its Multicard invoice, then cancel — in that order, safely.
 
@@ -544,6 +630,10 @@ async def _expire_partial(db: AsyncSession, order: Order) -> bool:
     never reached ``/payments/create`` has no ``payment_uuid`` and no invoice to delete, so it is
     cancelled directly. Returns whether the order was cancelled.
     """
+    if order.size_stock_protocol == "size_stock_v1":
+        from src.payments.size_stock import cancel_owned_order
+
+        return await cancel_owned_order(db, order.id)
     if order.payment_uuid is not None:
         deleted = await multicard_client.delete_invoice(order.payment_uuid)
         if not deleted:
@@ -573,6 +663,11 @@ async def update_order_status(
     order = await get_order_by_id(db, order_id)
     if not order:
         return None
+
+    if order.size_stock_protocol == "size_stock_v1":
+        from src.payments.size_stock import change_status
+
+        return await change_status(db, order_id, OrderStatus(status))
 
     order.status = OrderStatus(status)
 

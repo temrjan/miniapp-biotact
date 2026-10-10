@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { CartItem, Product } from '@/types';
 import { STORAGE_KEYS } from '@/utils/constants';
+import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
 
 // ═══════════════════════════════════════════════════════════════════
 // Types
@@ -13,9 +14,10 @@ import { STORAGE_KEYS } from '@/utils/constants';
 interface CartState {
   items: CartItem[];
   
-  addItem: (product: Product, quantity?: number) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  addItem: (product: Product, quantity?: number, size?: string | null) => void;
+  removeItem: (productId: string, size?: string | null) => void;
+  updateQuantity: (productId: string, quantity: number, size?: string | null) => void;
+  chooseSize: (productId: string, previousSize: string | null, size: string) => void;
   clearCart: () => void;
 }
 
@@ -29,15 +31,17 @@ export const useCartStore = create<CartState>()(
       (set, get) => ({
         items: [],
         
-        addItem: (product, quantity = 1) => {
+        addItem: (product, quantity = 1, size = null) => {
+          if (product.requiresSize && (!size || !product.availableSizes?.includes(size) || isSizedPurchaseBlocked(product))) return;
+          if (!product.requiresSize && size !== null) return;
           const items = get().items;
-          const existingItem = items.find((item) => item.productId === product.id);
+          const existingItem = items.find((item) => item.productId === product.id && (item.size ?? null) === size);
           
           if (existingItem) {
             set(
               {
                 items: items.map((item) =>
-                  item.productId === product.id
+                  item.productId === product.id && (item.size ?? null) === size
                     ? { ...item, product, quantity: item.quantity + quantity }
                     : item
                 ),
@@ -50,7 +54,7 @@ export const useCartStore = create<CartState>()(
               {
                 items: [
                   ...items,
-                  { productId: product.id, product, quantity },
+                  { productId: product.id, product, quantity, ...(size ? { size } : {}) },
                 ],
               },
               false,
@@ -59,31 +63,43 @@ export const useCartStore = create<CartState>()(
           }
         },
         
-        removeItem: (productId) => {
+        removeItem: (productId, size = null) => {
           set(
             (state) => ({
-              items: state.items.filter((item) => item.productId !== productId),
+              items: state.items.filter((item) => item.productId !== productId || (item.size ?? null) !== size),
             }),
             false,
             'removeItem'
           );
         },
         
-        updateQuantity: (productId, quantity) => {
+        updateQuantity: (productId, quantity, size = null) => {
           if (quantity <= 0) {
-            get().removeItem(productId);
+            get().removeItem(productId, size);
             return;
           }
           
           set(
             (state) => ({
               items: state.items.map((item) =>
-                item.productId === productId ? { ...item, quantity } : item
+                item.productId === productId && (item.size ?? null) === size ? { ...item, quantity } : item
               ),
             }),
             false,
             'updateQuantity'
           );
+        },
+
+        chooseSize: (productId, previousSize, size) => {
+          const item = get().items.find((line) => line.productId === productId && (line.size ?? null) === previousSize);
+          if (!item || !item.product.availableSizes?.includes(size) || previousSize === size) return;
+          set((state) => {
+            const target = state.items.find((line) => line.productId === productId && line.size === size);
+            return { items: state.items.flatMap((line) => {
+              if (line === item) return target ? [] : [{ ...line, size }];
+              return [line === target ? { ...line, quantity: line.quantity + item.quantity } : line];
+            }) };
+          }, false, 'chooseSize');
         },
         
         clearCart: () => {
@@ -117,10 +133,10 @@ export const useCartTotalAmount = () =>
     )
   );
 
-export const useCartItemQuantity = (productId: string) =>
+export const useCartItemQuantity = (productId: string, size: string | null = null) =>
   useCartStore(
     (state) =>
-      state.items.find((item) => item.productId === productId)?.quantity ?? 0
+      state.items.find((item) => item.productId === productId && (item.size ?? null) === size)?.quantity ?? 0
   );
 
 // Refresh only pricing; keep the current cart membership and quantities while requests are in flight.
@@ -136,20 +152,26 @@ export function useRefreshCartPrices() {
     if (ids.length === 0) return;
     void Promise.allSettled(ids.map(async (id) => ({
       id,
-      price: mapProductPrice(await api.get<ApiProductPrice>(`/products/${id}`)),
+      data: await api.get<ApiProductPrice & ApiSizeStock & { is_in_stock?: boolean; is_purchasable?: boolean }>(`/products/${id}`),
     }))).then((results) => {
       if (!active || version !== requestVersion.current) return;
       const prices = new Map(results.flatMap((result) =>
-        result.status === 'fulfilled' ? [[result.value.id, result.value.price] as const] : []
+        result.status === 'fulfilled' ? [[result.value.id, result.value.data] as const] : []
       ));
       useCartStore.setState((state) => {
         let changed = false;
         const items = state.items.map((item) => {
-          const price = prices.get(item.productId);
-          if (!price || (item.product.price === price.price && item.product.oldPrice === price.oldPrice
-            && item.product.isSale === price.isSale && item.product.salePrice === price.salePrice)) return item;
+          const data = prices.get(item.productId);
+          if (!data) return item;
+          const price = mapProductPrice(data);
+          const inventory = mapSizeStock(data);
+          const product = { ...item.product, ...price, ...inventory,
+            ...(inventory.requiresSize ? { quantity: undefined } : {}),
+            inStock: data.is_in_stock ?? item.product.inStock,
+            isPurchasable: data.is_purchasable ?? item.product.isPurchasable };
+          if (JSON.stringify(item.product) === JSON.stringify(product)) return item;
           changed = true;
-          return { ...item, product: { ...item.product, ...price } };
+          return { ...item, product };
         });
         return changed ? { items } : state;
       });
