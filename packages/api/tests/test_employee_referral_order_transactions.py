@@ -3,7 +3,9 @@
 import asyncio
 import copy
 import hashlib
+from contextlib import asynccontextmanager
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -30,6 +32,8 @@ async def wait_for_lock(h):
     """Observe a real PostgreSQL waiter; a timing-only sleep is not a race proof."""
     async with h.sessions() as observer:
         for _ in range(200):
+            # Activity is cached per transaction, including its set of backend PIDs.
+            await observer.execute(text("SELECT pg_stat_clear_snapshot()"))
             waiting = await observer.scalar(
                 text(
                     "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
@@ -40,6 +44,38 @@ async def wait_for_lock(h):
                 return
             await asyncio.sleep(0.01)
     raise AssertionError("Expected a real PostgreSQL lock waiter")
+
+
+async def test_lock_observer_sees_a_connection_opened_after_its_first_snapshot(checkout):
+    h = checkout
+    key = uuid4().int % (2**63)
+    pending = None
+
+    async def wait_on_writer():
+        async with h.sessions() as waiter:
+            await waiter.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+    @asynccontextmanager
+    async def observed_session():
+        nonlocal pending
+        async with h.sessions() as observer:
+            # Freeze activity before the competing connection even exists.
+            await observer.scalar(text("SELECT count(*) FROM pg_stat_activity"))
+            pending = asyncio.create_task(wait_on_writer())
+            yield observer
+
+    async with h.sessions() as writer:
+        await writer.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+        try:
+            await wait_for_lock(SimpleNamespace(sessions=observed_session))
+            assert pending is not None
+            assert not pending.done()
+            await writer.commit()
+            await asyncio.wait_for(pending, 3)
+        finally:
+            if pending is not None and not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
 
 
 def revision(h, change):
