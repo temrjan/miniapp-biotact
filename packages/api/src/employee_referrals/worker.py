@@ -207,6 +207,36 @@ def migration_head() -> str | None:
     return ScriptDirectory.from_config(config).get_current_head()
 
 
+async def schema_compatible(session: AsyncSession, expected: str | None, schema: str) -> bool:
+    """Permit only the reviewed S1 transition; verify its native invariant read-only."""
+    if not schema or not expected:
+        return False
+    if schema != expected and (expected, schema) != ("a8f6d2c93017", "b7e31c904a62"):
+        return False
+    if schema != "b7e31c904a62":
+        return True
+    return (
+        await session.scalar(
+            text(
+                "SELECT c.relkind = 'r' AND c.relpersistence = 'p' "
+                "AND NOT c.relispartition AND c.reloftype = 0 AND NOT c.relrowsecurity "
+                "AND NOT EXISTS (SELECT FROM pg_catalog.pg_inherits i "
+                "WHERE i.inhrelid = c.oid OR i.inhparent = c.oid) "
+                "AND a.atttypid = 'pg_catalog.bool'::pg_catalog.regtype "
+                "AND a.attnotnull AND a.attgenerated = '' AND a.attidentity = '' "
+                "AND pg_catalog.pg_get_expr(d.adbin, d.adrelid) = 'true' "
+                "FROM pg_catalog.pg_class c "
+                "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                "JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid "
+                "LEFT JOIN pg_catalog.pg_attrdef d "
+                "ON d.adrelid = a.attrelid AND d.adnum = a.attnum "
+                "WHERE n.nspname = 'public' AND c.relname = 'categories' "
+                "AND a.attname = 'is_purchasable' AND a.attnum > 0 AND NOT a.attisdropped"
+            )
+        )
+    ) is True
+
+
 async def maintenance_health(
     sessions: async_sessionmaker[AsyncSession], config: dict[Lane, LaneConfig]
 ) -> tuple[dict[str, object], int]:
@@ -215,6 +245,7 @@ async def maintenance_health(
         expected = await asyncio.to_thread(migration_head)
         schemas = list(await session.scalars(text("SELECT version_num FROM alembic_version")))
         schema = schemas[0] if len(schemas) == 1 and isinstance(schemas[0], str) else ""
+        schema_ready = await schema_compatible(session, expected, schema)
         leased = sum(
             [
                 await session.scalar(
@@ -244,19 +275,22 @@ async def maintenance_health(
             )
         )
         maximum_lease = 0 if stored_lease is None else int(stored_lease)
-        ready = bool(schema and schema == expected and not invalid and not leased)
+        ready = bool(schema_ready and not invalid and not leased)
         _, delivery_status = await health(sessions, config)
-        return {
+        result: dict[str, object] = {
             "confirmation_seconds": LEASE_SECONDS,
             "stored_confirmation_seconds": maximum_lease,
             "healthy": delivery_status == 0,
             "schema": schema,
-            "schema_ready": bool(schema and schema == expected),
+            "schema_ready": schema_ready,
             "leased": leased,
             "enabled": config["k2"].enabled,
             "blocked": blocked,
             "ready": ready,
-        }, 0 if ready else 1
+        }
+        if schema_ready and schema == "b7e31c904a62":
+            result["schema_compatibility"] = "s1-category-boolean-v1"
+        return result, 0 if ready else 1
 
 
 class Parser(argparse.ArgumentParser):
