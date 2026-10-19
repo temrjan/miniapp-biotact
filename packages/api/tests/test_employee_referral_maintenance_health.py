@@ -128,17 +128,21 @@ async def test_empty_disabled_probe_is_ready_and_runs_all_reads_in_readonly_tran
     finally:
         await engine.dispose()
     assert code == 0
-    assert result == {
+    expected_head = await asyncio.to_thread(worker.migration_head)
+    expected: dict[str, object] = {
         "confirmation_seconds": 300,
         "stored_confirmation_seconds": 0,
         "healthy": True,
-        "schema": await asyncio.to_thread(worker.migration_head),
+        "schema": expected_head,
         "schema_ready": True,
         "leased": 0,
         "enabled": False,
         "blocked": 0,
         "ready": True,
     }
+    if expected_head == "b7e31c904a62":
+        expected["schema_compatibility"] = "s1-category-boolean-v1"
+    assert result == expected
     assert any("SET TRANSACTION READ ONLY" in statement for statement in statements)
     assert all(statement.lstrip().split()[0] in {"SELECT", "SET"} for statement in statements)
 
