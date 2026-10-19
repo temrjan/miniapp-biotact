@@ -86,7 +86,11 @@ jobs:
         run: npm run build
 
   api:
-    name: API (FastAPI)
+    name: API (FastAPI, PostgreSQL ${{ matrix.postgres }})
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [16, 17]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -95,7 +99,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: biotact
           POSTGRES_PASSWORD: biotact_ci
@@ -110,6 +114,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+asyncpg://biotact:biotact_ci@localhost:5432/biotact_test_db
+      S1_TEST_DATABASE_URL: postgresql://biotact:biotact_ci@localhost:5432/postgres
       SECRET_KEY: ci-test-secret-key-not-for-production
       JWT_SECRET: ci-test-jwt-secret-not-for-production
       TELEGRAM_BOT_TOKEN: fake-token-for-ci
@@ -131,19 +136,28 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint with ruff
-        run: ruff check src/
+        run: ruff check src/ tests/test_category_schema_migration.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
 
       - name: Format check with ruff
-        run: ruff format --check src/
+        run: ruff format --check src/ tests/test_category_schema_migration.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
 
       - name: Type check with mypy
         run: mypy src/ --strict --ignore-missing-imports
 
-      - name: Test with pytest
+      - name: Test API with pytest
+        if: matrix.postgres == 17
         run: pytest tests/ -v --no-header
 
+      - name: Test category schema contract on production PostgreSQL major
+        if: matrix.postgres == 16
+        run: pytest tests/test_category_schema_migration.py -v --no-header
+
   migration-parity:
-    name: Migration parity (model↔migration)
+    name: Migration parity (PostgreSQL ${{ matrix.postgres }})
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [16, 17]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -152,7 +166,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: biotact
           POSTGRES_PASSWORD: biotact_ci
