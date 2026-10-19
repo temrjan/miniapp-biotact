@@ -28,11 +28,14 @@ async def retained_schema(
     yield probe_sessions
 
 
-async def test_prepared_predecessor_reads_retained_s1_schema(
+@pytest.mark.parametrize("expected_head", ["a8f6d2c93017", "b7e31c904a62"])
+async def test_prepared_worker_reads_retained_s1_schema(
     retained_schema: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    expected_head: str,
 ) -> None:
-    # This same call returns schema_ready=False before the correction.
-    assert worker.migration_head() == "a8f6d2c93017"
+    # Both the prepared predecessor and S1 require native retained-schema proof.
+    monkeypatch.setattr(worker, "migration_head", lambda: expected_head)
     result, code = await worker.maintenance_health(retained_schema, configs())
     assert code == 0
     assert result["schema_ready"] is True

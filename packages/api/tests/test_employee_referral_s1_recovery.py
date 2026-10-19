@@ -1,8 +1,13 @@
-"""Explicit paired release proof: real old worker/PG and canonical controller/state."""
+"""Explicit paired proof using the prepared worker bytes and committed metadata.
+
+Set S1_ROLLBACK_COMMIT to the delivered prepared SHA when checking an S1 checkout.
+The selected worker must match these bytes; no second checkout is required.
+"""
 
 import asyncio
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 from dataclasses import replace
@@ -22,10 +27,18 @@ from tests.test_employee_referral_maintenance_health import probe_sessions as pr
 from tests.test_employee_referral_s1_compatibility import retained_schema as retained_schema
 
 SOURCE = os.environ.get("S1_CONTROLLER_SOURCE", "")
+ROLLBACK = os.environ.get("S1_ROLLBACK_COMMIT", "HEAD")
+PREPARED_TREE = "97314e154042d8bdbeb62e7c77d9033ff1dcab94"
 pytestmark = pytest.mark.skipif(
     not SOURCE, reason="Explicit S1 recovery pairing requires reviewed S1_CONTROLLER_SOURCE"
 )
 SHOP = Path(__file__).resolve().parents[3]
+
+
+def source_git(*args: str) -> bytes:
+    return subprocess.check_output(  # noqa: S603 - fixed read-only Git fixture calls
+        ["/usr/bin/git", "-C", str(SHOP), *args]
+    )
 
 
 @pytest.fixture
@@ -40,6 +53,27 @@ def paired_controller(
     control = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = control
     spec.loader.exec_module(control)
+    assert re.fullmatch(r"HEAD|[0-9a-f]{40}", ROLLBACK)
+    selected = source_git("rev-parse", "--verify", f"{ROLLBACK}^{{commit}}").decode().strip()
+    assert source_git("rev-parse", f"{selected}^{{tree}}").decode().strip() == PREPARED_TREE
+    assert Path(worker.__file__).read_bytes() == source_git(
+        "show", f"{selected}:packages/api/src/employee_referrals/worker.py"
+    )
+    names = (
+        source_git("ls-tree", "-r", "--name-only", selected, "--", "packages/api/alembic/versions/")
+        .decode()
+        .splitlines()
+    )
+    predecessor_head = control.migration_head(
+        [
+            source_git("show", f"{selected}:{name}").decode()
+            for name in names
+            if name.endswith(".py") and not name.endswith("/__init__.py")
+        ]
+    )
+    assert predecessor_head == "a8f6d2c93017"
+    # Read the selected real Git graph instead of the newer checkout's graph.
+    monkeypatch.setattr(worker, "migration_head", lambda: predecessor_head)
     library = sys.modules["referral_admission"]
     assert Path(library.__file__).resolve() == source.parent / "referral_admission.py"
     monkeypatch.setattr(library.trusted_directory, "__defaults__", (os.geteuid(),))
@@ -60,10 +94,11 @@ def paired_controller(
     class Backend(control.Backend):
         def run(self, args: list[str], **_kwargs: object) -> str:
             if args[:3] == ["/usr/bin/git", "-C", "/var/www/biotact"]:
-                # Real local Git source/graph/tree, not a fabricated compatibility result.
-                return subprocess.check_output(  # noqa: S603 - fixed read-only Git controller calls
-                    ["/usr/bin/git", "-C", str(SHOP), *args[3:]], text=True
-                ).strip()
+                # Runtime identity and candidate metadata use the real prepared object.
+                git_args = args[3:]
+                if git_args == ["rev-parse", "HEAD"]:
+                    git_args = ["rev-parse", selected]
+                return source_git(*git_args).decode().strip()
             if args[0] == "/usr/bin/curl":
                 return '{"status":"healthy"}'
             raise AssertionError(args)
