@@ -17,6 +17,11 @@ _private: ContextVar[bool] = ContextVar("private_admin_auth", default=False)
 _prefixes: set[str] = {"/api/v1/admin/auth", "/api/v1/buyer/auth"}
 _installed = False
 _buyer_cookies = ("__Host-biotact_buyer", "__Host-biotact_auth")
+_buyer_credential_markers = (
+    *(cookie.lower() for cookie in _buyer_cookies),
+    "x-csrf-token",
+    "csrf_token",
+)
 
 
 def private_path(path: str, prefix: str) -> bool:
@@ -64,7 +69,7 @@ def install() -> None:
 
 
 def _strip_buyer_credentials(value: object) -> object:
-    """Host cookies also accompany public requests and SDK middleware span reprs."""
+    """Buyer cookies/CSRF also occur in public requests and SDK middleware span reprs."""
     if isinstance(value, dict):
         return {
             key: (
@@ -73,9 +78,7 @@ def _strip_buyer_credentials(value: object) -> object:
                 in {
                     "cookie",
                     "set-cookie",
-                    "x-csrf-token",
-                    "csrf_token",
-                    *(cookie.lower() for cookie in _buyer_cookies),
+                    *_buyer_credential_markers,
                 }
                 else _strip_buyer_credentials(item)
             )
@@ -83,8 +86,10 @@ def _strip_buyer_credentials(value: object) -> object:
         }
     if isinstance(value, (list, tuple)):
         return [_strip_buyer_credentials(item) for item in value]
-    if isinstance(value, str) and any(marker in unquote(value) for marker in _buyer_cookies):
-        return "[Filtered]"
+    if isinstance(value, str):
+        normalized = unquote(value).lower()
+        if any(marker in normalized for marker in _buyer_credential_markers):
+            return "[Filtered]"
     return value
 
 

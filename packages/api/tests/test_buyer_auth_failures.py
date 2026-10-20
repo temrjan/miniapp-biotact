@@ -346,7 +346,8 @@ async def test_bounded_cleanup_preserves_active_identity_and_effective_limits(bu
         assert await db.scalar(select(func.count()).select_from(BuyerEmailChallenge)) == 1
 
 
-async def test_actual_logs_sdk_late_breadcrumbs_and_positive_control(buyer, caplog):
+@pytest.mark.parametrize("public_cookies", [True, False])
+async def test_actual_logs_sdk_late_breadcrumbs_and_positive_control(buyer, caplog, public_cookies):
     capture = Captured()
     canaries = [
         "email-canary@example.test",
@@ -406,7 +407,9 @@ async def test_actual_logs_sdk_late_breadcrumbs_and_positive_control(buyer, capl
             sentry_sdk.add_breadcrumb(
                 category="http", data={"url": ORIGIN + PATH + "/session", "body": canaries[1]}
             )
-            response = await client.get("/public-privacy-control")
+            if not public_cookies:
+                client.cookies.clear()
+            response = await client.get("/public-privacy-control", headers=headers)
             assert response.json() == {"ok": True}
         sentry_sdk.flush()
     serialized = json.dumps(capture.events)
