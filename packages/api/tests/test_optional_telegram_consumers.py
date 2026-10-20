@@ -337,7 +337,7 @@ async def test_no_profile_purchase_backfill_and_anomalous_print(customers):
     ).status_code == 404
 
 
-def test_ordinary_migration_schema_remains_not_null_and_in_parity(scratch):
+def test_pre_s3_schema_not_null_and_current_chain_in_parity(scratch):
     scratch.migrate()
     scratch.assert_native()
     assert scratch.execute(
@@ -347,6 +347,11 @@ def test_ordinary_migration_schema_remains_not_null_and_in_parity(scratch):
         scratch.execute(
             "INSERT INTO users(telegram_id,language_code,is_active,is_admin) VALUES(NULL,'ru',true,false)"
         )
+    # S2's NOT NULL promise ends at its exact revision; S3 intentionally relaxes it.
+    scratch.migrate(target="head")
+    assert scratch.execute(
+        "SELECT attnotnull FROM pg_attribute WHERE attrelid='users'::regclass AND attname='telegram_id'"
+    ) == [(False,)]
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "check"],
         cwd=migration.API_ROOT,

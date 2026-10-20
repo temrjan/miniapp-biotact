@@ -148,10 +148,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint with ruff
-        run: ruff check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
+        run: ruff check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py tests/test_buyer_auth*.py alembic/versions/c4f2a91e8d63_buyer_email_sessions.py
 
       - name: Format check with ruff
-        run: ruff format --check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
+        run: ruff format --check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py tests/test_buyer_auth*.py alembic/versions/c4f2a91e8d63_buyer_email_sessions.py
 
       - name: Check release asset helper
         run: |
@@ -168,7 +168,7 @@ jobs:
 
       - name: Test shared category and optional Telegram contracts on production PostgreSQL major
         if: matrix.postgres == 16
-        run: pytest tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py -v --no-header
+        run: pytest tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py tests/test_buyer_auth*.py -v --no-header
 
   migration-parity:
     name: Migration parity (PostgreSQL ${{ matrix.postgres }})

@@ -20,6 +20,7 @@ _MODEL_MODULES = (
     "src.users.models",
     "src.orders.models",
     "src.auth.models",
+    "src.buyer_auth.models",
     "src.crm.models",
     "src.banners.models",
     "src.broadcasts.models",
