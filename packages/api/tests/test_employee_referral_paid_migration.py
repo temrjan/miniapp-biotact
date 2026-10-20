@@ -1,4 +1,4 @@
-"""Owned PG17 transition, parity and app-role immutable history."""
+"""Owned PG16 transition, parity and app-role immutable history."""
 
 import hashlib
 import os

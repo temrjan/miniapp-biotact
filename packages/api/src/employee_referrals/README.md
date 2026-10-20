@@ -94,7 +94,8 @@ telemetry is preserved. Test positive controls prove capture is active.
 
 ## Verification
 
-Use Python 3.11 and an **owned disposable PostgreSQL 17 cluster/role/port**.
+Use Python 3.11 and an **owned disposable PostgreSQL 16 cluster/role/port**.
+Development, verification, CI and production use the same PostgreSQL major, 16.
 The existing `tests/conftest.py` uses `biotact_test_db` on the configured server and
 creates/drops model metadata. Never point these tests at a shared or production server.
 Mounted tests explicitly replace `app.state.employee_referral_sessions`; overriding
@@ -277,7 +278,7 @@ are scoped; unrelated telemetry remains active. SQL echo blocks this private cha
 Additive migration b5a1d6e8f230 follows9b47c6e3d821. Existing history is not backfilled.
 Confirmed returned units are described below; delivery and employee UI remain separate.
 The current minimum is80% actual critical branches; overall API debt is deferred. Scoped paid tests use
-real PG17, mounted get_db/commits and external Telegram substitutes only. Existing
+real PG16, mounted get_db/commits and external Telegram substitutes only. Existing
 API lint/format/strict-mypy/full-suite and migration parity gates remain required;
 shared coverage debt is reported independently without changing exclusions or CI.
 
@@ -342,7 +343,7 @@ Release order: extended Portal/schema with K2 OFF, then Shop schema/confirmation
 then separately verified delivery using the worker below.
 
 `test_employee_referral_returns.py` uses the real mounted get_db/sessionmaker and
-owned PG17 for3→2→0, root/UUID races, durable/unknown commit, corrupt history, auth
+owned PG16 for3→2→0, root/UUID races, durable/unknown commit, corrupt history, auth
 and scoped privacy with live local SDK/log positive controls. Only external provider
 and notification boundaries are substituted. Migration tests use unique owned
 scratch databases/restricted roles for populated compatibility, immutable triggers,
