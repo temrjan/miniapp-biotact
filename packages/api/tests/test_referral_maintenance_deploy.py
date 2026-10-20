@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
+BASE = "1" * 40
+TARGET = "2" * 40
 
 
 def remote_script() -> str:
@@ -27,6 +29,12 @@ def run_deploy(tmp_path: Path, failure: str = "") -> tuple[int, list[str]]:
         (app / directory).mkdir(parents=True, exist_ok=True)
     for package in ("api", "bot"):
         (app / f"packages/{package}/venv/bin/activate").write_text("deactivate() { :; }\n")
+    for owner in ("packages/frontend", "admin-panel-v2"):
+        dist = app / owner / "dist"
+        dist.mkdir()
+        (dist / "index.html").write_text("baseline")
+    revision = app / "revision"
+    revision.write_text(BASE + "\n")
     (app / "ops/employee-referral-release.sh").write_text(
         'echo "release:$1" >> "$TRACE"\n[ "$FAIL" != "release:$1" ]\n'
     )
@@ -35,21 +43,36 @@ def run_deploy(tmp_path: Path, failure: str = "") -> tuple[int, list[str]]:
     guard.chmod(0o755)
     prefix = """
 trace() { printf '%s\\n' "$1" >> "$TRACE"; [ "$FAIL" != "$1" ]; }
-git() { trace "git:$1" || return 1; if [ "$1" = rev-parse ]; then printf '%040d\\n' 1; fi; }
+git() {
+  trace "git:$1" || return 1
+  case "$1" in
+    rev-parse) cat "$FAKE_REVISION";;
+    reset) printf '%s\\n' "$3" > "$FAKE_REVISION";;
+    show) cat "$ASSET_HELPER_SOURCE";;
+  esac
+}
 pm2() { trace "pm2:$1:$2" || return 1; if [ "$1" = pid ]; then echo 7; fi; }
 sudo() { shift 2; shift; trace "guard:$1"; }
 npm() { trace "npm:$1"; }
 pip() { trace "pip:$1"; }
 alembic() { trace "migration:$1"; }
-curl() { trace health; }
+curl() { if [ "$(cat "$FAKE_REVISION")" = "$FAKE_TARGET" ]; then trace health; fi; }
 sleep() { :; }
 """
     script = (
         remote_script()
         .replace("/var/www/biotact", str(app))
         .replace("/usr/local/sbin/biotact-referral-maintenance", str(guard))
+        .replace("${{ github.event.workflow_run.head_sha }}", TARGET)
     )
-    env = {**os.environ, "TRACE": str(tmp_path / "trace"), "FAIL": failure}
+    env = {
+        **os.environ,
+        "TRACE": str(tmp_path / "trace"),
+        "FAIL": failure,
+        "FAKE_REVISION": str(revision),
+        "FAKE_TARGET": TARGET,
+        "ASSET_HELPER_SOURCE": str(ROOT / "ops/shop-release-assets.py"),
+    }
     result = subprocess.run(  # noqa: S603 - isolated Bash and command stubs only
         ["/usr/bin/bash", "-c", prefix + script],
         env=env,
@@ -66,9 +89,10 @@ def test_success_closes_guard_before_stops_and_finishes_after_checks(tmp_path: P
     code, events = run_deploy(tmp_path)
     assert code == 0
     assert (
-        events.index("guard:begin")
+        events.index("git:fetch")
+        < events.index("guard:begin")
         < events.index("pm2:stop:api")
-        < events.index("git:fetch")
+        < events.index("git:reset")
         < events.index("migration:upgrade")
     )
     assert events.index("release:check") < events.index("guard:finish")
@@ -77,7 +101,7 @@ def test_success_closes_guard_before_stops_and_finishes_after_checks(tmp_path: P
 
 @pytest.mark.parametrize(
     "failure",
-    ["pm2:stop:api", "git:fetch", "npm:ci", "migration:upgrade", "health", "guard:finish"],
+    ["pm2:stop:api", "git:reset", "npm:ci", "migration:upgrade", "health", "guard:finish"],
 )
 def test_failure_drains_and_checks_compatibility_before_rollback(
     tmp_path: Path, failure: str
@@ -100,7 +124,7 @@ def test_failed_guard_never_permits_unprotected_mutation(tmp_path: Path, failure
         code, events = run_deploy(tmp_path, failure)
         assert code != 0
         assert "pm2:stop:api" not in events
-        assert "git:fetch" not in events
+        assert "git:reset" not in events
     else:
         # Two independently failing external boundaries, not a modified deploy script.
         original = remote_script()
@@ -114,3 +138,9 @@ def test_failed_guard_never_permits_unprotected_mutation(tmp_path: Path, failure
         assert code != 0
         assert "release:rollback" not in events
         assert events.count("guard:pause") == 1
+
+
+def test_fetch_failure_preserves_baseline_without_opening_guard(tmp_path: Path) -> None:
+    code, events = run_deploy(tmp_path, "git:fetch")
+    assert code != 0
+    assert events == ["git:rev-parse", "git:fetch"]

@@ -113,7 +113,7 @@ export const UserDetailPage = () => {
             <div className="grid gap-3">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Telegram ID</span>
-                <span className="font-mono">{user.telegram_id}</span>
+                <span className="font-mono">{user.telegram_id ?? '—'}</span>
               </div>
               {user.username && (
                 <div className="flex justify-between">

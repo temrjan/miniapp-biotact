@@ -8,7 +8,7 @@ export const customerKeys = {
   list: (params: CustomersParams) => [...customerKeys.lists(), params] as const,
   stats: () => [...customerKeys.all, "stats"] as const,
   details: () => [...customerKeys.all, "detail"] as const,
-  detail: (telegramId: number) => [...customerKeys.details(), telegramId] as const,
+  detail: (userId: number) => [...customerKeys.details(), userId] as const,
 }
 
 export const useCustomers = (params: CustomersParams = {}) => {
@@ -25,10 +25,10 @@ export const useCustomersStats = () => {
   })
 }
 
-export const useCustomer = (telegramId: number) => {
+export const useCustomer = (userId: number) => {
   return useQuery({
-    queryKey: customerKeys.detail(telegramId),
-    queryFn: () => customersApi.getById(telegramId),
-    enabled: !!telegramId,
+    queryKey: customerKeys.detail(userId),
+    queryFn: () => customersApi.getById(userId),
+    enabled: !!userId,
   })
 }

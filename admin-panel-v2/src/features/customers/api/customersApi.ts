@@ -1,7 +1,7 @@
 import { apiClient } from "@/shared/api/client"
 import { ENDPOINTS } from "@/shared/api/endpoints"
 import type {
-  Customer,
+  CustomerDetailDTO,
   CustomersParams,
   PaginatedCustomers,
   CustomersStats,
@@ -16,9 +16,9 @@ export const customersApi = {
     return response.data
   },
 
-  getById: async (telegramId: number): Promise<Customer> => {
-    const response = await apiClient.get<Customer>(
-      ENDPOINTS.CRM.CUSTOMER(telegramId)
+  getById: async (userId: number): Promise<CustomerDetailDTO> => {
+    const response = await apiClient.get<CustomerDetailDTO>(
+      `/admin/crm/customers/${userId}`
     )
     return response.data
   },

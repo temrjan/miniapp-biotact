@@ -19,7 +19,8 @@ export interface CustomerLoyalty {
 }
 
 export interface Customer {
-  telegram_id: number
+  id: number
+  telegram_id: number | null
   first_name: string | null
   last_name: string | null
   username: string | null
@@ -40,6 +41,46 @@ export interface Customer {
 // back to it. A literal written in three places is one edit away from an annotation that lies —
 // the cast keeps compiling and silently claims a value it no longer covers.
 export type ClubFilter = "member" | "qr" | "no_survey"
+
+export interface CustomerDetailFamilyMember {
+  id: number
+  user_id: number
+  name: string
+  relation: string | null
+  age: number | null
+  symptoms: string[] | null
+  created_at: string
+}
+
+export type CustomerLeadStatus = "new" | "in_progress" | "converted" | "closed"
+
+export interface CustomerDetailLead {
+  id: number
+  user_id: number | null
+  telegram_id: number
+  request_text: string | null
+  ai_summary: string | null
+  recommended_products: string[] | null
+  status: CustomerLeadStatus
+  manager_notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+// Mirrors the distinct CRM CustomerDetail response, not the CRM list projection.
+export interface CustomerDetailDTO {
+  id: number
+  telegram_id: number | null
+  first_name: string | null
+  last_name: string | null
+  username: string | null
+  phone: string | null
+  symptoms: string[] | null
+  ai_notes: string | null
+  created_at: string
+  family_members: CustomerDetailFamilyMember[]
+  leads: CustomerDetailLead[]
+}
 
 export interface CustomersParams {
   page?: number | undefined

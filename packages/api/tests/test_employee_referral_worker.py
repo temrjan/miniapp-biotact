@@ -282,18 +282,37 @@ esac
         (fake / directory).mkdir(parents=True, exist_ok=True)
     for package in ("api", "bot"):
         (fake / f"packages/{package}/venv/bin/activate").write_text("deactivate() { :; }\n")
+    for owner in ("packages/frontend", "admin-panel-v2"):
+        dist = fake / owner / "dist"
+        dist.mkdir()
+        (dist / "index.html").write_text("baseline")
+    baseline = "1" * 40
+    target = "2" * 40
+    revision = fake / "revision"
+    env.update(
+        G6A_REVISION=str(revision),
+        G6A_TARGET=target,
+        G6A_ASSET_HELPER=str(root / "ops/shop-release-assets.py"),
+    )
     git.write_text("""#!/usr/bin/env bash
 printf 'git %s\\n' "$*" >> "$G6A_PM2_TRACE"
 case "$1" in
- rev-parse) echo previous;;
+ rev-parse) cat "$G6A_REVISION";;
+ reset) printf '%s\\n' "$3" > "$G6A_REVISION";;
+ show) cat "$G6A_ASSET_HELPER";;
  cat-file) exit "${FAKE_COMPAT_EXIT:-0}";;
  fetch) exit "${FAKE_FETCH_EXIT:-0}";;
 esac
 """)
-    for name in ("npm", "pip", "alembic", "curl", "sleep"):
+    for name in ("npm", "pip", "alembic", "sleep"):
         stub = bin_dir / name
         stub.write_text(f'#!/usr/bin/env bash\nexit "${{FAKE_{name.upper()}_EXIT:-0}}"\n')
         stub.chmod(0o755)
+    curl = bin_dir / "curl"
+    curl.write_text(
+        '#!/usr/bin/env bash\nif [ "$(cat "$G6A_REVISION")" = "$G6A_TARGET" ]; then exit "${FAKE_CURL_EXIT:-0}"; fi\n'
+    )
+    curl.chmod(0o755)
     workflow = (root / ".github/workflows/deploy.yml").read_text()
     payload = textwrap.dedent(workflow.split("<< 'SCRIPT'\n", 1)[1].split("          SCRIPT", 1)[0])
     # The root-installed guard is an external operator prerequisite. Model its
@@ -307,9 +326,11 @@ esac
     sudo.write_text('#!/usr/bin/env bash\nshift 2\nexec "$@"\n')
     sudo.chmod(0o755)
     payload = payload.replace("/usr/local/sbin/biotact-referral-maintenance", str(guard))
+    payload = payload.replace("${{ github.event.workflow_run.head_sha }}", target)
     prefix = shell.split("; bash ops/", 1)[0] + "; "
 
     def deploy(**changes):
+        revision.write_text(baseline + "\n")
         return subprocess.run(  # noqa: S603 - actual payload, own release directory and stubs
             ["/bin/bash", "-c", prefix + payload],
             cwd=fake,
@@ -338,7 +359,7 @@ esac
     before = trace.read_text()
     result = deploy(FAKE_CURL_EXIT="1")
     assert result.returncode != 0
-    assert "git reset --hard previous" in trace.read_text()[len(before) :]
+    assert f"git reset --hard {baseline}" in trace.read_text()[len(before) :]
     assert "Rollback complete" in result.stdout
     assert "Deploy complete" not in result.stdout
     (fake / "ops/employee-referral-release.sh").unlink()

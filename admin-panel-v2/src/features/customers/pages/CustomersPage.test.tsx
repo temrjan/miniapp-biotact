@@ -68,6 +68,7 @@ describe("CustomersPage — фильтр Biotact Club", () => {
     // Непустая выдача на 3 страницы (для пагинации); клубный фильтр возвращает пусто —
     // заодно проверяем сообщение пустого состояния под активным фильтром.
     const oneCustomer = {
+      id: 500,
       telegram_id: 500,
       first_name: "Клиент",
       last_name: null,
@@ -115,6 +116,52 @@ describe("CustomersPage — фильтр Biotact Club", () => {
     )
     // Пустой результат под активным фильтром — «не найдены», а не «пока нет клиентов».
     expect(await screen.findByText("Клиенты не найдены")).toBeInTheDocument()
+  })
+
+  it("renders distinct customers without Telegram IDs using their canonical IDs", async () => {
+    getAllMock.mockResolvedValue({
+      items: [
+        {
+          id: 201,
+          telegram_id: null,
+          first_name: null,
+          last_name: null,
+          username: null,
+          language_code: "ru",
+          phone: null,
+          problems: [],
+          family: [],
+          purchased_products: [],
+          ai_notes: null,
+          created_at: "2026-07-01T00:00:00Z",
+          updated_at: "2026-07-01T00:00:00Z",
+        },
+        {
+          id: 202,
+          telegram_id: null,
+          first_name: null,
+          last_name: null,
+          username: null,
+          language_code: "ru",
+          phone: null,
+          problems: [],
+          family: [],
+          purchased_products: [],
+          ai_notes: null,
+          created_at: "2026-07-01T00:00:00Z",
+          updated_at: "2026-07-01T00:00:00Z",
+        },
+      ],
+      total: 2,
+      page: 1,
+      size: 12,
+      pages: 1,
+    })
+
+    renderPage()
+
+    expect(await screen.findByText("ID: 201")).toBeInTheDocument()
+    expect(screen.getByText("ID: 202")).toBeInTheDocument()
   })
 
   it("выбор «Без анкеты (были начисления)» шлёт club='no_survey'", async () => {

@@ -4,6 +4,7 @@ import { CustomerCard } from "./CustomerCard"
 import type { Customer, CustomerLoyalty } from "../types/customer.types"
 
 const baseCustomer: Customer = {
+  id: 100,
   telegram_id: 100,
   first_name: "Тимур",
   last_name: null,
