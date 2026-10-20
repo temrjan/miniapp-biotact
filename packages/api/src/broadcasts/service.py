@@ -254,7 +254,7 @@ async def execute_broadcast(broadcast_id: int) -> None:
                 .where(User.is_active.is_(True))
                 .where(User.telegram_id.isnot(None))
             )
-            telegram_ids = list(result.scalars().all())
+            telegram_ids = [value for value in result.scalars() if value is not None]
 
             broadcast.total_users = len(telegram_ids)
             await db.commit()

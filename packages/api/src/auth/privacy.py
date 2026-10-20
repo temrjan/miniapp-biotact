@@ -2,7 +2,7 @@
 
 import logging
 from contextvars import ContextVar
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import unquote
 
 import sentry_sdk
@@ -14,8 +14,14 @@ if TYPE_CHECKING:
     from sentry_sdk._types import Event, Hint
 
 _private: ContextVar[bool] = ContextVar("private_admin_auth", default=False)
-_prefixes: set[str] = {"/api/v1/admin/auth"}
+_prefixes: set[str] = {"/api/v1/admin/auth", "/api/v1/buyer/auth"}
 _installed = False
+_buyer_cookies = ("__Host-biotact_buyer", "__Host-biotact_auth")
+_buyer_credential_markers = (
+    *(cookie.lower() for cookie in _buyer_cookies),
+    "x-csrf-token",
+    "csrf_token",
+)
 
 
 def private_path(path: str, prefix: str) -> bool:
@@ -42,12 +48,8 @@ def install() -> None:
 
     def factory(*args: object, **kwargs: object) -> logging.LogRecord:
         record = previous(*args, **kwargs)
-        message = (
-            unquote(record.getMessage())
-            if record.name.startswith(("httpx", "httpcore", "uvicorn.access"))
-            else ""
-        )
-        if _private.get() or any(prefix in message for prefix in _prefixes):
+        message = unquote(record.getMessage())
+        if _private.get() or any(marker in message for marker in (*_prefixes, *_buyer_cookies)):
             if record.name == "uvicorn.access":
                 status = (
                     record.args[-1]
@@ -64,6 +66,31 @@ def install() -> None:
 
     logging.setLogRecordFactory(factory)
     _installed = True
+
+
+def _strip_buyer_credentials(value: object) -> object:
+    """Buyer cookies/CSRF also occur in public requests and SDK middleware span reprs."""
+    if isinstance(value, dict):
+        return {
+            key: (
+                "[Filtered]"
+                if str(key).lower()
+                in {
+                    "cookie",
+                    "set-cookie",
+                    *_buyer_credential_markers,
+                }
+                else _strip_buyer_credentials(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_strip_buyer_credentials(item) for item in value]
+    if isinstance(value, str):
+        normalized = unquote(value).lower()
+        if any(marker in normalized for marker in _buyer_credential_markers):
+            return "[Filtered]"
+    return value
 
 
 def filter_auth_telemetry(event: "Event", hint: "Hint") -> "Event | None":
@@ -89,7 +116,8 @@ def filter_auth_telemetry(event: "Event", hint: "Hint") -> "Event | None":
         event["spans"] = [
             item for item in spans if not any(prefix in unquote(str(item)) for prefix in _prefixes)
         ]
-    return filter_referral_telemetry(event, hint)
+    result = filter_referral_telemetry(event, hint)
+    return cast("Event | None", _strip_buyer_credentials(result))
 
 
 class AuthPrivacyMiddleware:
@@ -159,6 +187,14 @@ class AuthPrivacyMiddleware:
         except Exception:
             if started:
                 raise
-            await unavailable()(scope, receive, private_send)
+            if "/buyer/auth" in self.prefix:
+                response = JSONResponse(
+                    {"error": "authentication_unavailable"},
+                    status_code=503,
+                    headers={"Cache-Control": "no-store"},
+                )
+            else:
+                response = unavailable()
+            await response(scope, receive, private_send)
         finally:
             _private.reset(token)

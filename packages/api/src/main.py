@@ -29,6 +29,10 @@ from src.auth.privacy import (
 from src.banners.router import router as banners_router
 from src.banners.router import settings_router
 from src.broadcasts.admin_router import router as admin_broadcasts_router
+from src.buyer_auth.router import BuyerBoundaryMiddleware, error_response, invalid_input_response
+from src.buyer_auth.router import router as buyer_auth_router
+from src.buyer_auth.security import BuyerAuthError
+from src.buyer_auth.service import BuyerAuthService
 from src.campaigns.client import portal_http_client
 from src.campaigns.router import router as campaigns_router
 from src.categories.router import router as categories_router
@@ -109,6 +113,7 @@ def create_app() -> FastAPI:
     )
     app.state.campaign_sessions = async_session_maker
     app.state.employee_referral_sessions = async_session_maker
+    app.state.buyer_auth = BuyerAuthService(settings, async_session_maker)
 
     # CORS
     app.add_middleware(
@@ -129,6 +134,10 @@ def create_app() -> FastAPI:
     app.add_middleware(CountPrivacy, campaign_prefix=settings.api_v1_prefix + "/admin/campaigns/")
     auth_prefix = settings.api_v1_prefix + "/admin/auth"
     app.add_middleware(AuthPrivacyMiddleware, prefix=auth_prefix)
+    buyer_prefix = settings.api_v1_prefix + "/buyer/auth"
+    app.add_middleware(BuyerBoundaryMiddleware, prefix=buyer_prefix, config=settings)
+    app.add_middleware(AuthPrivacyMiddleware, prefix=buyer_prefix)
+    app.include_router(buyer_auth_router, prefix=settings.api_v1_prefix)
     app.include_router(count_router)
     app.include_router(referral_returns_router, prefix=settings.api_v1_prefix)
     app.include_router(referral_entry_router, prefix=settings.api_v1_prefix)
@@ -274,10 +283,16 @@ def create_app() -> FastAPI:
     )
 
     # Global exception handlers
+    @app.exception_handler(BuyerAuthError)
+    async def buyer_error_handler(_request: Request, exc: BuyerAuthError) -> JSONResponse:
+        return error_response(exc)
+
     @app.exception_handler(RequestValidationError)
     async def order_validation_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        if is_private_auth(request.scope, buyer_prefix):
+            return await invalid_input_response(request)
         if is_private_auth(request.scope, auth_prefix):
             return JSONResponse(
                 status_code=422, content={"detail": "Invalid authentication request"}
@@ -296,6 +311,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+        if is_private_auth(request.scope, buyer_prefix):
+            return error_response(BuyerAuthError(503, "authentication_unavailable"))
         if is_private_auth(request.scope, auth_prefix):
             logger.error("Administrator authentication service failure")
             return unavailable()
@@ -310,6 +327,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(OperationalError)
     async def operational_error_handler(request: Request, exc: OperationalError) -> JSONResponse:
+        if is_private_auth(request.scope, buyer_prefix):
+            return error_response(BuyerAuthError(503, "authentication_unavailable"))
         if is_private_auth(request.scope, auth_prefix):
             logger.error("Administrator authentication service failure")
             return unavailable()
@@ -324,6 +343,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        if is_private_auth(request.scope, buyer_prefix):
+            return error_response(BuyerAuthError(503, "authentication_unavailable"))
         if is_private_auth(request.scope, auth_prefix):
             logger.error("Administrator authentication service failure")
             return unavailable()

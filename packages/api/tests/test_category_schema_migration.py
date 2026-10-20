@@ -81,7 +81,7 @@ class ScratchDatabase:
     def migrate(
         self,
         action: str = "upgrade",
-        target: str = "head",
+        target: str = REVISION,
         *,
         success: bool = True,
         offline: bool = False,
@@ -261,7 +261,8 @@ def test_clean_chain_native_contract_and_offline_refusal(scratch: ScratchDatabas
     cfg = Config(str(API_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(API_ROOT / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == [REVISION]
+    assert len(script.get_heads()) == 1
+    assert REVISION in {revision.revision for revision in script.walk_revisions()}
     assert script.get_revision(REVISION).down_revision == PREDECESSOR
     scratch.migrate()
     scratch.assert_native()
@@ -300,7 +301,11 @@ def test_existing_nullable_regression_and_exact_preservation(
     scratch.assert_native()
     assert scratch.snapshot() == before
     assert scratch.marker() == REVISION
-    for action, target in (("upgrade", "head"), ("downgrade", PREDECESSOR), ("upgrade", "head")):
+    for action, target in (
+        ("upgrade", REVISION),
+        ("downgrade", PREDECESSOR),
+        ("upgrade", REVISION),
+    ):
         scratch.migrate(action, target)
         scratch.assert_native()
         assert scratch.snapshot() == before

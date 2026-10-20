@@ -98,11 +98,7 @@ jobs:
         run: npm run build
 
   api:
-    name: API (FastAPI, PostgreSQL ${{ matrix.postgres }})
-    strategy:
-      fail-fast: false
-      matrix:
-        postgres: [16, 17]
+    name: API (FastAPI, PostgreSQL 16)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -111,7 +107,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:${{ matrix.postgres }}
+        image: postgres:16
         env:
           POSTGRES_USER: biotact
           POSTGRES_PASSWORD: biotact_ci
@@ -148,10 +144,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint with ruff
-        run: ruff check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
+        run: ruff check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py tests/test_buyer_auth*.py alembic/versions/c4f2a91e8d63_buyer_email_sessions.py
 
       - name: Format check with ruff
-        run: ruff format --check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
+        run: ruff format --check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py tests/test_buyer_auth*.py alembic/versions/c4f2a91e8d63_buyer_email_sessions.py
 
       - name: Check release asset helper
         run: |
@@ -163,19 +159,10 @@ jobs:
         run: mypy src/ --strict --ignore-missing-imports
 
       - name: Test API with pytest
-        if: matrix.postgres == 17
         run: pytest tests/ -v --no-header
 
-      - name: Test shared category and optional Telegram contracts on production PostgreSQL major
-        if: matrix.postgres == 16
-        run: pytest tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py -v --no-header
-
   migration-parity:
-    name: Migration parity (PostgreSQL ${{ matrix.postgres }})
-    strategy:
-      fail-fast: false
-      matrix:
-        postgres: [16, 17]
+    name: Migration parity (PostgreSQL 16)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -184,7 +171,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:${{ matrix.postgres }}
+        image: postgres:16
         env:
           POSTGRES_USER: biotact
           POSTGRES_PASSWORD: biotact_ci

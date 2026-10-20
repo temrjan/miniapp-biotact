@@ -1,8 +1,10 @@
 """Application configuration using Pydantic Settings."""
 
 from functools import lru_cache
+from ipaddress import ip_network
+from urllib.parse import urlsplit
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +29,11 @@ class Settings(BaseSettings):
     employee_referral_k1_key: SecretStr = SecretStr("")
     employee_referral_capture_enabled: bool = False
     employee_referral_entry_enabled: bool = False
+    buyer_sessions_enabled: bool = False
+    buyer_email_auth_enabled: bool = False
+    buyer_protection_key: SecretStr = SecretStr("")
+    buyer_public_origin: str = "https://biotact.uz"
+    buyer_trusted_proxy_peers: list[str] = []
     # Delivery config is validated lazily by the separate worker, independently per lane.
     employee_referral_k2_sender_enabled: str = "false"
     employee_referral_k2_portal_origin: str = ""
@@ -85,6 +92,41 @@ class Settings(BaseSettings):
 
     # Sentry (optional - leave empty to disable)
     sentry_dsn: str = ""
+
+    @model_validator(mode="after")
+    def validate_buyer_configuration(self) -> "Settings":
+        if self.buyer_email_auth_enabled and not self.buyer_sessions_enabled:
+            raise ValueError("Buyer email entry requires buyer sessions")
+        if self.buyer_sessions_enabled:
+            key = self.buyer_protection_key.get_secret_value()
+            origin = urlsplit(self.buyer_public_origin)
+            if (
+                len(key.encode("utf-8")) < 32
+                or key == self.secret_key.get_secret_value()
+                or self.database_echo
+                or origin.scheme != "https"
+                or not origin.hostname
+                or origin.username is not None
+                or origin.password is not None
+                or origin.port == 0
+                or origin.path
+                or origin.query
+                or origin.fragment
+                or self.buyer_public_origin != f"https://{origin.netloc}"
+            ):
+                raise ValueError("Invalid private buyer configuration")
+            for peer in self.buyer_trusted_proxy_peers:
+                ip_network(peer, strict=True)
+        if self.buyer_email_auth_enabled and (
+            self.smtp_host != "smtp.gmail.com"
+            or self.smtp_port != 587
+            or not self.smtp_user
+            or not self.smtp_password.get_secret_value()
+            or not self.smtp_from_email
+            or any(ord(c) < 32 or ord(c) == 127 for c in self.smtp_user + self.smtp_from_email)
+        ):
+            raise ValueError("Invalid buyer mail configuration")
+        return self
 
 
 @lru_cache

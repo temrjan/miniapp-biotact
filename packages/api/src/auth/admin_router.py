@@ -185,7 +185,7 @@ def cleanup_expired_codes() -> None:
         del AUTH_CODES[code]
 
 
-def create_admin_token(user_id: int, telegram_id: int) -> str:
+def create_admin_token(user_id: int, telegram_id: int | None) -> str:
     """Create JWT token for admin session."""
     payload = {
         "sub": str(user_id),
