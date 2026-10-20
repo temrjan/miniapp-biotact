@@ -221,6 +221,8 @@ async def test_independent_source_scans_refuse_actual_contradictions(checkout, c
 )
 async def test_mounted_auth_strict_bounds_and_fixed_errors(checkout, monkeypatch, case):
     h = checkout
+    # Signing and verification must observe the same second at the strict +/-31 boundary.
+    monkeypatch.setattr("src.employee_referrals.count_api.time.time", lambda: 1770000000)
     raw = canonical({"schema_version": 1, "campaign_id": 1, "day": "2026-10-05"})
     target = PATH
     headers = signed(raw)
