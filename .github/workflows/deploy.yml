@@ -55,6 +55,17 @@ jobs:
 
           echo "=== Save current revision for rollback ==="
           PREV_COMMIT=$(git rev-parse HEAD)
+          TARGET_COMMIT='${{ github.event.workflow_run.head_sha }}'
+          [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          # A queued run must deliver its successful CI revision, not a later main.
+          git fetch origin "$TARGET_COMMIT"
+          test ! -L .venv
+          mkdir -p .venv
+          ASSET_HELPER=$(mktemp "$PWD/.venv/shop-assets-helper.XXXXXX.py")
+          git show "$TARGET_COMMIT:ops/shop-release-assets.py" > "$ASSET_HELPER"
+          BASE_ASSETS=$(python3 -B "$ASSET_HELPER" capture --project "$PWD" --commit "$PREV_COMMIT")
+          mv "$ASSET_HELPER" "$BASE_ASSETS/helper.py"
+          ASSET_HELPER="$BASE_ASSETS/helper.py"
           G6_CUTOVER=false
           guard=/usr/local/sbin/biotact-referral-maintenance
           test -x "$guard"
@@ -65,8 +76,11 @@ jobs:
             trap - ERR
             ROLLBACK_ATTEMPTED=true
             sudo -n -- "$guard" pause shop "$maintenance_token" || return 1
+            cd /var/www/biotact || return 1
+            bash ops/employee-referral-release.sh pause || return 1
             sudo -n -- "$guard" compatible shop "$maintenance_token" "$PREV_COMMIT" || return 1
-            cd /var/www/biotact
+            # Git cannot restore ignored dist trees. Restore BOTH before old API starts.
+            python3 -B "$ASSET_HELPER" restore --project "$PWD" --snapshot "$BASE_ASSETS" || return 1
             if [ -f ops/employee-referral-release.sh ]; then
               bash ops/employee-referral-release.sh rollback "$PREV_COMMIT" "$G6_CUTOVER" || return 1
             elif [ "$G6_CUTOVER" = "false" ]; then
@@ -78,7 +92,10 @@ jobs:
               echo "Referral rollback unavailable; affected writers remain paused"
               return 1
             fi
+            pm2 restart bot --namespace biotact || return 1
+            pm2 save || return 1
             sudo -n -- "$guard" finish shop "$maintenance_token" || return 1
+            python3 -B "$ASSET_HELPER" resolved --project "$PWD" --snapshot "$BASE_ASSETS" || return 1
             GUARD_STARTED=false
           }
           cleanup_deploy() {
@@ -90,8 +107,15 @@ jobs:
             exit "$status"
           }
           trap cleanup_deploy EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
           sudo -n -- "$guard" begin shop "$maintenance_token" "$$"
           GUARD_STARTED=true
+          # Attest the baseline before retaining it as successful. Never prune here.
+          bash ops/employee-referral-release.sh check
+          curl -fsS --max-time 10 http://127.0.0.1:3001/health >/dev/null
+          curl -fsS --max-time 10 http://127.0.0.1:3001/api/v1/products >/dev/null
+          python3 -B "$ASSET_HELPER" success --project "$PWD" --snapshot "$BASE_ASSETS"
           # Admission closes and drains delivery before any writer/receiver stop.
           pm2 stop api --namespace biotact
           if pm2 pid employee-referral-worker --namespace biotact | awk '$1+0>0 {found=1} END {exit !found}'; then
@@ -100,8 +124,8 @@ jobs:
           trap 'rollback_referrals; exit 1' ERR
 
           echo "=== Pull latest code ==="
-          git fetch origin main
-          git reset --hard origin/main
+          git reset --hard "$TARGET_COMMIT"
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
 
           echo "=== Build frontend ==="
           cd packages/frontend
@@ -164,28 +188,19 @@ jobs:
             echo "=== Health check failed, rolling back code and rebuilds ==="
             rollback_referrals
 
-            echo "=== Rebuild frontend from previous revision ==="
-            cd packages/frontend
-            npm ci --production=false
-            npm run build
-            cd ../..
-
-            echo "=== Rebuild admin panel from previous revision ==="
-            cd admin-panel-v2
-            npm ci --production=false
-            npm run build
-            cd ..
-
+            # Exact saved builds were restored before the prior API/worker resumed.
             bash ops/employee-referral-release.sh check
-            pm2 restart bot --namespace biotact
             echo "=== Rollback complete ==="
             exit 1
           fi
 
           bash ops/employee-referral-release.sh check
+          CURRENT_ASSETS=$(python3 -B "$ASSET_HELPER" capture --project "$PWD" --commit "$TARGET_COMMIT")
           sudo -n -- "$guard" finish shop "$maintenance_token"
           GUARD_STARTED=false
-          trap - ERR EXIT
+          trap - ERR EXIT INT TERM
+          # Cleanup is allowed only after actual release acceptance; unresolved attempts stay.
+          python3 -B "$ASSET_HELPER" success --project "$PWD" --snapshot "$CURRENT_ASSETS" --prune
           echo "=== Deploy complete ==="
           SCRIPT
 
