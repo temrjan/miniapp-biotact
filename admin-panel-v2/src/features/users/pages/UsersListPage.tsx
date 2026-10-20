@@ -181,7 +181,7 @@ export const UsersListPage = () => {
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-sm">
-                        {user.telegram_id}
+                        {user.telegram_id ?? '—'}
                       </TableCell>
                       <TableCell>
                         {user.phone_number || '-'}

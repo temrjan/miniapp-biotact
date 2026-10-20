@@ -17,7 +17,7 @@ interface CustomerCardProps {
 export function CustomerCard({ customer }: CustomerCardProps) {
   const fullName = [customer.first_name, customer.last_name]
     .filter(Boolean)
-    .join(" ") || customer.username || `ID: ${customer.telegram_id}`
+    .join(" ") || customer.username || `ID: ${customer.id}`
 
   // Explicit != null checks (not truthiness): the DB is an unconstrained echo, so even
   // an anomalous age of 0 must stay visible rather than silently drop out of the line.

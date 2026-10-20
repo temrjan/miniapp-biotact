@@ -63,7 +63,8 @@ class CustomerSchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    telegram_id: int
+    id: int
+    telegram_id: int | None
     first_name: str | None = None
     last_name: str | None = None
     username: str | None = None
@@ -285,6 +286,7 @@ async def get_customers(
 
         items.append(
             CustomerSchema(
+                id=user.id,
                 telegram_id=user.telegram_id,
                 first_name=user.first_name,
                 last_name=user.last_name,
@@ -402,6 +404,7 @@ async def get_customer(
     ]
 
     return CustomerSchema(
+        id=user.id,
         telegram_id=user.telegram_id,
         first_name=user.first_name,
         last_name=user.last_name,

@@ -790,9 +790,12 @@ async def get_print_list(db: AsyncSession, *, draw_id: int) -> PrintListOutcome:
         .where(LotteryTicket.draw_id == draw_id)
         .order_by(LotteryTicket.ticket_number)
     )
+    participants = result.all()
+    if any(row.telegram_id is None for row in participants):
+        raise ConflictException("Print list requires Telegram identity for every participant")
     rows = tuple(
         PrintRow(ticket_number=r.ticket_number, telegram_last4=f"{r.telegram_id % 10000:04d}")
-        for r in result
+        for r in participants
     )
     return PrintListOutcome(
         draw_number=draw.draw_number,

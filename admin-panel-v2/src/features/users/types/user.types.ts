@@ -2,7 +2,7 @@ export type UserRole = 'user' | 'admin'
 
 export interface User {
   id: number
-  telegram_id: number
+  telegram_id: number | null
   username: string | null
   first_name: string | null
   last_name: string | null

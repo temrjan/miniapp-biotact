@@ -74,6 +74,16 @@ describe('userStore', () => {
     expect(useUserStore.getState().error).toBeNull()
   })
 
+  it('preserves an absent Telegram ID in the generic profile response', async () => {
+    const profileWithoutTelegram = { ...mockProfile, telegram_id: null }
+    vi.mocked(api.get).mockResolvedValueOnce(profileWithoutTelegram)
+
+    await useUserStore.getState().fetchProfile()
+
+    expect(useUserStore.getState().profile).toEqual(profileWithoutTelegram)
+    expect(api.get).toHaveBeenCalledWith('/users/me')
+  })
+
   it('sets isLoading true while fetching profile', async () => {
     vi.mocked(api.get).mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve(mockProfile), 100))

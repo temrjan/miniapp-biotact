@@ -136,10 +136,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint with ruff
-        run: ruff check src/ tests/test_category_schema_migration.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
+        run: ruff check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
 
       - name: Format check with ruff
-        run: ruff format --check src/ tests/test_category_schema_migration.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
+        run: ruff format --check src/ tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py
 
       - name: Type check with mypy
         run: mypy src/ --strict --ignore-missing-imports
@@ -148,9 +148,9 @@ jobs:
         if: matrix.postgres == 17
         run: pytest tests/ -v --no-header
 
-      - name: Test category schema contract on production PostgreSQL major
+      - name: Test shared category and optional Telegram contracts on production PostgreSQL major
         if: matrix.postgres == 16
-        run: pytest tests/test_category_schema_migration.py -v --no-header
+        run: pytest tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py -v --no-header
 
   migration-parity:
     name: Migration parity (PostgreSQL ${{ matrix.postgres }})
