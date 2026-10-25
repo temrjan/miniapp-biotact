@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.config import settings
 from src.employee_referrals import paid
+from src.employee_referrals.delivery_models import K2Delivery, NoticeDelivery
 from src.employee_referrals.models import (
     CampaignReplica,
     ReferralIdentity,
@@ -27,6 +28,7 @@ from src.loyalty import service as loyalty
 from src.loyalty.models import CustomerProfile, PointLedger
 from src.notifications.service import telegram_notifier
 from src.orders.models import Order
+from src.payments import router as payments
 from src.payments.models import PaymentEvent
 from src.payments.service import multicard_client
 from src.products.models import Product
@@ -179,6 +181,79 @@ async def test_same_order_concurrent_callbacks_and_telegram_failure(checkout, mo
     async with h.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(PaymentEvent)) == 1
         assert (await session.get(Order, order["id"])).payment_status == "paid"
+
+
+@pytest.mark.parametrize("fail_before_commit", [False, True])
+async def test_hint_recovery_commits_referral_and_jobs_atomically(
+    checkout, monkeypatch, fail_before_commit
+):
+    from src.notifications.service import TelegramNotifier
+
+    h = checkout
+    order = (await h.create(h.body(points_to_apply=5000))).json()
+    hint = _webhook_body(
+        uuid="count-success", invoice_id=order["order_number"], status="success", amount=1
+    )
+    assert (await h.client.post(WEBHOOK, json=hint)).status_code == 200
+    async with h.sessions() as reader:
+        receipt = await reader.scalar(select(PaymentEvent))
+        retained = {
+            column.name: getattr(receipt, column.name) for column in PaymentEvent.__table__.columns
+        }
+    posts = []
+
+    async def post(message, parse_mode):
+        posts.append(message)
+
+    monkeypatch.setattr(
+        telegram_notifier,
+        "notify_payment_success",
+        TelegramNotifier.notify_payment_success.__get__(telegram_notifier),
+    )
+    monkeypatch.setattr(telegram_notifier, "_post_message", post)
+    real_commit = payments.commit_paid
+
+    async def fail(session):
+        for model in (PaidOutbox, K2Delivery, NoticeDelivery):
+            assert await session.scalar(select(func.count()).select_from(model)) == 1
+        assert (
+            await session.scalar(
+                select(func.count()).select_from(PointLedger).where(PointLedger.reason == "redeem")
+            )
+            == 1
+        )
+        raise paid.PaidUnavailableError()
+
+    if fail_before_commit:
+        monkeypatch.setattr(payments, "commit_paid", fail)
+        response = await callback(h, order)
+        assert response.status_code == 503
+        assert response.json() == {"detail": {"code": "referral_paid_unavailable"}}
+        async with h.sessions() as reader:
+            for model in (PaidOutbox, K2Delivery, NoticeDelivery):
+                assert await reader.scalar(select(func.count()).select_from(model)) == 0
+            assert (await reader.get(Order, order["id"])).payment_status == "unpaid"
+            assert await loyalty.get_balance(reader, 1) == 100000
+        assert posts == []
+        monkeypatch.setattr(payments, "commit_paid", real_commit)
+    for _ in range(2):
+        response = await callback(h, order)
+        assert response.status_code == 200
+        assert response.json() == {"success": True}
+    async with h.sessions() as reader:
+        for model in (PaidOutbox, K2Delivery, NoticeDelivery):
+            assert await reader.scalar(select(func.count()).select_from(model)) == 1
+        assert await loyalty.get_balance(reader, 1) == 95000
+        receipt = await reader.scalar(select(PaymentEvent))
+        assert {
+            column.name: getattr(receipt, column.name) for column in PaymentEvent.__table__.columns
+        } == retained
+    assert posts == []  # Existing referral owner suppresses the direct ordinary adapter.
+    ordinary = (
+        await h.create(h.body(items=[{"product_id": 40, "quantity": 1}], referral_token=None))
+    ).json()
+    assert (await callback(h, ordinary, uuid="ordinary-control")).status_code == 200
+    assert len(posts) == 1  # Positive control for the actual send adapter channel.
 
 
 @pytest.mark.parametrize("stage", ["insert", "commit", "cancel"])
