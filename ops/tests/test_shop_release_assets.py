@@ -1,7 +1,9 @@
 """Exercise the actual remote deploy body with local CLI/service substitutes."""
 
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -14,11 +16,12 @@ HELPER = ROOT / "ops/shop-release-assets.py"
 BASE = "1" * 40
 TARGET = "2" * 40
 OWNERS = ("packages/frontend", "admin-panel-v2")
+BOOTSTRAP_BYTES = b"synthetic pip wheel: never executed or installed\n"
 
 STUB = r"""
 import json, os, pathlib, shutil, signal, sys
 name=pathlib.Path(sys.argv[0]).name; a=sys.argv[1:]
-if name=='python':
+if name=='python' and a[:2]!=['-m','pip']:
  if a and a[0]=='ops/employee-referral-runtime.py':sys.stdin.read()
  sys.exit(0)
 r=pathlib.Path(os.environ['FIXTURE']); p=r/'state.json'; s=json.loads(p.read_text()); cwd=pathlib.Path.cwd()
@@ -44,8 +47,17 @@ elif name=='pip':
    archived=max((r/'.venv/shop-release-assets').glob('snapshot-*/assets/packages/frontend/index.html'),key=lambda p:p.stat().st_mtime_ns)
    archived.write_text('corrupt')
   code=1
+elif name=='python' and a[:2]==['-m','pip']:
+ if failure=='bootstrap-install':code=1
 elif name=='alembic' and failure=='migration':code=1
-elif name=='curl' and failure=='health' and s['commit']==target:code=22
+elif name=='curl':
+ if '--output' in a:
+  if failure=='bootstrap-download':code=1
+  elif failure!='bootstrap-missing':
+   artifact=pathlib.Path(a[a.index('--output')+1])
+   artifact.write_bytes(pathlib.Path(os.environ['FIXTURE_PIP_WHEEL']).read_bytes())
+   if failure=='bootstrap-corrupt':artifact.write_bytes(b'corrupt')
+ elif failure=='health' and s['commit']==target:code=22
 elif name=='sudo':
  command=a[a.index('--')+2:]; operation=command[0]
  if operation=='begin':s['guard']=True
@@ -82,7 +94,7 @@ class DeploymentTests(unittest.TestCase):
         self.bin = self.project / "bin"
         self.bin.mkdir()
         stub = "#!" + sys.executable + "\n" + STUB
-        for command in ("git", "npm", "pip", "alembic", "curl", "sudo", "pm2", "sleep"):
+        for command in ("git", "npm", "pip", "python", "alembic", "curl", "sudo", "pm2", "sleep"):
             path = self.bin / command
             path.write_text(stub)
             path.chmod(0o755)
@@ -118,9 +130,12 @@ class DeploymentTests(unittest.TestCase):
                 }
             )
         )
+        self.wheel = self.project / "synthetic-pip.whl"
+        self.wheel.write_bytes(BOOTSTRAP_BYTES)
         self.env = {
             **os.environ,
             "FIXTURE": str(self.project),
+            "FIXTURE_PIP_WHEEL": str(self.wheel),
             "ASSET_HELPER_SOURCE": str(HELPER),
             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -138,6 +153,11 @@ class DeploymentTests(unittest.TestCase):
             "/usr/local/sbin/biotact-referral-maintenance", str(self.project / "guard")
         )
         text = text.replace("${{ github.event.workflow_run.head_sha }}", TARGET)
+        # Substitute only the expected digest of deterministic external fixture bytes.
+        digests = re.findall(r"printf '%s  %s\\n' ([0-9a-f]{64})", text)
+        assert len(digests) == 2
+        assert len(set(digests)) == 1
+        text = text.replace(digests[0], hashlib.sha256(BOOTSTRAP_BYTES).hexdigest())
         # The source is the trusted checked-in workflow; all affected CLIs use local substitutes.
         result = subprocess.run(  # noqa: S603
             ["/bin/bash", "-c", text],
@@ -190,6 +210,9 @@ class DeploymentTests(unittest.TestCase):
         result, state = self.deploy()
         assert result.returncode == 0, result.stderr
         assert state["commit"] == TARGET
+        downloads = [e for e in state["events"] if e[0] == "curl" and "--output" in e]
+        installs = [e for e in state["events"] if e[:3] == ["python", "-m", "pip"]]
+        assert len(downloads) == len(installs) == 2
         assert not state["guard"]
         snapshots = list(
             (self.project / ".venv/shop-release-assets").glob("snapshot-*/manifest.json")
@@ -199,6 +222,10 @@ class DeploymentTests(unittest.TestCase):
 
     def test_failures_restore_both_artifacts_and_keep_failure_visible(self) -> None:
         for failure in (
+            "bootstrap-download",
+            "bootstrap-missing",
+            "bootstrap-corrupt",
+            "bootstrap-install",
             "frontend-install",
             "frontend-build",
             "admin-install",
@@ -214,6 +241,11 @@ class DeploymentTests(unittest.TestCase):
                 result, state = self.deploy(failure)
                 assert result.returncode != 0, result.stdout
                 self.assert_restored(state)
+                if failure.startswith("bootstrap-"):
+                    assert not any(e[0] == "alembic" for e in state["events"])
+                    assert "Deploy complete" not in result.stdout
+                    if failure != "bootstrap-install":
+                        assert not any(e[:3] == ["python", "-m", "pip"] for e in state["events"])
                 self.state.write_text(
                     json.dumps(
                         {

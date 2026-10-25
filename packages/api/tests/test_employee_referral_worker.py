@@ -18,6 +18,7 @@ from tests.test_employee_referral_delivery import jobs
 from tests.test_employee_referral_delivery import secret as secret
 from tests.test_employee_referral_order_capture import checkout as checkout
 from tests.test_employee_referral_returns import paid_order
+from tests.test_referral_maintenance_deploy import synthetic_bootstrap
 
 BOUNDARY = """
 import asyncio,json,os
@@ -310,9 +311,27 @@ esac
         stub.chmod(0o755)
     curl = bin_dir / "curl"
     curl.write_text(
-        '#!/usr/bin/env bash\nif [ "$(cat "$G6A_REVISION")" = "$G6A_TARGET" ]; then exit "${FAKE_CURL_EXIT:-0}"; fi\n'
+        """#!/usr/bin/env bash
+output=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --output ]; then output="$2"; shift; fi
+  shift
+done
+if [ -n "$output" ]; then
+  [ "${FAKE_BOOTSTRAP_DOWNLOAD_EXIT:-0}" = 0 ] || exit 1
+  cp "$FIXTURE_PIP_WHEEL" "$output" || exit 1
+  if [ "${FAKE_BOOTSTRAP_CORRUPT:-0}" = 1 ]; then printf corrupt >> "$output"; fi
+  exit 0
+fi
+if [ "$(cat "$G6A_REVISION")" = "$G6A_TARGET" ]; then exit "${FAKE_CURL_EXIT:-0}"; fi
+"""
     )
     curl.chmod(0o755)
+    bootstrap_python = bin_dir / "python"
+    bootstrap_python.write_text(
+        '#!/usr/bin/env bash\nif [ "${1:-}" = -m ] && [ "${2:-}" = pip ]; then exit "${FAKE_BOOTSTRAP_PIP_EXIT:-0}"; fi\nexec "$G6A_REAL_PYTHON" "$@"\n'
+    )
+    bootstrap_python.chmod(0o755)
     workflow = (root / ".github/workflows/deploy.yml").read_text()
     payload = textwrap.dedent(workflow.split("<< 'SCRIPT'\n", 1)[1].split("          SCRIPT", 1)[0])
     # The root-installed guard is an external operator prerequisite. Model its
@@ -327,6 +346,8 @@ esac
     sudo.chmod(0o755)
     payload = payload.replace("/usr/local/sbin/biotact-referral-maintenance", str(guard))
     payload = payload.replace("${{ github.event.workflow_run.head_sha }}", target)
+    payload, wheel = synthetic_bootstrap(payload, fake)
+    env["FIXTURE_PIP_WHEEL"] = str(wheel)
     prefix = shell.split("; bash ops/", 1)[0] + "; "
 
     def deploy(**changes):
@@ -344,6 +365,14 @@ esac
     result = deploy()
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Deploy complete" in result.stdout
+    for failure in (
+        "FAKE_BOOTSTRAP_DOWNLOAD_EXIT",
+        "FAKE_BOOTSTRAP_CORRUPT",
+        "FAKE_BOOTSTRAP_PIP_EXIT",
+    ):
+        result = deploy(**{failure: "1"})
+        assert result.returncode != 0
+        assert "Deploy complete" not in result.stdout
     before = trace.read_text()
     result = deploy(FAKE_NPM_EXIT="1", FAKE_COMPAT_EXIT="1")
     assert result.returncode != 0

@@ -142,6 +142,15 @@ jobs:
           echo "=== Update API dependencies and run migrations ==="
           cd packages/api
           source venv/bin/activate
+          # Verify the fixed wheel before executing pip, including in old environments.
+          bootstrap_dir=$(mktemp -d "$PWD/venv/tls-bootstrap.XXXXXX")
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl \
+            --output "$bootstrap_dir/pip-26.2.2-py3-none-any.whl"
+          printf '%s  %s\n' fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70 \
+            "$bootstrap_dir/pip-26.2.2-py3-none-any.whl" | sha256sum --check --strict
+          PYTHONPATH="$bootstrap_dir/pip-26.2.2-py3-none-any.whl" python -m pip --isolated install \
+            --no-index --no-deps --no-cache-dir --upgrade "$bootstrap_dir/pip-26.2.2-py3-none-any.whl"
           pip install -r requirements.txt --quiet
 
           set +e
@@ -167,6 +176,15 @@ jobs:
           echo "=== Update Bot dependencies ==="
           cd packages/bot
           source venv/bin/activate
+          # Verify the fixed wheel before executing pip, including in old environments.
+          bootstrap_dir=$(mktemp -d "$PWD/venv/tls-bootstrap.XXXXXX")
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl \
+            --output "$bootstrap_dir/pip-26.2.2-py3-none-any.whl"
+          printf '%s  %s\n' fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70 \
+            "$bootstrap_dir/pip-26.2.2-py3-none-any.whl" | sha256sum --check --strict
+          PYTHONPATH="$bootstrap_dir/pip-26.2.2-py3-none-any.whl" python -m pip --isolated install \
+            --no-index --no-deps --no-cache-dir --upgrade "$bootstrap_dir/pip-26.2.2-py3-none-any.whl"
           pip install -r requirements.txt --quiet
           deactivate
           cd ../..
