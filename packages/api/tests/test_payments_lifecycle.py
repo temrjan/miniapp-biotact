@@ -12,7 +12,9 @@ untestable. Committed truth is read through a second sessionmaker (READ COMMITTE
 """
 
 import asyncio
+import copy
 import hashlib
+import json
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -20,16 +22,22 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
 from src.database import get_db
+from src.employee_referrals.delivery_models import K2Delivery, NoticeDelivery
+from src.employee_referrals.paid import PaidUnavailableError
+from src.employee_referrals.paid_models import PaidOutbox
 from src.loyalty import service as loyalty_service
 from src.loyalty.models import CustomerProfile, LedgerReason, PointLedger
 from src.main import app
 from src.orders.models import Order, OrderItem, OrderStatus
+from src.payments import lifecycle as lc
+from src.payments import router as payment_router
 from src.payments.models import PaymentEvent
 from src.payments.service import multicard_client
 from src.products.models import Product
@@ -486,17 +494,14 @@ async def test_paid_notice_uses_saved_sale_terms_after_catalog_change(
             ).one()
             assert item.product_id is None
 
-    body = _callback_body(
-        uuid="u-sale-snapshot", invoice_id="ORD-SALE-SNAPSHOT", amount=31_350_000
-    )
+    body = _callback_body(uuid="u-sale-snapshot", invoice_id="ORD-SALE-SNAPSHOT", amount=31_350_000)
     first = await client.post(CALLBACK_URL, json=body)
     second = await client.post(CALLBACK_URL, json=body)
     assert first.status_code == second.status_code == 200
     assert (await _committed_order(maker, order_id)).payment_status == "paid"
     assert len(sent_messages) == 1
     assert (
-        "1. BIFOLAK® ACTIVE\nАкция: 330 000 → 313 500 сум\n"
-        "1 шт. × 313 500 сум"
+        "1. BIFOLAK® ACTIVE\nАкция: 330 000 → 313 500 сум\n1 шт. × 313 500 сум"
     ) in sent_messages[0]
 
 
@@ -906,3 +911,621 @@ async def test_success_callback_writes_timezone_aware_paid_at(
     assert timedelta(0) <= order.paid_at - before < timedelta(minutes=5), (
         f"отметка уехала: paid_at={order.paid_at}, момент операции={before}"
     )
+
+
+async def _receipt(sm: async_sessionmaker[AsyncSession], uuid: str) -> dict[str, object]:
+    """Read every retained field independently of the request identity map."""
+    async with sm() as session:
+        row = await session.scalar(
+            select(PaymentEvent).where(
+                PaymentEvent.payment_uuid == uuid, PaymentEvent.status == "success"
+            )
+        )
+        assert row is not None
+        return {column.name: getattr(row, column.name) for column in PaymentEvent.__table__.columns}
+
+
+@pytest.mark.parametrize("points", [0, 45000])
+@pytest.mark.parametrize("hint_first", [True, False])
+async def test_hint_callback_collision_settles_once_and_preserves_receipt(
+    client: AsyncClient, maker, sent_messages, monkeypatch, points: int, hint_first: bool
+) -> None:
+    outcomes = []
+
+    async def observe(db, **kwargs):
+        result = await lc.process_payment_event(db, **kwargs)
+        outcomes.append((result.newly_processed, result.applied_success))
+        return result
+
+    monkeypatch.setattr(payment_router, "process_payment_event", observe)
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-COLLISION",
+        payment_uuid="newer-attempt",
+        payment_status="pending",
+        points_applied=points,
+        points_balance=points,
+    )
+    amount = (50000 - points) * 100
+    hint = _webhook_body(
+        uuid="older-attempt", invoice_id="ORD-COLLISION", status="success", amount=1
+    )
+    callback = _callback_body(uuid="older-attempt", invoice_id="ORD-COLLISION", amount=amount)
+    first_url, first_body = (WEBHOOK_URL, hint) if hint_first else (CALLBACK_URL, callback)
+    response = await client.post(first_url, json=first_body)
+    assert response.status_code == 200
+    assert response.json() == {"success": True}
+    retained = await _receipt(maker, "older-attempt")
+    if hint_first:
+        assert (await _committed_order(maker, order_id)).payment_status == "pending"
+        assert await _committed_redeem_rows(maker) == []
+        assert sent_messages == []
+    second = await client.post(
+        CALLBACK_URL if hint_first else WEBHOOK_URL, json=callback if hint_first else hint
+    )
+    replay = await client.post(CALLBACK_URL, json=callback)
+    assert second.status_code == replay.status_code == 200
+    assert second.json() == replay.json() == {"success": True}
+    settled = await _committed_order(maker, order_id)
+    assert (settled.payment_uuid, settled.payment_status, settled.status) == (
+        "older-attempt",
+        "paid",
+        OrderStatus.CONFIRMED,
+    )
+    assert settled.paid_at is not None
+    assert settled.paid_at.tzinfo is not None
+    debits = await _committed_redeem_rows(maker)
+    assert [row.amount for row in debits] == ([-points] if points else [])
+    assert await _committed_balance(maker, settled.user_id) == 0
+    assert len(sent_messages) == 1
+    assert await _receipt(maker, "older-attempt") == retained
+    assert outcomes == (
+        [(True, False), (False, True), (False, False)]
+        if hint_first
+        else [(True, True), (False, False), (False, False)]
+    )
+    async with maker() as reader:
+        for model in (PaidOutbox, K2Delivery, NoticeDelivery):
+            assert await reader.scalar(select(func.count()).select_from(model)) == 0
+
+
+async def _seed_hint(maker, invoice="ORD-RECOVER", uuid="hint", **changes):
+    payload = _webhook_body(uuid=uuid, invoice_id=invoice, status="success")
+    values = {
+        "payment_uuid": uuid,
+        "invoice_id": invoice,
+        "status": "success",
+        "amount": DUE_TIYINS,
+        "payload": payload,
+    }
+    values.update(changes)
+    async with maker.begin() as session:
+        session.add(PaymentEvent(**values))
+    return await _receipt(maker, uuid)
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "null",
+        "list",
+        "string",
+        "missing-key",
+        "extra-key",
+        "callback",
+        "uuid-type",
+        "invoice-type",
+        "status-type",
+        "sign-type",
+        "amount-bool",
+        "amount-float",
+        "amount-string",
+        "uuid-value",
+        "invoice-value",
+        "status-value",
+        "amount-value",
+        "uppercase-sign",
+        "short-sign",
+        "row-invoice",
+    ],
+)
+async def test_unrecognized_receipt_preserves_duplicate_precedence(
+    client, maker, sent_messages, defect
+):
+    order_id = await _seed_order(maker, order_number="ORD-RECOVER", payment_status="pending")
+    payload = _webhook_body(uuid="hint", invoice_id="ORD-RECOVER", status="success")
+    row_changes = {}
+    if defect in ("null", "list", "string"):
+        payload = {"null": None, "list": [], "string": "opaque"}[defect]
+    elif defect == "missing-key":
+        payload.pop("sign")
+    elif defect == "extra-key":
+        payload["extra"] = 1
+    elif defect == "callback":
+        payload = _callback_body(uuid="hint", invoice_id="ORD-RECOVER")
+    elif defect == "row-invoice":
+        row_changes["invoice_id"] = "OTHER-INVOICE"
+    elif defect.endswith("-type"):
+        payload[defect.removesuffix("-type")] = 1
+    elif defect.startswith("amount-"):
+        payload["amount"] = {
+            "amount-bool": True,
+            "amount-float": float(DUE_TIYINS),
+            "amount-string": str(DUE_TIYINS),
+            "amount-value": 123,
+        }[defect]
+    elif defect.endswith("-value"):
+        payload[defect.removesuffix("-value")] = "different"
+    else:
+        payload["sign"] = "A" * 40 if defect == "uppercase-sign" else "a" * 39
+    retained = await _seed_hint(maker, payload=payload, **row_changes)
+    response = await client.post(
+        CALLBACK_URL, json=_callback_body(uuid="hint", invoice_id="ORD-RECOVER", amount=1)
+    )
+    assert response.status_code == 200
+    assert response.json() == {"success": True}
+    order = await _committed_order(maker, order_id)
+    assert (order.payment_status, order.status, order.paid_at) == (
+        "pending",
+        OrderStatus.PENDING,
+        None,
+    )
+    assert await _receipt(maker, "hint") == retained
+    assert await _committed_redeem_rows(maker) == []
+    assert sent_messages == []
+
+
+@pytest.mark.parametrize("collision", [False, True])
+@pytest.mark.parametrize(
+    ("state", "cancelled"),
+    [
+        ("pending", False),
+        ("pending", True),
+        ("failed", False),
+        ("refunded", False),
+        ("paid", False),
+    ],
+)
+async def test_amount_and_state_precedence(
+    client, maker, sent_messages, collision, state, cancelled
+):
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-RECOVER",
+        payment_status=state,
+        order_status=OrderStatus.CANCELLED if cancelled else OrderStatus.PENDING,
+    )
+    retained = await _seed_hint(maker) if collision else None
+    wrong = await client.post(
+        CALLBACK_URL, json=_callback_body(uuid="hint", invoice_id="ORD-RECOVER", amount=1)
+    )
+    eligible = state == "pending" and not cancelled
+    expected = 400 if not collision or eligible else 200
+    assert wrong.status_code == expected
+    assert wrong.json() == ({"detail": "Amount mismatch"} if expected == 400 else {"success": True})
+    assert (await _committed_order(maker, order_id)).payment_status == state
+    if retained is not None:
+        assert await _receipt(maker, "hint") == retained
+    else:
+        assert await _event_count(maker, "hint", "success") == 0
+    correct = await client.post(
+        CALLBACK_URL, json=_callback_body(uuid="hint", invoice_id="ORD-RECOVER")
+    )
+    assert correct.status_code == 200
+    assert correct.json() == {"success": True}
+    current = await _committed_order(maker, order_id)
+    assert current.payment_status == ("paid" if eligible else state)
+    assert current.status == (
+        OrderStatus.CONFIRMED
+        if eligible
+        else OrderStatus.CANCELLED
+        if cancelled
+        else OrderStatus.PENDING
+    )
+    assert len(sent_messages) == int(eligible)
+
+
+async def test_validation_signature_and_unknown_order_precede_receipt(client, maker, sent_messages):
+    await _seed_order(maker, order_number="ORD-RECOVER")
+    retained = await _seed_hint(maker)
+    for url, body in (
+        (CALLBACK_URL, _callback_body(uuid="hint", invoice_id="UNKNOWN")),
+        (WEBHOOK_URL, _webhook_body(uuid="hint", invoice_id="UNKNOWN", status="success")),
+    ):
+        invalid = copy.deepcopy(body)
+        invalid.pop("amount")
+        response = await client.post(url, json=invalid)
+        assert response.status_code == 422
+        invalid = {**body, "sign": "invalid"}
+        response = await client.post(url, json=invalid)
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Invalid signature"}
+        response = await client.post(url, json=body)
+        assert response.status_code == (404 if url == CALLBACK_URL else 200)
+        assert response.json() == (
+            {"detail": "Order not found"} if url == CALLBACK_URL else {"success": True}
+        )
+    assert await _receipt(maker, "hint") == retained
+    assert sent_messages == []
+
+
+@pytest.mark.parametrize("recovered", [False, True])
+async def test_paid_revert_rearm_replay_retains_history_guard(
+    client, maker, sent_messages, recovered
+):
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-RECOVER",
+        points_applied=10000,
+        points_balance=30000,
+        payment_uuid="hint",
+        payment_status="pending",
+    )
+    if recovered:
+        await _seed_hint(maker)
+    callback = _callback_body(uuid="hint", invoice_id="ORD-RECOVER", amount=4_000_000)
+    assert (await client.post(CALLBACK_URL, json=callback)).status_code == 200
+    paid_at = (await _committed_order(maker, order_id)).paid_at
+    retained = await _receipt(maker, "hint")
+    assert (
+        await client.post(
+            WEBHOOK_URL, json=_webhook_body(uuid="hint", invoice_id="ORD-RECOVER", status="revert")
+        )
+    ).status_code == 200
+    from src.orders.service import try_arm_payment_attempt
+
+    async with maker.begin() as session:
+        assert await try_arm_payment_attempt(session, order_id, "rearmed")
+        order = await session.get(Order, order_id)
+        order.status = OrderStatus.PENDING  # Isolate paid_at from the cancellation guard.
+    for amount in (1, 4_000_000):
+        response = await client.post(
+            CALLBACK_URL,
+            json={**callback, "amount": amount, "sign": _md5(STORE_ID, "ORD-RECOVER", amount)},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"success": True}
+    order = await _committed_order(maker, order_id)
+    assert (order.payment_uuid, order.payment_status, order.status, order.paid_at) == (
+        "rearmed",
+        "pending",
+        OrderStatus.PENDING,
+        paid_at,
+    )
+    assert [row.amount for row in await _committed_redeem_rows(maker)] == [-10000]
+    assert len(sent_messages) == 1
+    assert await _receipt(maker, "hint") == retained
+
+
+@pytest.mark.parametrize("kind", ["same-hint", "distinct-hints", "hint-callback"])
+async def test_preloaded_overlap_uses_current_locked_state(
+    client, maker, sent_messages, monkeypatch, kind
+):
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-RECOVER",
+        points_applied=10000,
+        points_balance=30000,
+        payment_status="pending",
+    )
+    if kind != "hint-callback":
+        await _seed_hint(maker)
+        if kind == "distinct-hints":
+            await _seed_hint(maker, uuid="other-hint")
+    barrier = asyncio.Barrier(2)
+    second_started = asyncio.Event()
+    second_selected = asyncio.Event()
+    first_locked = asyncio.Event()
+    calls = 0
+    outcomes = []
+    observed = []
+    backend = {}
+
+    async def controlled(db, **kwargs):
+        nonlocal calls
+        index = calls
+        calls += 1
+        backend[index] = await db.scalar(text("SELECT pg_backend_pid()"))
+        await asyncio.wait_for(barrier.wait(), 10)
+        execute = db.execute
+        first_select = True
+
+        async def select_under_observation(statement, *args, **kw):
+            nonlocal first_select
+            if not first_select:
+                return await execute(statement, *args, **kw)
+            first_select = False
+            if index == 1:
+                await asyncio.wait_for(first_locked.wait(), 10)
+                second_started.set()
+            result = await execute(statement, *args, **kw)
+            if index == 1:
+                second_selected.set()
+            else:
+                first_locked.set()
+                await asyncio.wait_for(second_started.wait(), 10)
+                # Observe an actual PostgreSQL lock wait, or the lost-lock counterexample.
+                async with maker() as observer, asyncio.timeout(10):
+                    while True:
+                        blocked = await observer.scalar(
+                            text("SELECT cardinality(pg_blocking_pids(:pid))"), {"pid": backend[1]}
+                        )
+                        if blocked or second_selected.is_set():
+                            observed.append("blocked" if blocked else "selected-without-lock")
+                            break
+            return result
+
+        monkeypatch.setattr(db, "execute", select_under_observation)
+        outcome = await lc.process_payment_event(db, **kwargs)
+        outcomes.append(outcome.applied_success)
+        return outcome
+
+    monkeypatch.setattr(payment_router, "process_payment_event", controlled)
+    callback = _callback_body(uuid="hint", invoice_id="ORD-RECOVER", amount=4_000_000)
+    second = {**callback, "uuid": "other-hint"} if kind == "distinct-hints" else callback
+    first_url, first_body = (
+        (WEBHOOK_URL, _webhook_body(uuid="hint", invoice_id="ORD-RECOVER", status="success"))
+        if kind == "hint-callback"
+        else (CALLBACK_URL, callback)
+    )
+    responses = await asyncio.wait_for(
+        asyncio.gather(
+            client.post(first_url, json=first_body), client.post(CALLBACK_URL, json=second)
+        ),
+        20,
+    )
+    assert [response.status_code for response in responses] == [200, 200]
+    assert all(response.json() == {"success": True} for response in responses)
+    assert sum(outcomes) == 1
+    assert [row.amount for row in await _committed_redeem_rows(maker)] == [-10000]
+    assert len(sent_messages) == 1
+    assert (await _committed_order(maker, order_id)).payment_status == "paid"
+    assert observed == ["blocked"]
+
+
+@pytest.mark.parametrize("recovered", [False, True])
+@pytest.mark.parametrize(
+    "failure", ["record", "paid-commit", "integrity", "operational", "unknown", "commit-ack"]
+)
+async def test_financial_commit_errors_and_unknown_ack(
+    client, maker, sent_messages, monkeypatch, recovered, failure
+):
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-RECOVER",
+        payment_status="pending",
+        points_applied=10000,
+        points_balance=30000,
+    )
+    retained = await _seed_hint(maker) if recovered else None
+    errors = {
+        "record": (PaidUnavailableError(), 503, {"detail": {"code": "referral_paid_unavailable"}}),
+        "paid-commit": (
+            PaidUnavailableError(),
+            503,
+            {"detail": {"code": "referral_paid_unavailable"}},
+        ),
+        "integrity": (
+            IntegrityError("synthetic", {}, Exception()),
+            409,
+            {"detail": "Data conflict: duplicate or constraint violation"},
+        ),
+        "operational": (
+            OperationalError("synthetic", {}, Exception()),
+            503,
+            {"detail": "Database temporarily unavailable"},
+        ),
+        "unknown": (RuntimeError("synthetic"), 500, {"detail": "Internal server error"}),
+        "commit-ack": (
+            RuntimeError("unknown acknowledgement"),
+            500,
+            {"detail": "Internal server error"},
+        ),
+    }
+    error, code, body = errors[failure]
+    real_commit = payment_router.commit_paid
+    real_record = lc.record_paid
+
+    async def fail(db, *args):
+        if failure == "commit-ack":
+            await real_commit(db)
+        raise error
+
+    if failure == "record":
+        monkeypatch.setattr(lc, "record_paid", fail)
+    else:
+        monkeypatch.setattr(payment_router, "commit_paid", fail)
+    callback = _callback_body(uuid="hint", invoice_id="ORD-RECOVER", amount=4_000_000)
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
+    ) as http:
+        response = await http.post(CALLBACK_URL, json=callback)
+    assert response.status_code == code
+    assert response.json() == body
+    settled = failure == "commit-ack"
+    order = await _committed_order(maker, order_id)
+    assert order.payment_status == ("paid" if settled else "pending")
+    assert [row.amount for row in await _committed_redeem_rows(maker)] == (
+        [-10000] if settled else []
+    )
+    assert await _event_count(maker, "hint", "success") == int(recovered or settled)
+    if retained:
+        assert await _receipt(maker, "hint") == retained
+    assert sent_messages == []
+    monkeypatch.setattr(payment_router, "commit_paid", real_commit)
+    if failure == "record":
+        monkeypatch.setattr(lc, "record_paid", real_record)
+    if settled:
+        retry = await client.post(CALLBACK_URL, json=callback)
+        assert retry.status_code == 200
+        assert retry.json() == {"success": True}
+        assert [row.amount for row in await _committed_redeem_rows(maker)] == [-10000]
+        assert sent_messages == []
+
+
+@pytest.mark.parametrize("applied", [False, True])
+async def test_wire_response_is_distinct_from_dependency_finalization(
+    client, maker, sent_messages, applied
+):
+    order_id = await _seed_order(maker, order_number="ORD-FINALIZER", payment_status="pending")
+
+    async def late_failure():
+        async with maker() as session:
+            try:
+                yield session
+                raise OperationalError("synthetic finalizer", {}, Exception())
+            except Exception:
+                await session.rollback()
+                raise
+
+    old = app.dependency_overrides[get_db]
+    app.dependency_overrides[get_db] = late_failure
+    body = (
+        _callback_body(uuid="finalizer", invoice_id="ORD-FINALIZER")
+        if applied
+        else _webhook_body(uuid="finalizer", invoice_id="ORD-FINALIZER", status="success")
+    )
+    path = CALLBACK_URL if applied else WEBHOOK_URL
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": json.dumps(body).encode(), "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    try:
+        with pytest.raises(RuntimeError, match="response already started") as raised:
+            await app(
+                {
+                    "type": "http",
+                    "asgi": {"version": "3.0"},
+                    "method": "POST",
+                    "path": path,
+                    "raw_path": path.encode(),
+                    "query_string": b"",
+                    "headers": [(b"content-type", b"application/json")],
+                    "scheme": "http",
+                    "server": ("test", 80),
+                    "client": ("127.0.0.1", 0),
+                    "http_version": "1.1",
+                },
+                receive,
+                send,
+            )
+        assert raised.value is not None
+    finally:
+        app.dependency_overrides[get_db] = old
+    assert [message["status"] for message in sent if message["type"] == "http.response.start"] == [
+        200
+    ]
+    assert json.loads(
+        b"".join(
+            message.get("body", b"") for message in sent if message["type"] == "http.response.body"
+        )
+    ) == {"success": True}
+    order = await _committed_order(maker, order_id)
+    assert order.payment_status == ("paid" if applied else "pending")
+    assert await _event_count(maker, "finalizer", "success") == int(applied)
+    assert len(sent_messages) == int(applied)
+
+
+@pytest.mark.parametrize("failure", ["none", "transport", "notifier", "owner", "read"])
+async def test_actual_notifier_runs_after_commit_and_optional_failures_are_isolated(
+    client, maker, monkeypatch, failure
+):
+    from src.notifications.service import TelegramNotifier, telegram_notifier
+
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-RECOVER",
+        payment_status="pending",
+        points_applied=10000,
+        points_balance=30000,
+    )
+    await _seed_hint(maker)
+    posts = []
+    reads = []
+    monkeypatch.setattr(
+        telegram_notifier, "send_message", TelegramNotifier.send_message.__get__(telegram_notifier)
+    )
+
+    async def post(message, parse_mode):
+        # The real formatter/send adapter reaches this transport boundary with a durable,
+        # unlocked settlement. Another connection could not lock it NOWAIT before commit.
+        async with maker.begin() as observer:
+            order = await observer.scalar(
+                select(Order).where(Order.id == order_id).with_for_update(nowait=True)
+            )
+            assert order.payment_status == "paid"
+            assert (
+                await observer.scalar(
+                    select(func.count())
+                    .select_from(PointLedger)
+                    .where(PointLedger.reason == "redeem")
+                )
+                == 1
+            )
+        posts.append((message, parse_mode))
+        if failure == "transport":
+            raise RuntimeError("synthetic transport failure")
+
+    monkeypatch.setattr(telegram_notifier, "_post_message", post)
+    real_owner = payment_router.owns_paid
+    real_load = payment_router.orders_service.get_order_with_items
+
+    async def owner(db, order_id):
+        reads.append(db)
+        value = await real_owner(db, order_id)
+        if failure == "owner":
+            raise OperationalError("synthetic owner failure", {}, Exception())
+        return value
+
+    async def load(db, order_id):
+        value = await real_load(db, order_id)
+        if failure == "read":
+            raise OperationalError("synthetic read failure", {}, Exception())
+        return value
+
+    async def broken_notifier(**kwargs):
+        raise RuntimeError("synthetic formatter/notifier failure")
+
+    monkeypatch.setattr(payment_router, "owns_paid", owner)
+    monkeypatch.setattr(payment_router.orders_service, "get_order_with_items", load)
+    if failure == "notifier":
+        monkeypatch.setattr(telegram_notifier, "notify_payment_success", broken_notifier)
+    callback = _callback_body(uuid="hint", invoice_id="ORD-RECOVER", amount=4_000_000)
+    for _ in range(2):
+        response = await client.post(CALLBACK_URL, json=callback)
+        assert response.status_code == 200
+        assert response.json() == {"success": True}
+    assert len(posts) == (2 if failure == "transport" else 1 if failure == "none" else 0)
+    assert len(reads) == 1
+    assert not reads[0].in_transaction()
+    assert (await _committed_order(maker, order_id)).payment_status == "paid"
+    assert [row.amount for row in await _committed_redeem_rows(maker)] == [-10000]
+
+
+async def test_recovered_ordinary_shortfall_is_settled_without_retrying_debit(
+    client, maker, sent_messages, caplog
+):
+    order_id = await _seed_order(
+        maker,
+        order_number="ORD-RECOVER",
+        points_applied=10000,
+        points_balance=1,
+        payment_status="pending",
+    )
+    await _seed_hint(maker)
+    body = _callback_body(uuid="hint", invoice_id="ORD-RECOVER", amount=4_000_000)
+    response = await client.post(CALLBACK_URL, json=body)
+    assert response.status_code == 200
+    assert response.json() == {"success": True}
+    order = await _committed_order(maker, order_id)
+    assert order.payment_status == "paid"
+    assert "commit_redeem shortfall" in caplog.text
+    async with maker.begin() as session:
+        session.add(PointLedger(user_id=order.user_id, amount=20000, reason=LedgerReason.CASHBACK))
+    assert (await client.post(CALLBACK_URL, json=body)).status_code == 200
+    assert await _committed_redeem_rows(maker) == []
+    assert len(sent_messages) == 1

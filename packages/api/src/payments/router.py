@@ -195,34 +195,36 @@ async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) ->
     Must run after the transaction is committed so the ``FOR UPDATE`` lock is not held across the
     Telegram network call (up to 10s) — same lesson as the points path.
     """
-    if await owns_paid(db, order_id):
-        return
-    order = await orders_service.get_order_with_items(db, order_id)
-    if not order:
-        return
-    items_data = [
-        {
-            "product_name": item.product_name,
-            "size": item.size,
-            "quantity": item.quantity,
-            "product_price": item.product_price,
-            "is_sale_at_order": item.is_sale_at_order,
-            "regular_price_at_order": item.regular_price_at_order,
-            # Как и в create-пути: товар приехал вместе с заказом, запрос не добавляется.
-            "slug": item.product.slug if item.product else None,
-        }
-        for item in order.items
-    ]
-    await telegram_notifier.notify_payment_success(
-        order_number=order.order_number,
-        total=float(order.total),
-        items=items_data,
-        customer_name=order.delivery_name,
-        customer_phone=order.delivery_phone,
-        delivery_address=order.delivery_address,
-        invoice_uuid=invoice_uuid,
-        points_applied=order.points_applied,
-    )
+    # Keep optional reads and their cleanup outside the completed financial session.
+    async with AsyncSession(bind=db.bind, expire_on_commit=False) as notify_db:
+        if await owns_paid(notify_db, order_id):
+            return
+        order = await orders_service.get_order_with_items(notify_db, order_id)
+        if not order:
+            return
+        items_data = [
+            {
+                "product_name": item.product_name,
+                "size": item.size,
+                "quantity": item.quantity,
+                "product_price": item.product_price,
+                "is_sale_at_order": item.is_sale_at_order,
+                "regular_price_at_order": item.regular_price_at_order,
+                # Как и в create-пути: товар приехал вместе с заказом, запрос не добавляется.
+                "slug": item.product.slug if item.product else None,
+            }
+            for item in order.items
+        ]
+        await telegram_notifier.notify_payment_success(
+            order_number=order.order_number,
+            total=float(order.total),
+            items=items_data,
+            customer_name=order.delivery_name,
+            customer_phone=order.delivery_phone,
+            delivery_address=order.delivery_address,
+            invoice_uuid=invoice_uuid,
+            points_applied=order.points_applied,
+        )
 
 
 @router.post("/callback")
@@ -282,8 +284,8 @@ async def payment_callback(
     except PaidUnavailableError:
         raise HTTPException(503, detail={"code": "referral_paid_unavailable"}) from None
     except PaymentAmountMismatchError as exc:
-        # Non-2xx to a success callback = Multicard cancels+refunds — correct: we reject a
-        # payment for the wrong sum rather than mark the order paid.
+        # Reject the wrong sum without settling. Ordinary refusal and timeout/server failure
+        # have distinct provider treatment; an error alone does not prove a completed refund.
         logger.error("Callback amount mismatch for %s: %s", callback.uuid, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -297,10 +299,10 @@ async def payment_callback(
             detail="Order not found",
         )
 
-    if outcome.newly_processed and outcome.applied_success:
+    if outcome.applied_success:
         logger.info("Order %s paid successfully via %s", callback.invoice_id, callback.ps)
         # Commit BEFORE notifying so the order's FOR UPDATE lock is released before the Telegram
-        # call; the get_db commit that follows is then a harmless no-op.
+        # call. Optional notification reads use their own transaction and cleanup.
         try:
             await commit_paid(db)
         except PaidUnavailableError:
@@ -373,7 +375,7 @@ async def payment_webhook(
         logger.warning("Webhook for unknown invoice_id=%s (acknowledged)", webhook.invoice_id)
         return {"success": True}
 
-    if outcome.newly_processed and outcome.applied_success:
+    if outcome.applied_success:
         await db.commit()
         try:
             await _notify_paid(db, outcome.order.id, invoice_uuid=webhook.uuid)

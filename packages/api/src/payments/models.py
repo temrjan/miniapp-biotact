@@ -11,7 +11,7 @@ from src.database import Base
 
 
 class PaymentEvent(Base):
-    """Append-only log of Multicard payment events — the idempotency ledger of the money path.
+    """Append-only receipts of Multicard payment events; receipt existence is not settlement.
 
     One payment sends us SEVERAL events over its life (``progress`` → ``success``, and possibly
     ``revert`` later). Storing only the order's latest ``payment_status`` cannot answer "did we
@@ -20,17 +20,17 @@ class PaymentEvent(Base):
 
     Idempotency key: ``UNIQUE(payment_uuid, status)``. The handler does
     ``INSERT ... ON CONFLICT DO NOTHING``; if 0 rows land, this (uuid, status) was already
-    processed → return success without re-applying. Same proven pattern as the loyalty ledger's
-    partial ``UNIQUE(qr_code_id, reason)`` — not a new invention.
+    received. Ordinary handling may recover a recognized untrusted success hint only for an
+    eligible first trusted settlement; applied callbacks remain no-ops.
 
     Append-only: written once per event, never updated or deleted in code. ``payload`` snapshots
-    the raw callback/webhook body so a reconciliation can always be reconstructed from source.
+    the validated callback/webhook model so a reconciliation can always be reconstructed from source.
     """
 
     __tablename__ = "payment_event"
     __table_args__ = (
-        # The idempotency lock: at most one row per (payment, status). A duplicate success
-        # callback — which Multicard sends on any 2xx timeout — collides here and is a no-op.
+        # Receipt uniqueness: at most one retained row per (payment, status).
+        # Settlement eligibility is arbitrated separately under the order lock.
         Index(
             "uq_payment_event_uuid_status",
             "payment_uuid",
