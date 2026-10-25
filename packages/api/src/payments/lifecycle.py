@@ -3,9 +3,9 @@
 The success callback (MD5) and the status webhook (SHA1) both funnel through
 :func:`process_payment_event` — one path, not two copies. It guarantees, on the money path:
 
-* **Idempotency.** ``INSERT payment_event(uuid, status) ON CONFLICT DO NOTHING`` — a duplicate
-  event (Multicard retries any non-2xx, repeats the success callback on timeout) lands 0 rows and
-  is a silent no-op. No double order write, no double admin notification, no double point move.
+* **Receipts and settlement.** ``INSERT ... ON CONFLICT DO NOTHING`` preserves the first receipt.
+  A recognized webhook-success hint may precede the first authoritative callback; only a
+  never-settled, eligible order can recover that conflict. Applied callbacks remain no-ops.
 * **Attempt awareness (Gate-2 blocker fix).** One order lives through SEVERAL payment attempts —
   a customer abandons attempt A, ``/payments/create`` mints attempt B, each a different
   ``payment_uuid``. ``order.payment_uuid`` is the CURRENT (last-armed) attempt. A FAILURE event
@@ -26,6 +26,7 @@ The success callback (MD5) and the status webhook (SHA1) both funnel through
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -58,9 +59,9 @@ _ALLOWED_FROM: dict[str, frozenset[str]] = {
 class PaymentAmountMismatchError(Exception):
     """A ``success`` event's amount does not match what the order owes — refuse, do not pay.
 
-    Per Multicard's contract, answering non-2xx to a success callback cancels the payment with a
-    refund — which is exactly right here: we will not accept a payment for the wrong sum. Carries
-    both figures for the ops log.
+    An ordinary amount refusal rejects an incompatible sum. Timeout and server-error outcomes
+    have distinct provider treatment; a callback error alone does not prove a completed refund.
+    Both figures are retained for the ops log.
     """
 
     def __init__(self, *, expected_tiyins: int, got_tiyins: int) -> None:
@@ -76,7 +77,7 @@ class EventOutcome:
     """Result of handling one payment event — primitives the router turns into an HTTP reply."""
 
     order: Order | None  # None ⇔ no order matches invoice_id
-    newly_processed: bool  # True only if THIS call was the first to see this (uuid, status)
+    newly_processed: bool  # Receipt-new; independent of whether success was applied
     applied_success: bool  # True only if THIS call flipped the order to paid (⇒ notify admins)
 
 
@@ -89,6 +90,29 @@ def _amount_due_tiyins(order: Order) -> int:
     invoiced for the leftover — does not silently break this reconciliation the day it ships.
     """
     return int((order.total - order.points_applied) * 100)
+
+
+def _is_success_hint(receipt: PaymentEvent, *, payment_uuid: str, invoice_id: str) -> bool:
+    """Recognize the supported retained WebhookData representation, without coercion.
+
+    This is a bounded writer-provenance check, not proof of payment or historical authentication.
+    Only the incoming trusted callback can reconcile the amount and authorize settlement.
+    """
+    payload = receipt.payload
+    return (
+        receipt.payment_uuid == payment_uuid
+        and receipt.status == STATUS_SUCCESS
+        and receipt.invoice_id == invoice_id
+        and isinstance(payload, dict)
+        and payload.keys() == {"uuid", "invoice_id", "amount", "status", "sign"}
+        and all(isinstance(payload[key], str) for key in ("uuid", "invoice_id", "status", "sign"))
+        and type(payload["amount"]) is int
+        and payload["uuid"] == receipt.payment_uuid
+        and payload["invoice_id"] == receipt.invoice_id
+        and payload["status"] == receipt.status
+        and payload["amount"] == receipt.amount
+        and re.fullmatch(r"[0-9a-f]{40}", payload["sign"]) is not None
+    )
 
 
 async def process_payment_event(
@@ -110,8 +134,8 @@ async def process_payment_event(
     Order of operations is load-bearing:
 
     1. Lock the order row (``FOR UPDATE``) — serializes concurrent events for one order.
-    2. Record the event (``ON CONFLICT DO NOTHING``) — idempotency gate AND audit of everything
-       that arrives; a replay (0 rows) short-circuits.
+    2. Retain the first receipt. A duplicate is a no-op except a recognized success hint on an
+       eligible, never-settled order receiving its first trusted success callback.
     3. Attempt guard (failure events only): a non-active-attempt ``error``/``revert`` ⇒ echo of an
        abandoned attempt ⇒ do not apply.
     4. ``success`` from an untrusted source ⇒ do not apply.
@@ -123,7 +147,12 @@ async def process_payment_event(
     HTTP code (a webhook must still answer 2xx so Multicard stops retrying).
     """
     order = (
-        await db.execute(select(Order).where(Order.order_number == invoice_id).with_for_update())
+        await db.execute(
+            select(Order)
+            .where(Order.order_number == invoice_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
     if order is None:
         return EventOutcome(order=None, newly_processed=False, applied_success=False)
@@ -142,9 +171,27 @@ async def process_payment_event(
             .returning(PaymentEvent.id)
         )
     ).one_or_none()
-    if inserted is None:
-        # Replay of an already-handled (uuid, status): no re-apply, no re-notify.
-        return EventOutcome(order=order, newly_processed=False, applied_success=False)
+    receipt_new = inserted is not None
+    if not receipt_new:
+        if (
+            status != STATUS_SUCCESS
+            or not trust_success
+            or order.status == OrderStatus.CANCELLED
+            or order.payment_status not in _ALLOWED_FROM[STATUS_SUCCESS]
+            or order.paid_at is not None
+        ):
+            return EventOutcome(order=order, newly_processed=False, applied_success=False)
+        receipt = await db.scalar(
+            select(PaymentEvent).where(
+                PaymentEvent.payment_uuid == payment_uuid, PaymentEvent.status == STATUS_SUCCESS
+            )
+        )
+        if receipt is None or not _is_success_hint(
+            receipt, payment_uuid=payment_uuid, invoice_id=order.order_number
+        ):
+            logger.warning("Unrecognized success receipt conflict: order_id=%s", order.id)
+            return EventOutcome(order=order, newly_processed=False, applied_success=False)
+        logger.info("Recovering success from retained webhook hint: order_id=%s", order.id)
 
     # Attempt guard — for FAILURE events only (error/revert). A late error/revert from an
     # abandoned attempt must not touch an order the customer is still paying (or has paid) via
@@ -160,7 +207,7 @@ async def process_payment_event(
             payment_uuid,
             status,
         )
-        return EventOutcome(order=order, newly_processed=True, applied_success=False)
+        return EventOutcome(order=order, newly_processed=receipt_new, applied_success=False)
 
     if status == STATUS_SUCCESS:
         if not trust_success:
@@ -169,14 +216,18 @@ async def process_payment_event(
             logger.info(
                 "Untrusted success for order=%s (webhook) — recorded, not applied", invoice_id
             )
-            return EventOutcome(order=order, newly_processed=True, applied_success=False)
+            return EventOutcome(order=order, newly_processed=receipt_new, applied_success=False)
         expected = _amount_due_tiyins(order)
         if amount != expected:
             raise PaymentAmountMismatchError(expected_tiyins=expected, got_tiyins=amount)
 
     # State-machine guard: a non-order-touching status (draft/progress/hold) or an illegal
     # transition (e.g. late error on a paid order, revert on an unpaid one) is recorded, not applied.
-    if status not in _ALLOWED_FROM or order.payment_status not in _ALLOWED_FROM[status]:
+    if (
+        status not in _ALLOWED_FROM
+        or order.payment_status not in _ALLOWED_FROM[status]
+        or (status == STATUS_SUCCESS and order.status == OrderStatus.CANCELLED)
+    ):
         if status in _ALLOWED_FROM:
             logger.warning(
                 "Illegal transition for order=%s: %s while payment_status=%s (recorded, not applied)",
@@ -184,7 +235,7 @@ async def process_payment_event(
                 status,
                 order.payment_status,
             )
-        return EventOutcome(order=order, newly_processed=True, applied_success=False)
+        return EventOutcome(order=order, newly_processed=receipt_new, applied_success=False)
 
     applied_success = False
     if status == STATUS_SUCCESS:
@@ -211,4 +262,4 @@ async def process_payment_event(
     await db.flush()
     if applied_success:
         await record_paid(db, order)
-    return EventOutcome(order=order, newly_processed=True, applied_success=applied_success)
+    return EventOutcome(order=order, newly_processed=receipt_new, applied_success=applied_success)
