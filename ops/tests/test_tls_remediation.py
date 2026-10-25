@@ -17,6 +17,8 @@ sys.path.insert(0, str(HELPERS))
 import close  # noqa: E402
 import drain  # noqa: E402
 import gate  # noqa: E402
+import observe  # noqa: E402
+import reopen  # noqa: E402
 
 import packages  # noqa: E402
 
@@ -38,7 +40,22 @@ def observed(now=1000):
             ("shop-api", "shop-worker", "shop-bot", "team-api", "team-worker", "team-bot")
         )
     }
+    binding = {
+        "consumers": consumers,
+        "releases": {"shop": "base", "team": "release"},
+        "controller": None,
+        "timers": {"timers": True},
+        "registrations": {"shop": "registration", "portal": "registration"},
+        "configuration": {"config": [1, 2, 3]},
+    }
     return {
+        "readiness": {
+            "started_at": now - 8,
+            "completed_at": now,
+            "boundary": 980,
+            "before": copy.deepcopy(binding),
+            "after": copy.deepcopy(binding),
+        },
         "observed_at": now,
         "gate_effective": True,
         "finished": ["shop", "portal"],
@@ -90,6 +107,130 @@ class GateContract(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     gate.reopening(self.previous, candidate, 980, 1000)
 
+    def test_two_stage_freshness_and_continuity_refusals(self):
+        mutations = [
+            lambda d: d["readiness"].update(completed_at=994),
+            lambda d: d["readiness"].update(started_at=970),
+            lambda d: d["readiness"].update(boundary=979),
+            lambda d: d.update(observed_at=1001),
+            lambda d: d["readiness"]["after"]["consumers"]["team-bot"].update(pid=99),
+            lambda d: d["readiness"]["after"]["consumers"]["team-bot"].update(start_ticks=99),
+            lambda d: d["readiness"]["after"]["consumers"]["team-bot"].update(venv="other"),
+            lambda d: d["readiness"]["after"]["registrations"].update(shop="other"),
+            lambda d: d["readiness"]["after"]["configuration"].update(config=[4]),
+            lambda d: d["readiness"]["after"]["timers"].update(timers=False),
+            lambda d: d["readiness"]["after"].update(controller="operation"),
+            lambda d: d["readiness"]["after"]["releases"].update(shop="other"),
+        ]
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                candidate = copy.deepcopy(self.current)
+                mutate(candidate)
+                with self.assertRaises(ValueError):
+                    gate.reopening(self.previous, candidate, 980, 1000)
+        # Updating only the critical timestamp cannot renew expired health evidence.
+        self.current["observed_at"] = 1006
+        with self.assertRaisesRegex(ValueError, "readiness stale"):
+            gate.reopening(self.previous, self.current, 980, 1006)
+        with self.assertRaises(ValueError):
+            gate.reopening(self.current, self.current, 980, 1006)
+
+    def test_real_snapshot_path_accepts_slow_health_but_refuses_continuity_break(self):
+        binding = self.current["readiness"]["before"]
+        receipt = {k: self.current[k] for k in ("finished", "release_hold", "trust_passed")}
+        clock = [992.0]
+
+        def slow_health(boundary):
+            assert boundary == 980
+            clock[0] += 8
+            return {"receivers": True}
+
+        def run_snapshot(after):
+            clock[0] = 992.0
+            with (
+                patch.object(observe, "continuity", side_effect=[binding, after]),
+                patch.object(observe, "readiness", side_effect=slow_health),
+                patch.object(observe.time, "time", side_effect=lambda: clock[0]),
+                patch.object(observe, "command", side_effect=["423", "423", "base"]),
+                patch.object(
+                    observe,
+                    "query",
+                    side_effect=[self.current[k] for k in ("source", "replica", "source_after")],
+                ),
+                patch.object(observe, "TEAM", Path("/fixture/team")),
+                patch.object(observe, "STATE", Path("/fixture/absent-state")),
+            ):
+                return observe.snapshot(receipt, 980)
+
+        binding["releases"]["team"] = "/fixture/team"
+        self.previous["releases"]["team"] = "/fixture/team"
+        current = run_snapshot(copy.deepcopy(binding))
+        gate.reopening(self.previous, current, 980, clock[0])
+        assert current["readiness"]["completed_at"] - current["readiness"]["started_at"] == 8
+        changed = copy.deepcopy(binding)
+        changed["consumers"]["team-bot"]["pid"] += 1
+        with self.assertRaisesRegex(ValueError, "changed during readiness"):
+            run_snapshot(changed)
+
+    def test_previous_snapshot_then_22_second_renewal_wait_then_real_reopen_check(self):
+        binding = copy.deepcopy(self.current["readiness"]["before"])
+        binding["releases"]["team"] = "/fixture/team"
+        clock = [962.0]
+        receipt = {k: self.current[k] for k in ("finished", "release_hold", "trust_passed")}
+
+        def health(boundary):
+            assert boundary == 950
+            clock[0] += 8
+            return {"receivers": True}
+
+        def query(database, sql):
+            assert database in ("biotact_db", "biotact_team_db")
+            assert sql in (observe.SOURCE_SQL, observe.REPLICA_SQL)
+            row = copy.deepcopy(self.current["source"])
+            row["7"]["issued_at"] = 960 if clock[0] < 990 else 990
+            return row
+
+        with (
+            patch.object(observe, "continuity", return_value=binding),
+            patch.object(observe, "readiness", side_effect=health),
+            patch.object(observe.time, "time", side_effect=lambda: clock[0]),
+            patch.object(observe, "command", side_effect=["423", "423", "base"] * 2),
+            patch.object(observe, "query", side_effect=query),
+            patch.object(observe, "TEAM", Path("/fixture/team")),
+            patch.object(observe, "STATE", Path("/fixture/absent-state")),
+        ):
+            previous = observe.snapshot(receipt, 950)
+            clock[0] += 22
+            current = observe.snapshot(receipt, 950)
+        assert clock[0] - previous["observed_at"] == 30
+        gate.reopening(previous, current, 950, clock[0])
+        with self.assertRaisesRegex(ValueError, "stale"):
+            gate.reopening(previous, current, 950, clock[0] + 6)
+
+    def test_readiness_rejects_each_false_portal_flag(self):
+        portal = dict.fromkeys(("enabled", "configuration_valid", "ready", "fresh"), True)
+        for field in portal:
+            with (
+                self.subTest(field=field),
+                patch.object(
+                    observe,
+                    "command",
+                    side_effect=["", "", json.dumps(dict(portal, **{field: False}))],
+                ),
+                self.assertRaisesRegex(ValueError, "readiness unavailable"),
+            ):
+                observe.readiness(980)
+
+    def test_failed_mandatory_readiness_never_samples_or_opens(self):
+        with (
+            patch.object(observe, "continuity", return_value={}),
+            patch.object(observe, "readiness", side_effect=ValueError("health failed")),
+            patch.object(observe, "query") as query,
+            self.assertRaisesRegex(ValueError, "health failed"),
+        ):
+            observe.snapshot({}, 980)
+        query.assert_not_called()
+
     def test_stuck_writer_sessions_and_open_nginx_block_global_pause(self):
         pre = {
             "gate_effective": True,
@@ -127,6 +268,59 @@ class GateContract(unittest.TestCase):
     def test_unknown_ingress_refused(self):
         with self.assertRaises(ValueError):
             gate.render(b"server { listen 8080; }")
+
+
+class AtomicReopenContract(unittest.TestCase):
+    def test_expired_final_clock_and_failed_reload_preserve_gate(self):
+        work = HELPERS.parents[1] / ".git/tls-freshness-correction-r1/unit"
+        work.mkdir(parents=True, exist_ok=True)
+        for failure in ("final-clock", "reload"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(dir=work) as owned:
+                directory = Path(owned)
+                site = directory / "site"
+                original, closed = b"original", b"closed"
+                site.write_bytes(closed)
+                (directory / "original.conf").write_bytes(original)
+                (directory / "closed.conf").write_bytes(closed)
+                stat = site.stat()
+                (directory / "binding.json").write_text(
+                    json.dumps(
+                        {
+                            "site_resolved": str(site),
+                            "closed_sha256": hashlib.sha256(closed).hexdigest(),
+                            "mode": stat.st_mode & 511,
+                            "uid": stat.st_uid,
+                            "gid": stat.st_gid,
+                        }
+                    )
+                )
+                previous, current = observed(970), observed()
+                previous["source"]["7"]["issued_at"] = 960
+                previous_file = directory / "previous.json"
+                previous_file.write_text(json.dumps(previous))
+                receipt = directory / "receipt.json"
+                receipt.write_text("{}")
+                commands = ["", ValueError("reload failed"), "", ""]
+                with (
+                    patch.object(reopen, "SITE", site),
+                    patch.object(reopen, "BASE_SHA", hashlib.sha256(original).hexdigest()),
+                    patch.object(reopen, "snapshot", return_value=current),
+                    patch.object(
+                        reopen.time,
+                        "time",
+                        side_effect=[1000, 1006] if failure == "final-clock" else [1000, 1000],
+                    ),
+                    patch.object(reopen, "command", side_effect=commands) as command,
+                    patch.object(
+                        sys,
+                        "argv",
+                        ["reopen", str(directory), str(receipt), str(previous_file), "980"],
+                    ),
+                    self.assertRaisesRegex(ValueError, "stale|reload failed"),
+                ):
+                    reopen.main()
+                assert site.read_bytes() == closed
+                assert command.call_count == (0 if failure == "final-clock" else 4)
 
 
 class ProtectedWaitContract(unittest.TestCase):
