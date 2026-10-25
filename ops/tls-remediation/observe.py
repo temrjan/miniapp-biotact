@@ -5,6 +5,7 @@
 # ruff: noqa: S603
 
 import argparse
+import hashlib
 import json
 import subprocess
 import time
@@ -85,11 +86,18 @@ def identity(pid: int, venv: Path) -> dict[str, Any]:
     argv = (proc / "cmdline").read_bytes().split(b"\0")
     require(any(str(venv).encode() in arg for arg in argv), "consumer venv identity mismatch")
     require((proc / "cwd").resolve().is_relative_to(venv.parent.resolve()), "consumer cwd mismatch")
-    return {"pid": pid, "start_ticks": int(stat[19]), "venv": str(venv.resolve()), "healthy": True}
+    return {
+        "pid": pid,
+        "start_ticks": int(stat[19]),
+        "venv": str(venv.resolve()),
+        "cwd": str((proc / "cwd").resolve()),
+        "argv_sha256": hashlib.sha256((proc / "cmdline").read_bytes()).hexdigest(),
+        "healthy": True,
+    }
 
 
-def snapshot(receipt: dict[str, Any], boundary: float) -> dict[str, Any]:
-    started = time.time()
+def continuity(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Bind readiness to live identities and configuration without exporting secrets."""
     require(
         receipt["expected_releases"]
         == {
@@ -127,6 +135,70 @@ def snapshot(receipt: dict[str, Any], boundary: float) -> dict[str, Any]:
         )
         require(pid > 0, "Team consumer stopped")
         consumers["team-" + name] = identity(pid, TEAM / "backend/.venv")
+    timers = {}
+    for timer in (
+        "biotact-referral-watch.timer",
+        "biotact-referral-recovery.timer",
+        "biotact-team-monitor.timer",
+    ):
+        timers[timer] = command(["systemctl", "is-active", timer]) == "active"
+    registrations = {}
+    for role in ("shop", "portal"):
+        registration = (STATE.parent / "participants" / role / "worker.json").read_bytes()
+        registered = json.loads(registration)
+        expected = consumers["shop-worker" if role == "shop" else "team-worker"]
+        require(
+            registered["pid"] == expected["pid"]
+            and int(registered["ticks"]) == expected["start_ticks"]
+            and registered["boot"] == Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+            "worker registration mismatch",
+        )
+        registrations[role] = hashlib.sha256(registration).hexdigest()
+    unit_configuration = command(
+        [
+            "systemctl",
+            "show",
+            "--property=FragmentPath,DropInPaths,ExecStart,EnvironmentFiles,WorkingDirectory",
+            "biotact-team-api.service",
+            "biotact-team-worker.service",
+            "biotact-team-bot.service",
+            "biotact-referral-watch.timer",
+            "biotact-referral-recovery.timer",
+            "biotact-team-monitor.timer",
+        ]
+    )
+    configuration: dict[str, Any] = {
+        "systemd": hashlib.sha256(unit_configuration.encode()).hexdigest()
+    }
+    for path in (
+        SHOP / "packages/api/.env",
+        SHOP / "packages/bot/.env",
+        SHOP / "ecosystem.config.js",
+        Path("/etc/biotact-team/app.env"),
+    ):
+        stat = path.stat()
+        configuration[str(path)] = [
+            stat.st_dev,
+            stat.st_ino,
+            stat.st_size,
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+        ]
+    return {
+        "consumers": consumers,
+        "registrations": registrations,
+        "timers": timers,
+        "configuration": configuration,
+        "controller": hashlib.sha256(STATE.read_bytes()).hexdigest() if STATE.exists() else None,
+        "releases": {
+            "shop": command(["git", "--no-optional-locks", "rev-parse", "HEAD"], SHOP),
+            "team": str(TEAM.resolve()),
+        },
+    }
+
+
+def readiness(boundary: float) -> dict[str, bool]:
+    """Run mandatory slow read-only health checks before the critical sample."""
     health = {}
     for port in (3001, 3002):
         command(
@@ -141,12 +213,6 @@ def snapshot(receipt: dict[str, Any], boundary: float) -> dict[str, Any]:
             ]
         )
         health[str(port)] = True
-    for timer in (
-        "biotact-referral-watch.timer",
-        "biotact-referral-recovery.timer",
-        "biotact-team-monitor.timer",
-    ):
-        health[timer] = command(["systemctl", "is-active", timer]) == "active"
     portal = json.loads(
         command(
             [
@@ -175,15 +241,17 @@ def snapshot(receipt: dict[str, Any], boundary: float) -> dict[str, Any]:
         "Team K1 renewal/readiness unavailable",
     )
     command(["bash", "ops/employee-referral-release.sh", "check"], SHOP)
-    for role in ("shop", "portal"):
-        registered = json.loads((STATE.parent / "participants" / role / "worker.json").read_text())
-        expected = consumers["shop-worker" if role == "shop" else "team-worker"]
-        require(
-            registered["pid"] == expected["pid"]
-            and int(registered["ticks"]) == expected["start_ticks"]
-            and registered["boot"] == Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
-            "worker registration mismatch",
-        )
+    return health
+
+
+def snapshot(receipt: dict[str, Any], boundary: float) -> dict[str, Any]:
+    before = continuity(receipt)
+    readiness_started = time.time()
+    health = readiness(boundary)
+    readiness_completed = time.time()
+    started = time.time()
+    after = continuity(receipt)
+    require(before == after, "identity/configuration changed during readiness")
     gate = all(
         command(
             [
@@ -211,14 +279,21 @@ def snapshot(receipt: dict[str, Any], boundary: float) -> dict[str, Any]:
     # These three adjacent read-only queries carry no names, tokens, bodies or order rows.
     source = query("biotact_team_db", SOURCE_SQL)
     replica = query("biotact_db", REPLICA_SQL)
-    after = query("biotact_team_db", SOURCE_SQL)
+    source_after = query("biotact_team_db", SOURCE_SQL)
     return {
         "observed_at": started,
         "source": source,
         "replica": replica,
-        "source_after": after,
-        "consumers": consumers,
-        "health": health,
+        "source_after": source_after,
+        "consumers": after["consumers"],
+        "health": {**health, **after["timers"]},
+        "readiness": {
+            "started_at": readiness_started,
+            "completed_at": readiness_completed,
+            "boundary": boundary,
+            "before": before,
+            "after": after,
+        },
         "renewal_healthy": True,
         "gate_effective": gate,
         "controller_absent": not STATE.exists(),

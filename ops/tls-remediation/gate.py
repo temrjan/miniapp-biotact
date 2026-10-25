@@ -61,7 +61,24 @@ def reopening(
     previous: dict[str, Any], current: dict[str, Any], boundary: float, now: float
 ) -> None:
     """Validate tokenless rows from independent Team source and Shop replica queries."""
-    require(now - current["observed_at"] <= 5, "final observations stale")
+    require(0 <= now - current["observed_at"] <= 5, "final observations stale")
+    ready = current["readiness"]
+    require(
+        boundary == ready["boundary"]
+        and ready["started_at"] > previous["readiness"]["completed_at"]
+        and boundary <= ready["started_at"] <= ready["completed_at"] <= current["observed_at"]
+        and 0 <= now - ready["completed_at"] <= 5,
+        "readiness stale or outside operation boundary",
+    )
+    require(ready["before"] == ready["after"], "readiness continuity broken")
+    require(
+        ready["after"]["consumers"] == current["consumers"]
+        and ready["after"]["releases"] == current["releases"]
+        and ready["after"]["controller"] is None
+        and ready["after"]["timers"]
+        and all(ready["after"]["timers"].values()),
+        "readiness not bound to final identities/configuration",
+    )
     require(boundary > 0 and boundary <= current["observed_at"], "invalid post-resume boundary")
     require(current["gate_effective"] is True, "gate not effective")
     require(current["finished"] == ["shop", "portal"], "both sequential finishes required")
