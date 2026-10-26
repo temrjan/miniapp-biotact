@@ -16,8 +16,9 @@ from src.categories.schemas import (
 )
 from src.common.language import CurrentLanguage, Language
 from src.database import get_db
+from src.products.cache import LocalizedCatalogueReadRoute
 
-router = APIRouter()
+router = APIRouter(route_class=LocalizedCatalogueReadRoute)
 
 
 # Type Aliases

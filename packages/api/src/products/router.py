@@ -10,6 +10,7 @@ from src.auth.dependencies import verify_admin_jwt
 from src.common.language import CurrentLanguage, Language
 from src.database import get_db
 from src.products import service
+from src.products.cache import LocalizedCatalogueReadRoute
 from src.products.models import Product
 from src.products.schemas import (
     ProductCreate,
@@ -23,7 +24,7 @@ from src.products.schemas import (
 ProductListUnion = ProductListResponse | ProductLocalizedListResponse
 ProductUnion = ProductResponse | ProductLocalizedResponse
 
-router = APIRouter()
+router = APIRouter(route_class=LocalizedCatalogueReadRoute)
 
 
 # Type Aliases

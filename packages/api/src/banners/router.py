@@ -8,8 +8,9 @@ from src.auth.dependencies import verify_admin_jwt
 from src.banners import schemas
 from src.banners.models import Banner, Settings
 from src.database import get_db
+from src.products.cache import CatalogueReadRoute
 
-router = APIRouter(prefix="/banners", tags=["banners"])
+router = APIRouter(prefix="/banners", tags=["banners"], route_class=CatalogueReadRoute)
 
 
 @router.get("", response_model=schemas.BannerList)
