@@ -15,6 +15,7 @@ from aiogram.types import (
 from bot.core.config import settings
 from bot.core.loader import bot, dp
 from bot.handlers import router
+from bot.handlers.web_login import is_web_update
 from bot.middlewares import DatabaseMiddleware, LoggingMiddleware
 from bot.middlewares.referral_entry import ReferralEntryMiddleware, is_ref_update
 
@@ -81,7 +82,7 @@ async def main() -> None:
     # Global error handler
     @dp.errors()
     async def error_handler(event: ErrorEvent) -> bool:
-        if is_ref_update(event.update):
+        if is_ref_update(event.update) or is_web_update(event.update):
             logger.error("Referral entry update failed")
         else:
             logger.exception(

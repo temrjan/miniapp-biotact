@@ -84,3 +84,32 @@ pytest tests/ -v                  # Тесты
 ```
 
 Бот и Mini App используют общую БД (`biotact_db`, таблица `users`). Авторизация в Mini App через X-Init-Data того же бота.
+
+
+## Website sign-in namespace
+
+`BUYER_TELEGRAM_AUTH_ENABLED=false` keeps website entry disabled. When separately
+authorized, enable it with the same main bot configured by the API and the trusted
+HTTPS `BUYER_TELEGRAM_API_URL` (default
+`https://app.biotact.uz/api/v1/bot/buyer/telegram`). No browser field chooses that
+transport destination. `/start web_<request_id>` presents a website-login prompt;
+only its explicit Confirm/Decline callback submits a decision. Return to the
+originating website browser to finish. Opening Telegram never approves a login.
+
+Telegram Retry-After is reported to the same trusted API through POST
+`/retry-after` with `{telegram_id,retry_after}`. The API retains the longer of the
+current prompt restriction and its receipt time plus that interval. The bot does
+not immediately send a fallback after Telegram throttling or rate-limited
+presentation, and does not automatically resend. In-flight prompt ownership is
+retained through cancellation until delivery and its bounded throttle report finish.
+
+The web namespace preserves existing registration/referral/QR FSM state, including
+on malformed inputs and transport failures. Authentication state remains in the
+API's SQL storage. The bot does not create customers, schedule CRM sync or enrol
+Club members for these updates. Other start namespaces retain their existing behavior.
+
+The normal bot test suite runs with the bot requirements. The separate
+`telegram-bot-api` CI job installs the API plus explicitly pinned integration
+adapters and runs `tests/test_web_login.py` with `TG1_API_INTEGRATION=1`, PostgreSQL16
+and isolated Redis. This crosses the real dispatcher/API/SQL boundary and stubs
+only Telegram transport; it does not poll Telegram or send a real message.

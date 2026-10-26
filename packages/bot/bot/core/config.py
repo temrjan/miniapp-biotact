@@ -1,6 +1,8 @@
 """Application settings from environment variables."""
 
-from pydantic import SecretStr
+from urllib.parse import urlsplit
+
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +32,8 @@ class Settings(BaseSettings):
     # Flipped to true together with the API flag at go-live (Stage 4, PR-4.5).
     loyalty_enabled: bool = False
     employee_referral_entry_enabled: bool = False
+    buyer_telegram_auth_enabled: bool = False
+    buyer_telegram_api_url: str = "https://app.biotact.uz/api/v1/bot/buyer/telegram"
 
     # Debug
     debug: bool = False
@@ -48,6 +52,23 @@ class Settings(BaseSettings):
     # Notifications
     notification_bot_token: str = ""
     sales_group_chat_id: int = 0
+
+    @model_validator(mode="after")
+    def validate_web_login(self) -> "Settings":
+        if self.buyer_telegram_auth_enabled:
+            origin = urlsplit(self.buyer_telegram_api_url)
+            if (
+                origin.scheme != "https"
+                or not origin.hostname
+                or origin.username
+                or origin.password
+                or origin.query
+                or origin.fragment
+                or origin.path != "/api/v1/bot/buyer/telegram"
+                or not self.bot_token.get_secret_value()
+            ):
+                raise ValueError("Invalid trusted website-login bridge")
+        return self
 
     @property
     def is_production(self) -> bool:

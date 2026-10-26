@@ -13,12 +13,13 @@ from tests import test_category_schema_migration as migration
 
 scratch = migration.scratch
 PREVIOUS = "b7e31c904a62"
-CURRENT = "c4f2a91e8d63"
+CURRENT = "d8a14f90bc21"
 BUYER_TABLES = {
     "buyer_email_identities",
     "buyer_email_challenges",
     "buyer_sessions",
     "buyer_auth_limits",
+    "buyer_telegram_requests",
 }
 
 
@@ -146,7 +147,7 @@ def test_populated_downgrade_refuses_before_any_change(scratch, state):
                 "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'buyer_%'"
             )
         )
-        == 4
+        == 5
     )
 
 

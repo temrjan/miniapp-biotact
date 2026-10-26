@@ -20,7 +20,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import Chat, Message, Update, User
 
 from bot.core.config import settings
-from bot.handlers import auth, common, employee_referrals, loyalty
+from bot.handlers import auth, common, employee_referrals, loyalty, web_login
 from bot.middlewares.logging import LoggingMiddleware
 from bot.middlewares.referral_entry import ReferralEntryMiddleware
 from bot.referral_entry import INTENT_KEY, intent_keyboard, parse_intent
@@ -34,6 +34,7 @@ class StubSession(BaseSession):
     def __init__(self):
         super().__init__()
         self.calls = []
+        self.timeouts = []
         self.fail = False
 
     async def close(self):
@@ -45,6 +46,7 @@ class StubSession(BaseSession):
 
     async def make_request(self, bot, method, timeout=None):  # noqa: ASYNC109 -- aiogram interface
         self.calls.append(method)
+        self.timeouts.append(timeout)
         if self.fail:
             logging.getLogger("bot-transport-probe").error("PRIVATE " + A + str(method))
             raise RuntimeError("PRIVATE " + A + str(method))
@@ -76,7 +78,7 @@ async def h(monkeypatch):
     verify = AsyncMock(return_value=(True, "verified"))
     monkeypatch.setattr(auth, "verify_auth_code", verify)
     # Recreate the Router graph per dispatcher; handlers are the real source functions.
-    for module in (common, employee_referrals, loyalty, auth):
+    for module in (common, employee_referrals, loyalty, auth, web_login):
         importlib.reload(module)
     monkeypatch.setattr(common, "UserService", lambda _: service)
     monkeypatch.setattr(loyalty, "UserService", lambda _: service)
@@ -95,7 +97,7 @@ async def h(monkeypatch):
     dp = Dispatcher(storage=storage, events_isolation=SimpleEventIsolation())
     dp.update.outer_middleware(ReferralEntryMiddleware())
     dp.update.outer_middleware(LoggingMiddleware())
-    dp.include_routers(employee_referrals.router, loyalty.router, auth.router, common.router)
+    dp.include_routers(web_login.router, employee_referrals.router, loyalty.router, auth.router, common.router)
     state = FSMContext(storage, StorageKey(bot_id=bot.id, chat_id=10, user_id=10))
 
     async def feed(text=None, callback=None, contact=None, chat_type="private"):

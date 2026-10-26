@@ -14,13 +14,15 @@ if TYPE_CHECKING:
     from sentry_sdk._types import Event, Hint
 
 _private: ContextVar[bool] = ContextVar("private_admin_auth", default=False)
-_prefixes: set[str] = {"/api/v1/admin/auth", "/api/v1/buyer/auth"}
+_prefixes: set[str] = {"/api/v1/admin/auth", "/api/v1/buyer/auth", "/api/v1/bot/buyer/telegram"}
 _installed = False
 _buyer_cookies = ("__Host-biotact_buyer", "__Host-biotact_auth")
 _buyer_credential_markers = (
     *(cookie.lower() for cookie in _buyer_cookies),
     "x-csrf-token",
     "csrf_token",
+    "x-bot-token",
+    "api.telegram.org/bot",
 )
 
 
@@ -49,7 +51,9 @@ def install() -> None:
     def factory(*args: object, **kwargs: object) -> logging.LogRecord:
         record = previous(*args, **kwargs)
         message = unquote(record.getMessage())
-        if _private.get() or any(marker in message for marker in (*_prefixes, *_buyer_cookies)):
+        if _private.get() or any(
+            marker in message for marker in (*_prefixes, *_buyer_cookies, "api.telegram.org/bot")
+        ):
             if record.name == "uvicorn.access":
                 status = (
                     record.args[-1]
@@ -109,12 +113,18 @@ def filter_auth_telemetry(event: "Event", hint: "Hint") -> "Event | None":
         breadcrumbs["values"] = [
             item
             for item in breadcrumbs["values"]
-            if not any(prefix in unquote(str(item)) for prefix in _prefixes)
+            if not any(
+                prefix in unquote(str(item)) for prefix in (*_prefixes, "api.telegram.org/bot")
+            )
         ]
     spans = event.get("spans")
     if isinstance(spans, list):
         event["spans"] = [
-            item for item in spans if not any(prefix in unquote(str(item)) for prefix in _prefixes)
+            item
+            for item in spans
+            if not any(
+                prefix in unquote(str(item)) for prefix in (*_prefixes, "api.telegram.org/bot")
+            )
         ]
     result = filter_referral_telemetry(event, hint)
     return cast("Event | None", _strip_buyer_credentials(result))
@@ -187,7 +197,7 @@ class AuthPrivacyMiddleware:
         except Exception:
             if started:
                 raise
-            if "/buyer/auth" in self.prefix:
+            if "/buyer/auth" in self.prefix or "/bot/buyer/telegram" in self.prefix:
                 response = JSONResponse(
                     {"error": "authentication_unavailable"},
                     status_code=503,

@@ -131,3 +131,46 @@ pytest tests/ -v                  # Тесты
 | `MULTICARD_STORE_ID` | Multicard магазин |
 | `CORS_ORIGINS` | Разрешённые домены |
 | `SENTRY_DSN` | Sentry (опционально) |
+
+
+## Browser Telegram sign-in (disabled by default)
+
+The existing buyer session issuer owns browser authentication. Telegram entry uses
+`BUYER_SESSIONS_ENABLED=true` and `BUYER_TELEGRAM_AUTH_ENABLED=true`, a separate
+`BUYER_PROTECTION_KEY`, the exact HTTPS `BUYER_PUBLIC_ORIGIN`, trusted ingress peers,
+`BUYER_TELEGRAM_BOT_USERNAME` and the main `TELEGRAM_BOT_TOKEN`. Email entry remains
+independently gated by `BUYER_EMAIL_AUTH_ENABLED`; Telegram entry needs no SMTP.
+The matching bot entry switch and its trusted HTTPS API URL must be configured
+before any separately authorized activation. Startup validation makes no Telegram call.
+
+Successful POST `/api/v1/buyer/auth/context` retains its CSRF/expiry fields and
+adds boolean `telegram_enabled`; clients show Telegram only when it is true.
+
+Browser routes under `/api/v1/buyer/auth/telegram` are POST `requests` (request_key),
+`status`, `cancel` and `complete` (request_id). Each needs the initiating context and
+its CSRF token. Only completion issues the existing protected buyer cookie. The
+main-bot bridge exposes POST `/api/v1/bot/buyer/telegram/present` and `/decision`,
+authenticated by `X-Bot-Token`. Bridge actor IDs never come from browser input.
+The same protected bridge accepts POST `/retry-after` with strict
+`{telegram_id,retry_after}` (positive integer seconds), returning `{}`. This reports
+a bot-observed Telegram throttle and only extends the actor's existing shared SQL
+prompt cooldown. It creates no request, customer, decision or session. Direct
+API sends use the same cooldown; stronger restrictions remain effective. No
+automatic resend is scheduled.
+GET `/api/v1/buyer/auth/club` returns only the current buyer's existing Club summary;
+it does not enrol a member or authorize business/admin writes.
+
+A completed context cannot initiate another account. Explicit logout revokes its
+completed session even if the successful cookie response was lost. After cookie
+clearing, obtain a fresh context before another login. A delayed old cookie may
+interrupt the newer browser session but cannot authorize the revoked account.
+
+Migration `d8a14f90bc21` is additive on PostgreSQL 16. Populated downgrade is refused;
+retain the new head and repair forward. After disabling/quiescing Telegram entry,
+run `python -m src.buyer_auth.cleanup --cancel-telegram` repeatedly until it returns
+zero before re-enabling. A flag change alone does not cancel pending approvals.
+The default `python -m src.buyer_auth.cleanup` removes at most 500 eligible retained
+proofs, sessions and expired limits per invocation; schedule that existing CLI in
+an authorized operational environment. It retains completed context barriers and
+active session/customer state. Keep entry disabled until paired source/schema,
+CI, HTTPS cookies and designated-account delivery have been verified for activation.
