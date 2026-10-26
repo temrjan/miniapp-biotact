@@ -52,6 +52,38 @@ try:
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(ROOT / "alembic"))
     command.upgrade(cfg, "head")
+    if os.environ.get("W1_CATALOGUE_SEED") == "1":
+        # Only this fixture's newly migrated disposable database receives these rows.
+        with (
+            psycopg2.connect(admin_url.rsplit("/", 1)[0] + "/" + name) as seeded,
+            seeded.cursor() as cursor,
+        ):
+            cursor.execute("""
+                    INSERT INTO categories
+                        (id,name,name_uz,slug,description,is_active,is_purchasable,sort_order)
+                    VALUES
+                        (301,'W1 Нутриенты','W1 Nutriyentlar','product','W1 API category',true,true,1),
+                        (302,'W1 Наборы',NULL,'vitaminy-set',NULL,true,true,2),
+                        (303,'W1 Техника',NULL,'tehnika',NULL,true,true,3),
+                        (304,'W1 Для жизни',NULL,'active-life',NULL,true,false,4),
+                        (309,'W1 Дополнительная',NULL,'w1-extra',NULL,true,true,5),
+                        (310,'W1 Inactive',NULL,'w1-inactive',NULL,false,true,6);
+                    INSERT INTO products
+                        (id,name,name_uz,slug,price,is_sale,sale_price,currency,
+                         stock_quantity,is_in_stock,category_id,sort_order,is_active,
+                         is_featured,description,description_uz,images,advantages)
+                    VALUES
+                        (4101,'W1 Synthetic sale','W1 UZ sale','w1-sale',112233.44,true,
+                         98765.43,'UZS',7,true,301,1,true,false,
+                         'W1 Russian fallback description',NULL,'[]','["W1 advantage"]'),
+                        (4102,'W1 Synthetic ordinary',NULL,'w1-ordinary',50000.25,false,
+                         NULL,'UZS',0,false,304,2,true,false,NULL,NULL,'[]','[]'),
+                        (4103,'W1 Synthetic uncategorized',NULL,'w1-uncategorized',70000.50,false,
+                         NULL,'UZS',3,true,NULL,3,true,false,NULL,NULL,'[]','[]'),
+                        (4104,'W1 Synthetic hidden category',NULL,'w1-hidden-category',80000.75,false,
+                         NULL,'UZS',2,true,310,4,true,false,NULL,NULL,'[]','[]');
+                """)
+        print("W1 seeded disposable database " + name, flush=True)
     from src import main
     from src.config import Settings
 
