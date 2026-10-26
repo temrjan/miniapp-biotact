@@ -19,3 +19,8 @@ paths = [
   # `API_KEY = "sk_live_..."  # НИКОГДА!` teaching example flagged by generic-api-key.
   '''devops-agent/''',
 ]
+# Exact synthetic literal from the bot/API integration fixture
+# (packages/bot/tests/test_web_login.py); a test value, not a credential.
+regexes = [
+  '''^synthetic-buyer-key-at-least-32-bytes$''',
+]
