@@ -405,15 +405,19 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     about to refuse. Deliberately does NOT reclaim expired reservations — a GET must not mutate —
     it merely stops counting them, which is what the customer's next attempt will make true.
     """
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if user is None:
+        return _non_member_summary(balance=0)
+    return await get_loyalty_summary_by_user_id(session, user.id)
+
+
+async def get_loyalty_summary_by_user_id(session: AsyncSession, user_id: int) -> LoyaltySummary:
+    """Read the shared calculation by canonical customer ID, without enrolment."""
     # Local import: orders.service imports this module at module scope, so importing it back at the
     # top would be a cycle. The timeout is owned by the orders domain (it defines the reservation
     # lifecycle); re-declaring a second copy here is what would actually be dangerous, because it
     # could drift away from the value expire_stale_partials enforces.
     from src.orders.service import REDEEM_RESERVE_TIMEOUT
-
-    user = await get_user_by_telegram_id(session, telegram_id)
-    if user is None:
-        return _non_member_summary(balance=0)
 
     profile = (
         await session.execute(
@@ -424,10 +428,10 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
                 CustomerProfile.age,
                 CustomerProfile.city,
                 CustomerProfile.is_adult,
-            ).where(CustomerProfile.user_id == user.id)
+            ).where(CustomerProfile.user_id == user_id)
         )
     ).one_or_none()
-    balance = await get_balance(session, user.id)
+    balance = await get_balance(session, user_id)
     if profile is None:
         return _non_member_summary(balance)
 
@@ -436,7 +440,7 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     remaining = 0 if tier == LoyaltyStatus.BIOTACT_FRIEND else max(0, FRIEND_THRESHOLD - lifetime)
 
     live_since = datetime.now(UTC) - REDEEM_RESERVE_TIMEOUT
-    reserved, earliest = await _live_reserve(session, user_id=user.id, created_after=live_since)
+    reserved, earliest = await _live_reserve(session, user_id=user_id, created_after=live_since)
     # Clamped, never a bare subtraction: a negative would be a data anomaly, and this response is
     # the whole profile card — letting one leak into a constrained field would 500 the card itself
     # instead of degrading one number (the failure mode LoyaltySummaryResponse already warns about).
@@ -445,10 +449,10 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
 
     consents = ConsentsState(
         data_processing=await _is_consent_active(
-            session, user_id=user.id, purpose=ConsentPurpose.DATA_PROCESSING
+            session, user_id=user_id, purpose=ConsentPurpose.DATA_PROCESSING
         ),
         marketing=await _is_consent_active(
-            session, user_id=user.id, purpose=ConsentPurpose.MARKETING
+            session, user_id=user_id, purpose=ConsentPurpose.MARKETING
         ),
     )
 
