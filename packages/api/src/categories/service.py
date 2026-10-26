@@ -92,7 +92,9 @@ async def get_categories_paginated(
     # Get items
     offset = (page - 1) * size
     result = await db.execute(
-        query.order_by(Category.sort_order, Category.name).offset(offset).limit(size)
+        query.order_by(Category.sort_order, Category.name, Category.id.asc())
+        .offset(offset)
+        .limit(size)
     )
     items = list(result.scalars().all())
 

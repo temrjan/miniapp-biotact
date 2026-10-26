@@ -219,15 +219,15 @@ async def get_products_paginated(
     elif sort_by == "id_asc":
         query = query.order_by(Product.id.asc())
     elif sort_by == "name_asc":
-        query = query.order_by(Product.name.asc())
+        query = query.order_by(Product.name.asc(), Product.id.asc())
     elif sort_by == "name_desc":
-        query = query.order_by(Product.name.desc())
+        query = query.order_by(Product.name.desc(), Product.id.asc())
     elif sort_by == "price_asc":
-        query = query.order_by(Product.price.asc())
+        query = query.order_by(Product.price.asc(), Product.id.asc())
     elif sort_by == "price_desc":
-        query = query.order_by(Product.price.desc())
+        query = query.order_by(Product.price.desc(), Product.id.asc())
     else:
-        query = query.order_by(Product.sort_order, Product.name)
+        query = query.order_by(Product.sort_order, Product.name, Product.id.asc())
 
     result = await db.execute(query.offset(offset).limit(size))
     items = list(result.unique().scalars().all())

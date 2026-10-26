@@ -1,9 +1,9 @@
-import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
-import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
+import { isSizedPurchaseBlocked, mapSizeStock } from '@/utils/size';
+import { effectivePrice, originalPrice, mapProductPrice } from '@/utils/price';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ShoppingCart, ChevronDown } from 'lucide-react';
-import { api } from '@/api/client';
+import { loadCategories, loadProducts, type CatalogueCategory as ApiCategory, type CatalogueProduct as ApiProduct } from '@/api/catalogue';
 import { Card } from '@/components/ui/Card';
 import { Loading } from '@/components/ui/Loading';
 import { useCartStore } from '@/stores/cartStore';
@@ -12,26 +12,7 @@ import { useTranslation } from '@/i18n';
 import { useLanguage } from '@/stores/languageStore';
 import type { Product, Category } from '@/types';
 
-interface ApiCategory {
-  id: number;
-  name: string;
-  name_uz: string | null;
-  slug: string;
-  image_url: string | null;
-}
 
-interface ApiProduct extends ApiProductPrice, ApiSizeStock {
-  id: number;
-  name: string;
-  name_uz: string | null;
-  slug: string;
-  description: string | null;
-  image_url: string | null;
-  category_id: number;
-  stock_quantity: number | null;
-  is_in_stock: boolean;
-  is_purchasable: boolean;
-}
 
 function mapCategory(api: ApiCategory): Category {
   return {
@@ -50,7 +31,7 @@ function mapProduct(api: ApiProduct): Product {
     description: api.description || '',
     ...mapProductPrice(api),
     imageUrl: api.image_url || '',
-    categoryId: String(api.category_id),
+    categoryId: api.category_id == null ? '' : String(api.category_id),
     inStock: api.requires_size ? api.is_in_stock : (api.stock_quantity ?? 0) > 0,
     isPurchasable: api.is_purchasable,
     ...mapSizeStock(api),
@@ -171,22 +152,25 @@ export function CatalogPage({ onSale = false }: { onSale?: boolean }) {
   const addToCart = useCartStore((state) => state.addItem);
 
   useEffect(() => {
+    let active = true;
     async function fetchData() {
       setLoading(true);
       try {
         const [catsRes, prodsRes] = await Promise.all([
-          api.get<{ items: ApiCategory[] }>('/categories'),
-          api.get<{ items: ApiProduct[] }>(`/products?size=100${onSale ? '&on_sale=true' : ''}`),
+          loadCategories(language),
+          loadProducts(language, onSale ? { on_sale: 'true' } : {}),
         ]);
-        setCategories((catsRes.items || []).map(mapCategory));
-        setProducts((prodsRes.items || []).map(mapProduct));
+        if (!active) return;
+        setCategories(catsRes.map(mapCategory));
+        setProducts(prodsRes.map(mapProduct));
       } catch (err) {
         console.error('Failed to fetch data:', err);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
     fetchData();
+    return () => { active = false; };
   }, [language, onSale]);
 
   // Reset visible count when category changes

@@ -1,10 +1,10 @@
-import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
+import { isSizedPurchaseBlocked, mapSizeStock } from '@/utils/size';
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { ShoppingCart, Percent, Truck, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Loading } from '@components/ui/Loading';
-import { api } from '@/api/client';
+import { loadCategories, loadProducts, type CatalogueProduct as ApiProduct } from '@/api/catalogue';
 import { useCartStore } from '@/stores/cartStore';
 import { useTranslation } from '@/i18n';
 import { useLanguage } from '@/stores/languageStore';
@@ -14,25 +14,7 @@ import type { Product } from '@/types';
 // Types
 // ═══════════════════════════════════════════════════════════════════
 
-interface ApiProduct extends ApiSizeStock {
-  id: number;
-  name: string;
-  price: number;
-  old_price: number | null;
-  image_url: string | null;
-  description: string | null;
-  category_id: number;
-  stock_quantity: number | null;
-  is_in_stock: boolean;
-  is_purchasable: boolean;
-}
 
-interface ApiCategory {
-  id: number;
-  name: string;
-  slug: string;
-  image_url: string | null;
-}
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
@@ -43,10 +25,10 @@ function mapApiProductToProduct(p: ApiProduct): Product {
     id: String(p.id),
     name: p.name,
     description: p.description || '',
-    price: p.price,
-    oldPrice: p.old_price || undefined,
+    price: Number(p.price),
+    oldPrice: p.old_price == null ? undefined : Number(p.old_price),
     imageUrl: p.image_url || '',
-    categoryId: String(p.category_id),
+    categoryId: p.category_id == null ? '' : String(p.category_id),
     inStock: p.is_in_stock,
     isPurchasable: p.is_purchasable,
     ...mapSizeStock(p),
@@ -247,27 +229,25 @@ export function RamadanPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
     async function fetchRamadanProducts() {
+      setLoading(true);
       try {
-        const catsRes = await api.get<{ items: ApiCategory[] }>('/categories');
-        const ramadanCat = (catsRes.items || []).find(
-          (c) => c.slug === 'ramadan-set'
-        );
-
-        if (ramadanCat) {
-          const prodsRes = await api.get<{ items: ApiProduct[] }>(
-            `/products?category_id=${ramadanCat.id}&size=50`
-          );
-          setProducts((prodsRes.items || []).map(mapApiProductToProduct));
-        }
+        const catsRes = await loadCategories(language);
+        const ramadanCat = catsRes.find(c => c.slug === 'ramadan-set');
+        const prodsRes = ramadanCat
+          ? await loadProducts(language, { category_id: String(ramadanCat.id) }, 50)
+          : [];
+        if (active) setProducts(prodsRes.map(mapApiProductToProduct));
       } catch (error) {
         console.error('Failed to fetch ramadan products:', error);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
     fetchRamadanProducts();
+    return () => { active = false; };
   }, [language]);
 
   const formatPrice = useCallback(

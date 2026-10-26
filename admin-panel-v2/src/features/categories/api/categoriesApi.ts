@@ -1,4 +1,5 @@
 import { apiClient } from '@/shared/api/client';
+import { categoryPage, isRecord } from '@/shared/api/catalogue';
 import type {
   Category,
   CategoryCreateData,
@@ -7,6 +8,24 @@ import type {
 } from '../types/category.types';
 
 export const categoriesApi = {
+  getChoices: async (): Promise<Pick<Category, 'id' | 'name' | 'name_uz'>[]> => {
+    const items: Pick<Category, 'id' | 'name' | 'name_uz'>[] = [];
+    let total: number | undefined;
+    for (let page = 1; ; page++) {
+      const response = await apiClient.get<unknown>('/categories', {
+        params: { page, size: 100, active_only: false },
+      });
+      const data = categoryPage(response.data, page, 100, total);
+      total = data.total;
+      for (const item of data.items) {
+        if (!isRecord(item) || typeof item.id !== 'number' || !Number.isSafeInteger(item.id) || item.id < 1 ||
+            typeof item.name !== 'string' || (item.name_uz != null && typeof item.name_uz !== 'string'))
+          throw new Error('Invalid category choice');
+        items.push({ id: item.id, name: item.name, ...(item.name_uz == null ? {} : { name_uz: item.name_uz }) });
+      }
+      if (page >= data.pages) return items;
+    }
+  },
   // Get paginated list
   getAll: async (params?: {
     page?: number;

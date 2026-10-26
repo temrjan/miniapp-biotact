@@ -1,11 +1,12 @@
-import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
-import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
+import { isSizedPurchaseBlocked, mapSizeStock } from '@/utils/size';
+import { effectivePrice, originalPrice, mapProductPrice } from '@/utils/price';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronDown, ShoppingCart } from 'lucide-react';
 import { ROUTES } from '@/utils/constants';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loading } from '@components/ui/Loading';
+import { loadCategories, loadProducts, loadActiveBanners, type CatalogueCategory as ApiCategory, type CatalogueProduct as ApiProduct, type CatalogueBanner as ApiBanner } from '@/api/catalogue';
 import { api } from '@/api/client';
 import { useCartStore } from '@/stores/cartStore';
 import { useTranslation } from '@/i18n';
@@ -16,36 +17,8 @@ import type { Product } from '@/types';
 // Types
 // ═══════════════════════════════════════════════════════════════════
 
-interface ApiCategory {
-  id: number;
-  name: string;
-  slug: string;
-  image_url: string | null;
-}
 
-interface ApiProduct extends ApiProductPrice, ApiSizeStock {
-  id: number;
-  name: string;
-  image_url: string | null;
-  description: string | null;
-  category_id: number;
-  stock_quantity: number | null;
-  is_in_stock: boolean;
-  is_purchasable: boolean;
-}
 
-interface ApiBanner {
-  id: number;
-  title: string;
-  title_uz: string | null;
-  subtitle: string | null;
-  subtitle_uz: string | null;
-  image_url: string | null;
-  gradient: string | null;
-  link_url: string | null;
-  sort_order: number;
-  is_active: boolean;
-}
 
 interface ProductCardProps {
   product: Product;
@@ -87,7 +60,7 @@ function mapApiProductToProduct(api: ApiProduct): Product {
     description: api.description || '',
     ...mapProductPrice(api),
     imageUrl: api.image_url || '',
-    categoryId: String(api.category_id),
+    categoryId: api.category_id == null ? '' : String(api.category_id),
     inStock: api.is_in_stock,
     isPurchasable: api.is_purchasable,
     ...mapSizeStock(api),
@@ -361,34 +334,27 @@ export function HomePage() {
 
   // Fetch data
   useEffect(() => {
+    let active = true;
     async function fetchData() {
+      setLoading(true);
       try {
         const [catsRes, prodsRes, bannersRes, salesRes] = await Promise.all([
-          api.get<{ items: ApiCategory[] }>('/categories'),
-          api.get<{ items: ApiProduct[] }>('/products?size=100'),
-          api.get<{ items: ApiBanner[] }>('/banners').catch(() => ({ items: [] as ApiBanner[] })),
-          api.get<{ items: ApiProduct[] }>('/products?size=100&on_sale=true')
-            .catch(() => ({ items: [] as ApiProduct[] })),
+          loadCategories(language),
+          loadProducts(language),
+          loadActiveBanners(language).catch(() => []),
+          loadProducts(language, { on_sale: 'true' }).catch(() => []),
         ]);
-
-        setCategories(catsRes.items || []);
-        setProducts((prodsRes.items || []).map(mapApiProductToProduct));
-        setSaleProducts(salesRes.items.map(mapApiProductToProduct));
-
-        const activeBanners = (bannersRes.items || []).filter(
-          (b: ApiBanner) => b.is_active
-        );
-        if (activeBanners.length > 0) {
-          setBanners(
-            activeBanners.sort(
-              (a: ApiBanner, b: ApiBanner) => a.sort_order - b.sort_order
-            )
-          );
-        }
+        if (!active) return;
+        setCategories(catsRes);
+        setProducts(prodsRes.map(mapApiProductToProduct));
+        setSaleProducts(salesRes.map(mapApiProductToProduct));
+        setBanners(bannersRes);
+        setCurrentBanner(0);
+        setLoadedImages(new Set());
 
         try {
           const intervalRes = await api.get<{ value: string }>('/settings/banner_interval');
-          if (intervalRes.value) {
+          if (active && intervalRes.value) {
             setBannerInterval(Number(intervalRes.value) || DEFAULT_INTERVAL_MS);
           }
         } catch {
@@ -397,11 +363,12 @@ export function HomePage() {
       } catch (error: unknown) {
         console.error('Failed to fetch data:', error);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
     fetchData();
+    return () => { active = false; };
   }, [language]);
 
   // Computed: display banners (no default fallback - show skeleton instead)
@@ -453,9 +420,10 @@ export function HomePage() {
 
   const handleViewAllCategory = useCallback(
     (categoryId: string) => {
-      navigate("/catalog?category=" + categoryId);
+      const category = categories.find(c => String(c.id) === categoryId);
+      if (category) navigate('/catalog/' + category.slug);
     },
-    [navigate]
+    [navigate, categories]
   );
 
   const handleBannerDotClick = useCallback((index: number) => {

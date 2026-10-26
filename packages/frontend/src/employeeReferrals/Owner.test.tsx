@@ -22,10 +22,11 @@ function json(body: unknown, status = 200) {
     headers: { 'Content-Type': 'application/json' },
   });
 }
-function product(id: number) {
+function product(id: number, categoryId = id) {
   return {
     id,
     name: `Product ${id}`,
+    slug: `product-${id}`,
     name_uz: null,
     description: '',
     price: 10000,
@@ -33,9 +34,10 @@ function product(id: number) {
     is_sale: false,
     sale_price: null,
     image_url: '/product.png',
-    category_id: id,
+    category_id: categoryId,
     stock_quantity: 5,
     is_purchasable: true,
+    is_in_stock: true,
   };
 }
 afterEach(async () => {
@@ -43,6 +45,39 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
+it('shows the old-category related candidate while its product route is current', async () => {
+  window.history.replaceState({}, '', '/product/40');
+  const related = deferred();
+  const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+    (input) => {
+      if (String(input).endsWith('/products/40')) return Promise.resolve(json(product(40)));
+      return related.promise;
+    }
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  render(
+    <StrictMode>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/product/:productId" element={<ProductPage />} />
+        </Routes>
+      </BrowserRouter>
+    </StrictMode>
+  );
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('category_id=40'))).toBe(true)
+  );
+  await act(async () =>
+    related.finish(
+      json({ items: [product(40), product(41, 40)], total: 2, page: 1, size: 10, pages: 1 })
+    )
+  );
+  expect(await screen.findByRole('heading', { name: 'Product 40' })).toBeVisible();
+  expect(screen.getByText('Product 41')).toBeVisible();
+  expect(screen.getAllByText('Product 40')).toHaveLength(1);
+  expect(window.location.pathname).toBe('/product/40');
+});
+
 it.each(['product', 'error', 'related'])(
   'authority redirect ignores late hint %s, cart stays authoritative',
   async (late) => {
@@ -60,8 +95,8 @@ it.each(['product', 'error', 'related'])(
         if (url.endsWith('/products/40'))
           return late === 'related' ? Promise.resolve(json(product(40))) : hint.promise;
         if (url.endsWith('/products/39')) return Promise.resolve(json(product(39)));
-        if (url.includes('categoryId=40')) return related.promise;
-        return Promise.resolve(json({ items: [] }));
+        if (url.includes('category_id=40')) return related.promise;
+        return Promise.resolve(json({ items: [], total: 0, page: 1, size: 10, pages: 1 }));
       }
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -80,7 +115,7 @@ it.each(['product', 'error', 'related'])(
     );
     if (late === 'related')
       await waitFor(() =>
-        expect(fetchMock.mock.calls.some(([url]) => String(url).includes('categoryId=40'))).toBe(
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes('category_id=40'))).toBe(
           true
         )
       );
@@ -97,7 +132,7 @@ it.each(['product', 'error', 'related'])(
     await screen.findByRole('heading', { name: 'Product 39' });
     expect(window.location.pathname).toBe('/product/39');
     await act(async () => {
-      if (late === 'related') related.finish(json({ items: [product(41)] }));
+      if (late === 'related') related.finish(json({ items: [product(41, 40)], total: 1, page: 1, size: 10, pages: 1 }));
       else hint.finish(late === 'error' ? json({}, 503) : json(product(40)));
     });
     expect(screen.getByRole('heading', { name: 'Product 39' })).toBeVisible();

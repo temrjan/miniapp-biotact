@@ -43,13 +43,15 @@ beforeEach(() => {
   vi.mocked(api.get)
     .mockReset()
     .mockImplementation(async (url) => {
+      const query = new URL(url, 'http://test').searchParams;
+      const envelope = (items: unknown[]) => ({ items, total: items.length, page: 1, size: Number(query.get('size') || 20), pages: 1 });
       if (url === '/products/1') return current;
       if (url.includes('on_sale=true'))
-        return { items: current.is_sale ? [current] : [], total: current.is_sale ? 1 : 0 };
+        return envelope(current.is_sale ? [current] : []);
       if (url.startsWith('/products'))
-        return { items: [current], total: 1, page: 1, size: 100, pages: 1 };
-      if (url === '/categories') return { items: [{ id: 1, name: 'Products', slug: 'product' }] };
-      if (url === '/banners') return { items: [] };
+        return envelope([current]);
+      if (url.startsWith('/categories')) return envelope([{ id: 1, name: 'Products', slug: 'product' }]);
+      if (url.startsWith('/banners')) return { items: [], total: 0 };
       if (url === '/settings/banner_interval') return { value: '3000' };
       throw new Error(`Unexpected GET ${url}`);
     });
@@ -112,8 +114,8 @@ describe('sales navigation', () => {
     const network = vi.mocked(api.get).getMockImplementation();
     if (!network) throw new Error('Missing network fixture');
     vi.mocked(api.get).mockImplementation(async (url) => {
-      if (url === '/products?size=100')
-        return { items: [{ ...apiProduct(false), id: 2, name: 'Ordinary product' }] };
+      if (url.startsWith('/products?') && !url.includes('on_sale=true'))
+        return { items: [{ ...apiProduct(false), id: 2, name: 'Ordinary product' }], total: 1, page: 1, size: 100, pages: 1 };
       return network(url);
     });
     render(
@@ -157,7 +159,7 @@ it('should use sale pricing for similar products when displaying a product', asy
   if (!network) throw new Error('Missing network fixture');
   vi.mocked(api.get).mockImplementation(async (url) => {
     if (url.startsWith('/products?'))
-      return { items: [{ ...current, id: 2, name: 'Similar sale', sale_price: 7500 }] };
+      return { items: [{ ...current, id: 2, name: 'Similar sale', sale_price: 7500 }], total: 1, page: 1, size: 10, pages: 1 };
     return network(url);
   });
   mount(<ProductPage />);

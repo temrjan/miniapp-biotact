@@ -1,4 +1,5 @@
 import { apiClient } from '@/shared/api/client'
+import { collection, isRecord } from '@/shared/api/catalogue'
 import { ENDPOINTS } from '@/shared/api/endpoints'
 import type {
   Banner,
@@ -8,13 +9,30 @@ import type {
 } from '../types/banner.types'
 import type { Setting } from '@/shared/types'
 
+function isBanner(value: unknown): value is Banner {
+  return isRecord(value) && typeof value.id === 'number' && Number.isSafeInteger(value.id) && value.id > 0 &&
+    typeof value.title === 'string' && typeof value.is_active === 'boolean' &&
+    typeof value.sort_order === 'number' && Number.isSafeInteger(value.sort_order) &&
+    typeof value.created_at === 'string' && typeof value.updated_at === 'string' &&
+    ['title_uz', 'subtitle', 'subtitle_uz', 'image_url', 'gradient', 'link_url'].every(key =>
+      value[key] == null || typeof value[key] === 'string')
+}
+
 export const bannersApi = {
   // Get all banners
   getAll: async (): Promise<BannerListResponse> => {
-    const response = await apiClient.get<BannerListResponse>(
-      `${ENDPOINTS.BANNERS.LIST}?active_only=false`
-    )
-    return response.data
+    const items: Banner[] = []
+    let total: number | undefined
+    for (let skip = 0; ; skip += 100) {
+      const response = await apiClient.get<unknown>(ENDPOINTS.BANNERS.LIST, { params: { skip, limit: 100 } })
+      const data = collection(response.data, skip, 100, total)
+      total = data.total
+      for (const item of data.items) {
+        if (!isBanner(item)) throw new Error('Invalid banner')
+        items.push(item)
+      }
+      if (items.length >= total) return { items, total }
+    }
   },
 
   // Get by ID

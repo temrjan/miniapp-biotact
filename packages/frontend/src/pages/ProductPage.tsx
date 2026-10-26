@@ -1,5 +1,5 @@
-import { isSizedPurchaseBlocked, mapSizeStock, type ApiSizeStock } from '@/utils/size';
-import { effectivePrice, originalPrice, mapProductPrice, type ApiProductPrice } from '@/utils/price';
+import { isSizedPurchaseBlocked, mapSizeStock } from '@/utils/size';
+import { effectivePrice, originalPrice, mapProductPrice } from '@/utils/price';
 import { useState, useEffect, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,6 +11,7 @@ import { useBackButton } from '@/hooks/useBackButton';
 import { useTranslation } from '@/i18n';
 import { useLanguage } from '@/stores/languageStore';
 import { productsApi } from '@/api';
+import type { CatalogueProduct as ApiProduct } from '@/api/catalogue';
 import type { Product } from '@/types';
 import { SizeSelector } from '@/components/features/SizeSelector';
 
@@ -25,27 +26,6 @@ function parseBold(text: string): ReactNode[] {
   });
 }
 
-interface ApiProduct extends ApiProductPrice, ApiSizeStock {
-  id: number;
-  name: string;
-  name_uz: string | null;
-  slug: string;
-  description: string | null;
-  description_uz: string | null;
-  image_url: string | null;
-  images: string[] | null;
-  category_id: number;
-  stock_quantity: number | null;
-  is_in_stock: boolean;
-  is_purchasable: boolean;
-  additional_info_title: string | null;
-  additional_info_title_uz: string | null;
-  additional_info: string | null;
-  additional_info_uz: string | null;
-  disclaimer: string | null;
-  disclaimer_uz: string | null;
-  video_url: string | null;
-}
 
 interface ExtendedProduct extends Product {
   additionalInfoTitle?: string | undefined;
@@ -54,23 +34,22 @@ interface ExtendedProduct extends Product {
   youtubeVideoUrl?: string | undefined;
 }
 
-function mapProduct(api: ApiProduct, lang: string): ExtendedProduct {
-  const isUz = lang === 'uz';
+function mapProduct(api: ApiProduct): ExtendedProduct {
   return {
     id: String(api.id),
-    name: isUz && api.name_uz ? api.name_uz : api.name,
-    description: isUz && api.description_uz ? api.description_uz : (api.description || ''),
+    name: api.name,
+    description: api.description || '',
     ...mapProductPrice(api),
     imageUrl: api.image_url || '',
     images: api.images || undefined,
-    categoryId: String(api.category_id),
+    categoryId: api.category_id == null ? '' : String(api.category_id),
     inStock: api.requires_size ? api.is_in_stock : true,
     isPurchasable: api.is_purchasable,
     ...mapSizeStock(api),
     quantity: api.stock_quantity ?? undefined,
-    additionalInfoTitle: isUz && api.additional_info_title_uz ? api.additional_info_title_uz : api.additional_info_title || undefined,
-    additionalInfo: isUz && api.additional_info_uz ? api.additional_info_uz : api.additional_info || undefined,
-    disclaimer: isUz && api.disclaimer_uz ? api.disclaimer_uz : api.disclaimer || undefined,
+    additionalInfoTitle: api.additional_info_title || undefined,
+    additionalInfo: api.additional_info || undefined,
+    disclaimer: api.disclaimer || undefined,
     youtubeVideoUrl: api.video_url || undefined,
   };
 }
@@ -118,18 +97,20 @@ export function ProductPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await productsApi.getProduct(productId);
+        const response = await productsApi.getProduct(productId, language);
         if (!active) return;
-        const mappedProduct = mapProduct(response as unknown as ApiProduct, language);
+        const mappedProduct = mapProduct(response);
         setProduct(mappedProduct);
         setSelectedSize(null);
+        setSimilarProducts([]);
+        setCurrentImageIndex(0);
         if (mappedProduct.categoryId) {
           const similarResponse = await productsApi.getProducts({
             categoryId: mappedProduct.categoryId,
             limit: 10,
-          });
+          }, language);
           if (!active) return;
-          const mapped = (similarResponse.items as unknown as ApiProduct[]).filter((p) => String(p.id) !== productId).slice(0, 5).map((p) => mapProduct(p, language));
+          const mapped = similarResponse.items.filter((p) => String(p.id) !== productId && p.category_id === response.category_id).slice(0, 5).map(mapProduct);
           setSimilarProducts(mapped);
         }
       } catch (err) {

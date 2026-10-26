@@ -21,6 +21,8 @@ const makeVest = () => ({
   description: '',
   price: '30000.00',
   old_price: null,
+  is_sale: false,
+  sale_price: null,
   image_url: '/vest.png',
   category_id: 1,
   stock_quantity: null,
@@ -38,16 +40,16 @@ beforeEach(() => {
   vi.mocked(api.get)
     .mockReset()
     .mockImplementation(async (url) => {
+      const query = new URL(url, 'http://test').searchParams;
+      const envelope = (items: unknown[]) => ({ items, total: items.length, page: 1, size: Number(query.get('size') || 20), pages: 1 });
       if (url === '/products/39') return vest;
-      if (url.startsWith('/products')) return { items: [vest], total: 1 };
-      if (url === '/categories')
-        return {
-          items: [
+      if (url.startsWith('/products')) return envelope([vest]);
+      if (url.startsWith('/categories'))
+        return envelope([
             { id: 1, name: 'Products', slug: 'product' },
             { id: 2, name: 'Ramadan', slug: 'ramadan-set' },
-          ],
-        };
-      if (url === '/banners') return { items: [] };
+          ]);
+      if (url.startsWith('/banners')) return { items: [], total: 0 };
       if (url === '/settings/banner_interval') return { value: '3000' };
       throw new Error(`Unexpected GET ${url}`);
     });
