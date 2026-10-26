@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -59,3 +59,30 @@ class BuyerAuthLimit(Base):
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
     )
+
+
+class BuyerTelegramRequest(Base):
+    """One context-bound login proof; a completed row also seals its context."""
+
+    __tablename__ = "buyer_telegram_requests"
+    __table_args__ = (
+        UniqueConstraint("browser_digest", "request_key", name="uq_buyer_telegram_browser_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    browser_digest: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    request_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(16), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expected_actor: Mapped[int | None] = mapped_column(BigInteger)
+    deciding_actor: Mapped[int | None] = mapped_column(BigInteger)
+    decision: Mapped[str | None] = mapped_column(String(8))
+    delivery: Mapped[str] = mapped_column(String(16), nullable=False)
+    completed_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    completed_session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("buyer_sessions.id", ondelete="SET NULL")
+    )
+    completed_generation: Mapped[int | None] = mapped_column(Integer)

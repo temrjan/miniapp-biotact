@@ -35,13 +35,20 @@ from src.config import Settings
 from src.users.models import User
 
 
-async def issue_session(db: AsyncSession, user: User, at: datetime) -> tuple[BuyerSession, str]:
+async def issue_session(
+    db: AsyncSession,
+    user: User,
+    at: datetime,
+    *,
+    verifier_factory: Callable[[str], str] | None = None,
+) -> tuple[BuyerSession, str]:
     """Join the proof owner's transaction; never commit an independent authority."""
     if not user.is_active:
         raise BuyerAuthError()
-    token = secrets.token_hex(32)
+    session_id = secrets.token_hex(16)
+    token = verifier_factory(session_id) if verifier_factory else secrets.token_hex(32)
     row = BuyerSession(
-        id=secrets.token_hex(16),
+        id=session_id,
         user_id=user.id,
         verifier_digest=verifier_digest(token),
         generation=1,

@@ -1,5 +1,6 @@
 """Explicit low-privilege browser surface; existing business auth is unchanged."""
 
+import hmac
 from datetime import datetime
 from ipaddress import ip_address, ip_network
 from urllib.parse import urlsplit
@@ -102,6 +103,33 @@ async def invalid_input_response(request: Request) -> JSONResponse:
             return error_response(error)
         except Exception:
             return error_response(BuyerAuthError(503, "authentication_unavailable"))
+    if "/telegram/" in route:
+        from src.buyer_auth.telegram_router import require_bot, telegram
+
+        try:
+            if "/bot/buyer/" in route:
+                require_bot(request)
+                try:
+                    payload = await request.json()
+                except (ValueError, UnicodeError):
+                    payload = None
+                actor = payload.get("telegram_id") if isinstance(payload, dict) else None
+                key = (
+                    str(actor)
+                    if type(actor) is int and 0 < actor <= 9223372036854775807
+                    else "invalid-actor"
+                )
+                await telegram(request).account(key, actor=True)
+            else:
+                auth = service(request)
+                require_context(request, auth)
+                await telegram(request).account(
+                    peer(request, auth.config), poll=route.endswith("/status")
+                )
+        except BuyerAuthError as error:
+            return error_response(error)
+        except Exception:
+            return error_response(BuyerAuthError(503, "authentication_unavailable"))
     return error_response(BuyerAuthError(422, "invalid_request"))
 
 
@@ -120,7 +148,13 @@ async def context(request: Request, body: EmptyInput) -> JSONResponse:
     if token is None:
         raise BuyerAuthError()
     response = JSONResponse(
-        jsonable_encoder({"csrf_token": csrf(auth.config, token), "expires_at": expires})
+        jsonable_encoder(
+            {
+                "csrf_token": csrf(auth.config, token),
+                "expires_at": expires,
+                "telegram_enabled": auth.config.buyer_telegram_auth_enabled,
+            }
+        )
     )
     set_cookie(response, CONTEXT_COOKIE, token, expires, at)
     return response
@@ -174,13 +208,36 @@ async def rotate(request: Request, body: EmptyInput) -> JSONResponse:
 @router.post("/logout", status_code=204)
 async def logout(request: Request, body: EmptyInput) -> Response:
     del body
-    await service(request).logout(
-        request.cookies.get(SESSION_COOKIE), request.headers.get("x-csrf-token")
+    await request.app.state.buyer_telegram_auth.logout(
+        request.cookies.get(SESSION_COOKIE),
+        request.cookies.get(CONTEXT_COOKIE),
+        request.headers.get("x-csrf-token"),
     )
     response = Response(status_code=204)
     for name in (SESSION_COOKIE, CONTEXT_COOKIE):
         response.delete_cookie(name, path="/", secure=True, httponly=True, samesite="lax")
     return response
+
+
+@router.get("/club")
+async def club(request: Request) -> dict[str, object]:
+    from src.loyalty.service import get_loyalty_summary_by_user_id
+
+    auth = service(request)
+    if not auth.config.loyalty_enabled:
+        raise BuyerAuthError(404, "club_disabled")
+    if request.query_params:
+        raise BuyerAuthError(422, "invalid_request")
+    async with auth.sessions.begin() as db:
+        await auth._prepare(db)
+        principal = await auth._session(db, request.cookies.get(SESSION_COOKIE), auth.clock())
+        if principal is None:
+            raise BuyerAuthError()
+        summary = await get_loyalty_summary_by_user_id(db, principal[1].id)
+        return {
+            key: getattr(summary, key)
+            for key in ("is_member", "tier", "balance", "available", "reserved_until")
+        }
 
 
 class BuyerBoundaryMiddleware:
@@ -198,16 +255,37 @@ class BuyerBoundaryMiddleware:
             return
         request = Request(scope)
         route = path.removeprefix(self.prefix).rstrip("/")
-        email_route = route in {"/context", "/email/challenges", "/email/verify"}
+        bridge = "/bot/buyer/telegram" in self.prefix
+        email_route = route in {"/email/challenges", "/email/verify"}
+        telegram_route = bridge or route.startswith("/telegram/")
         error = None
         if route != "/logout" and (
             not self.config.buyer_sessions_enabled
             or (email_route and not self.config.buyer_email_auth_enabled)
+            or (telegram_route and not self.config.buyer_telegram_auth_enabled)
+            or (
+                route == "/context"
+                and not (
+                    self.config.buyer_email_auth_enabled or self.config.buyer_telegram_auth_enabled
+                )
+            )
         ):
             error = BuyerAuthError(404, "buyer_auth_disabled")
-        elif (scope["method"] == "POST" or request.headers.get("origin") is not None) and (
-            request.headers.get("origin") != self.config.buyer_public_origin
-            or request.headers.get("host") != urlsplit(self.config.buyer_public_origin).netloc
+        elif bridge and (
+            not self.config.telegram_bot_token
+            or not request.headers.get("x-bot-token", "").isascii()
+            or not hmac.compare_digest(
+                self.config.telegram_bot_token, request.headers.get("x-bot-token", "")
+            )
+        ):
+            error = BuyerAuthError()
+        elif (
+            not bridge
+            and (scope["method"] == "POST" or request.headers.get("origin") is not None)
+            and (
+                request.headers.get("origin") != self.config.buyer_public_origin
+                or request.headers.get("host") != urlsplit(self.config.buyer_public_origin).netloc
+            )
         ):
             error = BuyerAuthError(403, "request_forbidden")
         if (

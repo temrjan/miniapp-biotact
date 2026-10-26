@@ -1,5 +1,6 @@
 """Application configuration using Pydantic Settings."""
 
+import re
 from functools import lru_cache
 from ipaddress import ip_network
 from urllib.parse import urlsplit
@@ -31,6 +32,8 @@ class Settings(BaseSettings):
     employee_referral_entry_enabled: bool = False
     buyer_sessions_enabled: bool = False
     buyer_email_auth_enabled: bool = False
+    buyer_telegram_auth_enabled: bool = False
+    buyer_telegram_bot_username: str = ""
     buyer_protection_key: SecretStr = SecretStr("")
     buyer_public_origin: str = "https://biotact.uz"
     buyer_trusted_proxy_peers: list[str] = []
@@ -95,7 +98,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_buyer_configuration(self) -> "Settings":
-        if self.buyer_email_auth_enabled and not self.buyer_sessions_enabled:
+        if (
+            self.buyer_email_auth_enabled or self.buyer_telegram_auth_enabled
+        ) and not self.buyer_sessions_enabled:
             raise ValueError("Buyer email entry requires buyer sessions")
         if self.buyer_sessions_enabled:
             key = self.buyer_protection_key.get_secret_value()
@@ -117,6 +122,14 @@ class Settings(BaseSettings):
                 raise ValueError("Invalid private buyer configuration")
             for peer in self.buyer_trusted_proxy_peers:
                 ip_network(peer, strict=True)
+        if self.buyer_telegram_auth_enabled and (
+            not re.fullmatch(r"[A-Za-z0-9_]{5,32}", self.buyer_telegram_bot_username)
+            or not self.buyer_telegram_bot_username.lower().endswith("bot")
+            or not self.telegram_bot_token
+            or not self.telegram_bot_token.isascii()
+            or any(ord(c) < 33 or ord(c) == 127 for c in self.telegram_bot_token)
+        ):
+            raise ValueError("Invalid buyer Telegram configuration")
         if self.buyer_email_auth_enabled and (
             self.smtp_host != "smtp.gmail.com"
             or self.smtp_port != 587

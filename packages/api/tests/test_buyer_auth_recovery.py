@@ -55,7 +55,8 @@ def recovery(scratch, tmp_path, monkeypatch):
     assert Path(worker.__file__).read_text() == git(
         "show", f"{OLD}:packages/api/src/employee_referrals/worker.py"
     )
-    scratch.migrate(target="head")
+    scratch.migrate(target=HEAD)
+    monkeypatch.setattr(worker, "migration_head", lambda: HEAD)
     monkeypatch.setattr(sys, "path", sys.path.copy())
     control = load("s3_trusted_controller", Path(SOURCE))
     library = sys.modules["referral_admission"]
