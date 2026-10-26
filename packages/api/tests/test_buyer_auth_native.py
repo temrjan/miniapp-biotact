@@ -13,7 +13,7 @@ from tests import test_category_schema_migration as migration
 
 scratch = migration.scratch
 PREVIOUS = "b7e31c904a62"
-CURRENT = "d8a14f90bc21"
+CURRENT = "e9a21c40b735"
 BUYER_TABLES = {
     "buyer_email_identities",
     "buyer_email_challenges",
@@ -29,7 +29,7 @@ def preserved(db):
     )
     data = []
     for (name,) in tables:
-        if name in BUYER_TABLES or name == "alembic_version":
+        if name in BUYER_TABLES or name == "alembic_version" or name.startswith("consultant_"):
             continue
         rows = db.execute(
             sql.SQL("SELECT row_to_json(t)::text FROM {} t ORDER BY 1").format(sql.Identifier(name))
@@ -42,21 +42,25 @@ def preserved(db):
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
         LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
-        WHERE n.nspname='public' AND c.relkind <> 'i' AND c.relname NOT LIKE 'buyer_%' ORDER BY c.relname,a.attnum
+        WHERE n.nspname='public' AND c.relkind <> 'i' AND c.relname NOT LIKE 'buyer_%' AND c.relname NOT LIKE 'consultant_%' ORDER BY c.relname,a.attnum
     """)
     constraints = db.execute("""
         SELECT c.conrelid::regclass::text,c.conname,pg_get_constraintdef(c.oid)
         FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-        WHERE n.nspname='public' AND c.conrelid::regclass::text NOT LIKE 'buyer_%'
+        WHERE n.nspname='public' AND c.conrelid::regclass::text NOT LIKE 'buyer_%' AND c.conrelid::regclass::text NOT LIKE 'consultant_%'
         ORDER BY 1,2
     """)
     indexes = db.execute(
-        "SELECT tablename,indexname,indexdef FROM pg_indexes WHERE schemaname='public' AND tablename NOT LIKE 'buyer_%' ORDER BY 1,2"
+        "SELECT tablename,indexname,indexdef FROM pg_indexes WHERE schemaname='public' AND tablename NOT LIKE 'buyer_%' AND tablename NOT LIKE 'consultant_%' ORDER BY 1,2"
     )
     return data, columns, constraints, indexes
 
 
 def check_parity(db):
+    # Historical migration tests compare their exact predecessor/successor;
+    # current metadata parity is checked at the complete current chain.
+    previous = db.marker()
+    db.migrate(target="head")
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "check"],
         cwd=migration.API_ROOT,
@@ -67,6 +71,8 @@ def check_parity(db):
         timeout=90,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    if db.marker() != previous:
+        db.migrate("downgrade", previous)
 
 
 def test_predecessor_preservation_native_null_unique_fk_and_parity(scratch):

@@ -107,7 +107,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:0.8.2-pg16@sha256:6d5c7b5aa3eb2098a2365f6d8cff723fded9e0e680757908b0b144b47f9c069c
         env:
           POSTGRES_USER: biotact
           POSTGRES_PASSWORD: biotact_ci
@@ -171,7 +171,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:0.8.2-pg16@sha256:6d5c7b5aa3eb2098a2365f6d8cff723fded9e0e680757908b0b144b47f9c069c
         env:
           POSTGRES_USER: biotact
           POSTGRES_PASSWORD: biotact_ci
@@ -284,7 +284,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:0.8.2-pg16@sha256:6d5c7b5aa3eb2098a2365f6d8cff723fded9e0e680757908b0b144b47f9c069c
         env:
           POSTGRES_USER: biotact
           POSTGRES_PASSWORD: biotact_ci
