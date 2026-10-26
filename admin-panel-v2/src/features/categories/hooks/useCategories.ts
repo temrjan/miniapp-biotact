@@ -29,6 +29,13 @@ export function useCategories(params?: {
 }
 
 // Get single category by ID
+export function useCategoryChoices() {
+  return useQuery({
+    queryKey: [...categoryKeys.lists(), 'choices'],
+    queryFn: categoriesApi.getChoices,
+  });
+}
+
 export function useCategory(id: number | undefined) {
   return useQuery<Category>({
     queryKey: categoryKeys.detail(id!),

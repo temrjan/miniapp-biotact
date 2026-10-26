@@ -15,7 +15,7 @@ import { Checkbox } from '@/shared/components/ui/checkbox'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card'
 import { ImageUploader } from '@/shared/components/upload'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select"
-import { useCategories } from "@/features/categories/hooks/useCategories"
+import { useCategoryChoices } from "@/features/categories/hooks/useCategories"
 
 const productSchema = z.object({
   // Basic info (required)
@@ -84,7 +84,7 @@ interface ProductFormProps {
 export const ProductForm = ({ product, onSubmit, isLoading, submitError, merchantIsInStock }: ProductFormProps) => {
   const navigate = useNavigate()
 
-  const { data: categoriesData } = useCategories({ page: 1, size: 100, active_only: false })
+  const { data: categoriesData } = useCategoryChoices()
   const {
     register,
     handleSubmit,
@@ -301,7 +301,7 @@ export const ProductForm = ({ product, onSubmit, isLoading, submitError, merchan
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">Без категории</SelectItem>
-                      {categoriesData?.items.map((cat) => (
+                      {categoriesData?.map((cat) => (
                         <SelectItem key={cat.id} value={cat.id.toString()}>
                           {cat.name} {cat.name_uz && `(${cat.name_uz})`}
                         </SelectItem>

@@ -138,16 +138,16 @@ export const ProductsListPage = () => {
                 ))}
               </TableBody>
             </Table>
-            {data && data.pages > 1 && (
-              <div className="p-4 border-t flex justify-between">
-                <div>Страница {page} из {data.pages}</div>
-                <div className="flex gap-2">
-                  <Button onClick={() => setPage(page - 1)} disabled={page === 1}>Назад</Button>
-                  <Button onClick={() => setPage(page + 1)} disabled={page === data.pages}>Вперёд</Button>
-                </div>
-              </div>
-            )}
           </>
+        )}
+        {!isLoading && !error && data && data.pages > 1 && (
+          <div className="p-4 border-t flex justify-between">
+            <div>Страница {page} из {data.pages}</div>
+            <div className="flex gap-2">
+              <Button onClick={() => setPage(page - 1)} disabled={page === 1}>Назад</Button>
+              <Button onClick={() => setPage(page + 1)} disabled={page === data.pages}>Вперёд</Button>
+            </div>
+          </div>
         )}
       </Card>
     </div>

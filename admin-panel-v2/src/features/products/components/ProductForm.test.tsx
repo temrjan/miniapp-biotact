@@ -16,7 +16,7 @@ const product = {
 
 function renderPage(edit = false, overrides = {}) {
   vi.spyOn(apiClient, 'get').mockImplementation(async (url) => ({
-    data: url.includes('/categories') ? { items: [], total: 0 } : url.includes('/sizes') ? {
+    data: url.includes('/categories') ? { items: [], total: 0, page: 1, size: 100, pages: 1 } : url.includes('/sizes') ? {
       product_id: 1, merchant_is_in_stock: true,
       sizes: ['L', 'XL', '2XL'].map((size) => ({ size, available_quantity: 0, revision: 7 })),
     } : { ...product, ...overrides },
