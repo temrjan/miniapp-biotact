@@ -57,6 +57,7 @@ async def test_db() -> AsyncGenerator[AsyncSession, None]:
     )
 
     async with engine_test.begin() as conn:
+        await conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
         await conn.run_sync(Base.metadata.create_all)
 
     async with async_session_test() as session:

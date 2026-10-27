@@ -40,6 +40,9 @@ from src.campaigns.client import portal_http_client
 from src.campaigns.router import router as campaigns_router
 from src.categories.router import router as categories_router
 from src.config import settings
+from src.consultant.router import Boundary as ConsultantBoundary
+from src.consultant.router import router as consultant_router
+from src.consultant.router import runtime as consultant_runtime
 from src.crm.admin_router import router as crm_admin_router
 from src.crm.bot_router import router as crm_bot_router
 from src.crm.router import router as crm_router
@@ -78,7 +81,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client = portal_http_client()
     app.state.campaign_http_client = client
     try:
-        yield
+        async with consultant_runtime(app, settings, async_session_maker):
+            yield
     finally:
         try:
             await client.aclose()
@@ -151,6 +155,11 @@ def create_app() -> FastAPI:
     app.include_router(referral_returns_router, prefix=settings.api_v1_prefix)
     app.include_router(referral_entry_router, prefix=settings.api_v1_prefix)
     app.include_router(employee_referrals_router, prefix=settings.api_v1_prefix)
+
+    consultant_prefix = settings.api_v1_prefix + "/consultant"
+    app.add_middleware(ConsultantBoundary, prefix=consultant_prefix)
+    app.add_middleware(AuthPrivacyMiddleware, prefix=consultant_prefix)
+    app.include_router(consultant_router, prefix=settings.api_v1_prefix)
 
     # Include routers
     app.include_router(

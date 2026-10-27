@@ -16,6 +16,7 @@ import importlib
 # трогать список, от которого зависит паритет миграций, без нужды не стоит.
 _MODEL_MODULES = (
     "src.categories.models",
+    "src.consultant.models",
     "src.products.models",
     "src.users.models",
     "src.orders.models",
