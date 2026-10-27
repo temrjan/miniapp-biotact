@@ -15,11 +15,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.buyer_auth.router import peer
-from src.buyer_auth.security import SECRET_PATTERN, keyed
+from src.buyer_auth.security import SECRET_PATTERN, keyed, require_csrf
 from src.buyer_auth.service import BuyerAuthService
 from src.database import get_db
 from src.guest import service
-from src.guest.schemas import GuestOrderRequest, GuestQuoteRequest
+from src.guest.schemas import GuestOrderRequest, GuestPaymentRequest, GuestQuoteRequest
 
 router = APIRouter(prefix="/guest", tags=["guest"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -91,3 +91,24 @@ async def read_order(request: Request, db: DbSession) -> JSONResponse:
     if secret is None or order is None:
         return refusal(404, "order_not_found")
     return JSONResponse(service.projection(order, order.items, service.csrf_for(config, secret)))
+
+
+@router.post("/order/payment")
+async def start_payment(request: Request, body: GuestPaymentRequest, db: DbSession) -> JSONResponse:
+    secret = _secret(request)
+    if secret is None:
+        return refusal(404, "order_not_found")
+    auth = _auth(request)
+    require_csrf(service.csrf_for(auth.config, secret), request.headers.get("x-csrf-token"))
+    purpose, count, window = service.PAYMENT_PEER_LIMIT
+    await auth.account(purpose, peer(request, auth.config), count, window)
+    order = await service.find_by_access(
+        db, keyed(auth.config, "guest-access", secret), datetime.now(UTC)
+    )
+    if order is None:
+        return refusal(404, "order_not_found")
+    try:
+        url = await service.start_payment(db, auth.config, order, body.lang)
+    except service.GuestRefusal as exc:
+        return refusal(exc.status, exc.code, **exc.extra)
+    return JSONResponse({"payment_url": url})

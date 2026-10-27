@@ -73,6 +73,15 @@ def install() -> None:
     _installed = True
 
 
+def log_outside_private_scope(logger: logging.Logger, message: str, *args: object) -> None:
+    """Emit one value-free operational line that the private-scope masking must not replace."""
+    token = _private.set(False)
+    try:
+        logger.error(message, *args)
+    finally:
+        _private.reset(token)
+
+
 def _strip_buyer_credentials(value: object) -> object:
     """Buyer cookies/CSRF also occur in public requests and SDK middleware span reprs."""
     if isinstance(value, dict):

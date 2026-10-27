@@ -2,7 +2,7 @@
 
 import re
 import unicodedata
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
 
@@ -85,3 +85,7 @@ class GuestOrderRequest(GuestQuoteRequest):
         if value is not True:
             raise ValueError("terms")
         return value
+
+
+class GuestPaymentRequest(Strict):
+    lang: Literal["ru", "uz"]

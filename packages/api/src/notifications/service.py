@@ -5,7 +5,7 @@ import logging
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -49,6 +49,18 @@ def _format_sale_money(price: Decimal) -> str:
 # решение — отдельное поле «форма выпуска» у товара: оно закрыло бы ещё фискальный чек, карточку
 # заказа в админке, аналитику «Топ товаров» и витрину, которых эта правка не касается.
 RELEASE_FORM_BY_SLUG_SUFFIX = {"_caps": "капсулы", "_stik": "стик"}
+
+MINI_APP_LABEL = "Biotact Mini-App"
+SITE_LABEL = "Сайт"
+
+
+class _Owned(Protocol):
+    user_id: int | None
+
+
+def source_label(order: _Owned) -> str:
+    """Staff-message source: a website guest order has no owner (G1, NT-01)."""
+    return SITE_LABEL if order.user_id is None else MINI_APP_LABEL
 
 
 class TelegramNotifier:
@@ -164,6 +176,7 @@ class TelegramNotifier:
         invoice_uuid: str | None = None,
         points_applied: int = 0,
         referral_label: str = "Без реферала",
+        source_label: str = MINI_APP_LABEL,
     ) -> bool:
         """Notify about a new order whose card invoice was just created (payment initiated).
 
@@ -180,7 +193,7 @@ class TelegramNotifier:
             else ""
         )
 
-        message = f"""📱 <b>Biotact Mini-App</b>
+        message = f"""📱 <b>{esc(source_label)}</b>
 🔔 <b>НОВЫЙ ЗАКАЗ</b>
 
 📦 <b>Товары:</b>
@@ -212,6 +225,7 @@ class TelegramNotifier:
         delivery_address: str | None = None,
         invoice_uuid: str | None = None,
         points_applied: int = 0,
+        source_label: str = MINI_APP_LABEL,
     ) -> bool:
         """Notify about a successful payment.
 
@@ -243,7 +257,7 @@ class TelegramNotifier:
             else ""
         )
 
-        message = f"""📱 <b>Biotact Mini-App</b>
+        message = f"""📱 <b>{esc(source_label)}</b>
 {header}
 
 📦 <b>Товары:</b>

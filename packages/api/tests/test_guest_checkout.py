@@ -9,6 +9,7 @@ at ``send_message``. Set S1_TEST_DATABASE_URL to the local disposable server's p
 import asyncio
 import hashlib
 import json
+import logging
 import time
 import types
 from collections.abc import AsyncGenerator
@@ -21,14 +22,18 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+import sentry_sdk
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
 from pydantic import SecretStr
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src import config as config_module
+from src.auth import privacy
 from src.auth.privacy import filter_auth_telemetry
 from src.buyer_auth.models import BuyerAuthLimit
 from src.buyer_auth.security import BuyerAuthError, keyed
@@ -38,10 +43,12 @@ from src.database import get_db
 from src.guest import service as guest_service
 from src.notifications.service import telegram_notifier
 from src.orders.models import Order, OrderStatus
+from src.orders.service import expire_stale_orders
 from src.payments import service as payment_service
 from src.payments.service import multicard_client
 from tests import test_category_schema_migration as migration
 from tests.conftest import _make_init_data
+from tests.test_employee_referral_k1_receiver import Captured
 
 scratch = migration.scratch
 PATH = "/api/v1/guest"
@@ -723,6 +730,9 @@ async def test_cookie_is_the_only_access_path(guest):
         assert (await b.get(PATH + "/order")).json()["order_number"] == second.json()[
             "order_number"
         ]
+        # A's CSRF token is not B's.
+        response = await pay(b, first.json()["csrf_token"])
+        assert (response.status_code, response.json()) == (403, {"error": "request_forbidden"})
     for value in (None, "F" * 64, "f" * 63, "0" * 64, "../" + "f" * 61):
         async with guest.browser() as client:
             if value is not None:
@@ -849,6 +859,18 @@ async def test_durable_peer_limits(guest, monkeypatch):
         assert "127.0.0.1" not in row.key
 
 
+async def test_payment_start_limit_precedes_provider(guest):
+    created = await place(guest.client)
+    csrf = created.json()["csrf_token"]
+    urls = {(await pay(guest.client, csrf)).json()["payment_url"] for _ in range(20)}
+    assert len(urls) == 1
+    response = await pay(guest.client, csrf)
+    assert (response.status_code, response.json()) == (429, {"error": "try_later"})
+    assert "retry-after" in response.headers
+    assert len(guest.provider.creates) == 1
+    assert len([m for m in guest.messages if "НОВЫЙ ЗАКАЗ" in m]) == 1
+
+
 # --------------------------------------------------------------------------- CK-12
 
 
@@ -883,10 +905,248 @@ async def test_state_projection_for_each_shape(guest):
 # --------------------------------------------------------------------------- CK-13
 
 
+async def test_payment_urls_are_pinned_to_settings(guest):
+    created = await place(guest.client)
+    number = created.json()["order_number"]
+    csrf = created.json()["csrf_token"]
+    for token in (None, "0" * 64, csrf.upper()):
+        headers = {} if token is None else {"X-CSRF-Token": token}
+        response = await guest.client.post(
+            PATH + "/order/payment", json={"lang": "uz"}, headers=headers
+        )
+        assert (response.status_code, response.json()) == (403, {"error": "request_forbidden"})
+    assert guest.provider.creates == []
+    foreign = await guest.client.post(
+        PATH + "/order/payment",
+        json={"lang": "uz"},
+        headers={"X-CSRF-Token": csrf, "Host": "evil.g1.test"},
+    )
+    assert (foreign.status_code, foreign.json()) == (403, {"error": "request_forbidden"})
+    assert guest.provider.creates == []
+    response = await pay(guest.client, csrf, "uz", **{"X-Forwarded-Host": "evil.g1.test"})
+    assert response.status_code == 200
+    assert set(response.json()) == {"payment_url"}
+    assert response.json()["payment_url"] == "https://pay.g1.test/g1-invoice-1"
+    [payload] = guest.provider.creates
+    assert payload["callback_url"] == "https://api.g1.test/api/v1/payments/callback"
+    assert payload["return_url"] == "https://shop.g1.test/?view=order&lang=uz"
+    assert payload["amount"] == 12_000_000
+    assert payload["invoice_id"] == number
+    assert payload["lang"] == "uz"
+    assert payload["store_id"] == "6"
+    assert not {"ttl", "sms", "return_error_url"} & set(payload)
+    assert sum(item["price"] * item["qty"] for item in payload["ofd"]) == 12_000_000
+    row = guest.sql(
+        "SELECT payment_uuid, checkout_url, payment_status FROM orders"  # bound
+    )
+    assert row == [("g1-invoice-1", "https://pay.g1.test/g1-invoice-1", "pending")]
+    new_order = [m for m in guest.messages if "НОВЫЙ ЗАКАЗ" in m]
+    assert len(new_order) == 1
+    assert guest.seen_bound == [True]
+    assert "<b>Сайт</b>" in new_order[0]
+    assert "Mini-App" not in new_order[0]
+    assert "+998901234567" in new_order[0]
+    assert number in new_order[0]
+    # Repeat: the stored URL, no provider call, no second message.
+    again = await pay(guest.client, csrf, "ru")
+    assert again.json() == response.json()
+    assert len(guest.provider.creates) == 1
+    assert len(guest.messages) == 1
+    assert guest.provider.deletes == []
+    assert guest.provider.reads == []
+
+
+@pytest.mark.parametrize("mode", ["500", "timeout", "refused", "no_url", "empty_uuid"])
+async def test_provider_failure_stores_nothing_then_retry_binds(guest, mode, caplog):
+    created = await place(guest.client)
+    csrf = created.json()["csrf_token"]
+    guest.provider.mode = mode
+    caplog.set_level(logging.INFO)
+    response = await pay(guest.client, csrf)
+    assert (response.status_code, response.json()) == (502, {"error": "payment_unavailable"})
+    assert guest.sql("SELECT payment_uuid, checkout_url, payment_status FROM orders") == [
+        (None, None, "unpaid")
+    ]
+    assert guest.messages == []
+    # The real client raises on a missing pay URL (``pay_url: str``); an empty uuid is returned.
+    category = "provider_incomplete" if mode == "empty_uuid" else "provider_error"
+    assert f"Guest payment start failed | category={category}" in caplog.text
+    guest.provider.mode = "ok"
+    response = await pay(guest.client, csrf)
+    assert response.status_code == 200
+    assert guest.sql("SELECT payment_uuid FROM orders") == [("g1-invoice-2",)]
+    assert len(guest.messages) == 1
+
+
+async def test_concurrent_starts_share_one_bound_invoice(guest):
+    created = await place(guest.client)
+    csrf = created.json()["csrf_token"]
+    guest.provider.hold = 2
+    responses = await asyncio.gather(pay(guest.client, csrf), pay(guest.client, csrf))
+    assert [r.status_code for r in responses] == [200, 200]
+    urls = {r.json()["payment_url"] for r in responses}
+    stored = guest.sql("SELECT checkout_url FROM orders")[0][0]
+    assert urls == {stored}
+    assert len(guest.provider.creates) == 2
+    assert guest.provider.deletes == []
+    assert len([m for m in guest.messages if "НОВЫЙ ЗАКАЗ" in m]) == 1
+
+
+@pytest.mark.parametrize(
+    ("statement", "state"),
+    [
+        ("status='CANCELLED', payment_status='failed'", "cancelled"),
+        ("status='CANCELLED'", "cancelled"),
+        ("payment_status='paid', status='CONFIRMED'", "paid"),
+    ],
+)
+async def test_bind_refused_for_closed_orders(guest, statement, state):
+    created = await place(guest.client)
+    csrf = created.json()["csrf_token"]
+    guest.provider.hold = 1
+    task = asyncio.create_task(pay(guest.client, csrf))
+    await asyncio.wait_for(guest.provider.arrived.wait(), 10)
+    # The order closes while the provider call is in flight; the conditional bind matches no row.
+    guest.sql(f"UPDATE orders SET {statement}")  # noqa: S608
+    response = await task
+    assert (response.status_code, response.json()) == (
+        409,
+        {"error": "order_not_payable", "state": state},
+    )
+    assert guest.sql("SELECT payment_uuid, checkout_url FROM orders") == [(None, None)]
+    assert guest.messages == []
+    assert guest.provider.deletes == []
+    # Before any provider call, a closed order is refused directly.
+    response = await pay(guest.client, csrf)
+    assert response.json() == {"error": "order_not_payable", "state": state}
+    assert len(guest.provider.creates) == 1
+
+
 # --------------------------------------------------------------------------- CK-14
 
 
+async def test_settlement_labels_and_late_success(guest):
+    created = await place(guest.client)
+    number = created.json()["order_number"]
+    await pay(guest.client, created.json()["csrf_token"])
+    async with guest.browser() as ingress:
+        ingress.headers.pop("Origin")
+        # A return without a callback changes nothing.
+        assert (await guest.client.get(PATH + "/order")).json()["state"] == "awaiting_payment"
+        response = await ingress.post(
+            "/api/v1/payments/callback", json=callback(number, "g1-invoice-1", 12_000_000)
+        )
+        assert response.json() == {"success": True}
+    assert (await guest.client.get(PATH + "/order")).json()["state"] == "paid"
+    assert guest.sql("SELECT payment_status, status::text FROM orders") == [("paid", "CONFIRMED")]
+    paid = [m for m in guest.messages if "ОПЛАЧЕНО" in m]
+    assert len(paid) == 1
+    assert "<b>Сайт</b>" in paid[0]
+    assert "Mini-App" not in paid[0]
+
+    late = await place(guest.client, key="d" * 32)
+    late_number = late.json()["order_number"]
+    guest.sql(
+        "UPDATE orders SET status='CANCELLED', payment_status='failed' WHERE order_number=%s",
+        (late_number,),
+    )
+    row_sql = "SELECT row_to_json(orders)::text FROM orders WHERE order_number=%s"
+    before = guest.sql(row_sql, (late_number,))
+    messages = len(guest.messages)
+    async with guest.browser() as ingress:
+        ingress.headers.pop("Origin")
+        for _ in range(2):
+            response = await ingress.post(
+                "/api/v1/payments/callback", json=callback(late_number, "late-uuid", 12_000_000)
+            )
+            assert response.json() == {"success": True}
+    assert guest.sql(row_sql, (late_number,)) == before
+    assert guest.sql("SELECT count(*) FROM payment_event WHERE payment_uuid='late-uuid'") == [(1,)]
+    assert len(guest.messages) == messages
+
+
+async def test_cancelled_sized_guest_order_keeps_closed_answer(guest):
+    created = await place(guest.client, [{"product_id": 505, "quantity": 1, "size": "L"}])
+    number = created.json()["order_number"]
+    await pay(guest.client, created.json()["csrf_token"])
+    guest.sql(
+        "UPDATE orders SET size_owner_state='cancelled', status='CANCELLED', payment_status='failed'"
+    )
+    async with guest.browser() as ingress:
+        ingress.headers.pop("Origin")
+        response = await ingress.post(
+            "/api/v1/payments/callback", json=callback(number, "g1-invoice-1", 3_000_000)
+        )
+    assert response.json() == {"success": False, "message": "Order payment is closed"}
+
+
 # --------------------------------------------------------------------------- CK-15
+
+
+async def test_sized_guest_order_uses_owner_protocol(guest):
+    created = await place(guest.client, [{"product_id": 505, "quantity": 2, "size": "XL"}])
+    csrf = created.json()["csrf_token"]
+    first = await pay(guest.client, csrf, "ru")
+    assert first.status_code == 200
+    assert set(first.json()) == {"payment_url"}
+    assert guest.sql("SELECT size_owner_state, payment_status FROM orders") == [("live", "pending")]
+    payload = guest.provider.creates[0]
+    assert payload["return_url"] == "https://shop.g1.test/?view=order&lang=ru"
+    assert payload["callback_url"] == "https://api.g1.test/api/v1/payments/callback"
+    assert (await pay(guest.client, csrf)).json() == first.json()
+    assert len(guest.provider.creates) == 1
+    new_order = [m for m in guest.messages if "НОВЫЙ ЗАКАЗ" in m]
+    assert len(new_order) == 1
+    assert "<b>Сайт</b>" in new_order[0]
+    number = created.json()["order_number"]
+    async with guest.browser() as ingress:
+        ingress.headers.pop("Origin")
+        response = await ingress.post(
+            "/api/v1/payments/callback", json=callback(number, "g1-invoice-1", 6_000_000)
+        )
+        assert response.json() == {"success": True}
+    assert (await guest.client.get(PATH + "/order")).json()["state"] == "paid"
+    response = await pay(guest.client, csrf)
+    assert response.json() == {"error": "order_not_payable", "state": "paid"}
+    assert guest.provider.reads == []
+
+
+async def test_sized_provider_failure_becomes_uncertain_without_second_create(guest, caplog):
+    created = await place(guest.client, [{"product_id": 505, "quantity": 1, "size": "L"}])
+    csrf = created.json()["csrf_token"]
+    guest.provider.mode = "500"
+    caplog.set_level(logging.INFO)
+    response = await pay(guest.client, csrf)
+    assert (response.status_code, response.json()) == (409, {"error": "payment_check_pending"})
+    assert "Guest payment start failed | category=provider_outcome_unknown" in caplog.text
+    assert guest.sql("SELECT size_owner_state FROM orders") == [("uncertain",)]
+    guest.provider.mode = "ok"
+    response = await pay(guest.client, csrf)
+    assert (response.status_code, response.json()) == (409, {"error": "payment_check_pending"})
+    assert len(guest.provider.creates) == 1
+    assert (await guest.client.get(PATH + "/order")).json()["state"] == "awaiting_payment"
+    assert guest.messages == []
+
+
+async def test_sweeper_releases_guest_orders(guest):
+    sized = await place(guest.client, [{"product_id": 505, "quantity": 4, "size": "L"}])
+    unsized = await place(guest.client, key="e" * 32)
+    assert sizes(guest) == [("2XL", 0), ("L", 46), ("XL", 50)]
+    async with guest.sessions() as db:
+        assert (await expire_stale_orders(db)).released_orders == 0
+        await db.commit()
+    guest.sql("UPDATE orders SET created_at = now() - interval '31 minutes'")
+    async with guest.sessions() as db:
+        outcome = await expire_stale_orders(db)
+        await db.commit()
+    assert outcome.released_orders == 2
+    states = dict(guest.sql("SELECT order_number, status::text FROM orders"))
+    assert states == {
+        sized.json()["order_number"]: "CANCELLED",
+        unsized.json()["order_number"]: "CANCELLED",
+    }
+    assert sizes(guest) == [("2XL", 0), ("L", 50), ("XL", 50)]
+    assert guest.provider.deletes == []
 
 
 # --------------------------------------------------------------------------- CK-02, CK-16, CK-17
@@ -956,7 +1216,96 @@ async def test_existing_channels_do_not_reach_or_leak_guest_orders(guest):
     assert guest.messages == []
 
 
+async def test_mini_app_messages_keep_their_label(guest):
+    await telegram_notifier.notify_order_created(order_number="ORD-1", total=1.0, items=[])
+    await telegram_notifier.notify_payment_success(order_number="ORD-1", total=1.0, items=[])
+    assert all(m.startswith("📱 <b>Biotact Mini-App</b>\n") for m in guest.messages)
+    owned, website = types.SimpleNamespace(user_id=5), types.SimpleNamespace(user_id=None)
+    from src.notifications.service import source_label
+
+    assert (source_label(owned), source_label(website)) == ("Biotact Mini-App", "Сайт")
+
+
 # --------------------------------------------------------------------------- CK-05
+
+
+async def test_logs_and_sentry_carry_no_guest_values(guest, caplog):
+    capture = Captured()
+    caplog.set_level(logging.DEBUG)
+    assert COOKIE in privacy._buyer_cookies
+    canaries = ["Canary Buyer G1", "+998977777777", "Canary street 99", "9" * 32]
+    with sentry_sdk.init(
+        dsn="https://public@example.invalid/1",
+        transport=capture,
+        integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        traces_sample_rate=1.0,
+        before_send=filter_auth_telemetry,
+        before_send_transaction=filter_auth_telemetry,
+    ):
+
+        @guest.app.get(PATH + "/injected-failure")
+        async def injected():
+            logging.getLogger("sqlalchemy.engine").error("%s", " ".join(canaries))
+            raise RuntimeError(" ".join(canaries))
+
+        @guest.app.get("/guest-privacy-control")
+        async def control():
+            logging.getLogger("g1-positive").error("PUBLIC_G1_CONTROL")
+            sentry_sdk.capture_message("PUBLIC_G1_CONTROL")
+            return {"ok": True}
+
+        async with guest.browser(raise_app_exceptions=False) as client:
+            items = ORDINARY
+            fingerprint = (await quote(client, items))["quote_fingerprint"]
+            created = await client.post(
+                PATH + "/orders",
+                json=body(
+                    items,
+                    fingerprint,
+                    canaries[3],
+                    name=canaries[0],
+                    phone=canaries[1],
+                    address=canaries[2],
+                ),
+            )
+            assert created.status_code == 201
+            secret = client.cookies[COOKIE]
+            csrf = created.json()["csrf_token"]
+            canaries.extend([secret, csrf])
+            invalid = await client.post(
+                PATH + "/orders", json=body(items, fingerprint, name=canaries[0], extra=canaries[1])
+            )
+            assert invalid.status_code == 422
+            conflict = await client.post(
+                PATH + "/orders",
+                json=body(
+                    [{"product_id": 504, "quantity": 1, "size": None}],
+                    fingerprint,
+                    "8" * 32,
+                    name=canaries[0],
+                ),
+            )
+            assert conflict.status_code == 409
+            guest.provider.mode = "500"
+            failed = await pay(client, csrf)
+            assert failed.status_code == 502
+            injected_response = await client.get(PATH + "/injected-failure")
+            assert (injected_response.status_code, injected_response.json()) == (
+                503,
+                {"error": "service_unavailable"},
+            )
+            response = await client.get("/guest-privacy-control", headers={"X-CSRF-Token": csrf})
+            assert response.json() == {"ok": True}
+            catalogue = await client.get("/api/v1/products")
+            assert catalogue.status_code == 200
+        sentry_sdk.flush()
+    serialized = json.dumps(capture.events)
+    assert "PUBLIC_G1_CONTROL" in serialized
+    assert "PUBLIC_G1_CONTROL" in caplog.text
+    assert "Guest payment start failed | category=provider_error" in caplog.text
+    for value in canaries:
+        assert value not in caplog.text, value
+        assert value not in serialized, value
 
 
 def test_cookie_is_filtered_from_any_route_event():
