@@ -26,7 +26,7 @@ from src.consultant.models import (
     Section,
     Source,
 )
-from src.consultant.provider import EMBEDDING_PROFILE, PROFILE
+from src.consultant.provider import EMBEDDING_PROFILE, INPUT_TOKENS, PROFILE
 from src.consultant.service import Consultant
 from src.main import create_app
 from src.products.models import Product
@@ -351,7 +351,11 @@ async def test_unknown_budget_retained_after_disabled_cleanup_and_concurrency(te
     await controls.reconcile(reservation, owner, 1, 1)
     async with controls.sessions() as db:
         budget = await db.get(Budget, datetime.now(UTC).date())
-        assert (budget.input_tokens, budget.output_tokens, budget.received) == (12000, 4096, 0)
+        assert (budget.input_tokens, budget.output_tokens, budget.received) == (
+            INPUT_TOKENS,
+            4096,
+            0,
+        )
         assert await db.scalar(select(Run).where(Run.owner == owner)) is None
 
 
@@ -374,7 +378,11 @@ async def test_output_reservation_boundary_is_atomic_across_workers(
     async with sessions() as db:
         budget = await db.get(Budget, datetime.now(UTC).date())
         if admitted:
-            assert (budget.attempts, budget.input_tokens, budget.output_tokens) == (1, 12000, 4096)
+            assert (budget.attempts, budget.input_tokens, budget.output_tokens) == (
+                1,
+                INPUT_TOKENS,
+                4096,
+            )
         else:
             assert budget is None  # failed admission commits neither attempt nor reservation
 
@@ -600,7 +608,7 @@ async def test_shared_rate_budget_offswitch_and_unknown_hidden_subject(test_db):
     assert reply["products"] == []
     assert bot.provider.calls == []
     owner = await bot.controls.register(uuid4(), uuid4())
-    constrained = Controls(bot.controls.sessions, KEY, (1, 12000, 4096, 8000))
+    constrained = Controls(bot.controls.sessions, KEY, (1, INPUT_TOKENS, 4096, 8000))
     reservation = await constrained.reserve(owner, "responses")
     with pytest.raises(Fault, match="budget_exhausted"):
         await constrained.reserve(owner, "responses")

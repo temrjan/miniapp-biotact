@@ -1368,3 +1368,79 @@ async def test_symptom_discovery_retains_bounded_retrieval_and_useful_clarificat
         s["passage"] == PASSAGES["ru"][s["ordinal"]] for s in provider.contexts[0]["sections"]
     )
     assert any(s["caution"] for s in provider.contexts[0]["sections"])
+
+
+# Production-sized instruction sections (UTF-8 bytes of description/composition/use), as in
+# the C11 child-immunity bodies: Cyrillic needs two bytes per letter, Uzbek Latin about one.
+RECOMMENDATION_SIZES = {"ru": (280, 1180, 1190), "uz": (200, 900, 870)}
+RECOMMENDATION_FILLER = {
+    "ru": "Пробиотики и витамины поддерживают иммунитет детей. ",
+    "uz": "Probiotiklar va vitaminlar bolalar immunitetini qoʻllab-quvvatlaydi. ",
+}
+
+
+async def seed_recommendation_sizes(db):
+    await seed_six_sections(db)
+    for language, sizes in RECOMMENDATION_SIZES.items():
+        for pid in (20, 21):
+            for ordinal, size in enumerate(sizes):
+                section = await db.get(Section, f"s{pid}{language}:{ordinal}")
+                body = PASSAGES[language][ordinal] + " "
+                while len(body.encode()) < size:
+                    body += RECOMMENDATION_FILLER[language]
+                section.body = body
+                section.body_hash = hashlib.sha256(body.encode()).hexdigest()
+    # Retrieval returns both forms: one product's remaining sections rank lower.
+    await db.execute(
+        text(
+            "UPDATE consultant_embeddings SET vector = CAST(:far AS vector) "
+            "WHERE section_id LIKE :product AND section_id NOT LIKE :description"
+        ),
+        {"far": str([0.0, 1.0] + [0.0] * 1534), "product": "s20%", "description": "%:0"},
+    )
+    await db.commit()
+
+
+@pytest.mark.parametrize(
+    ("language", "question"),
+    [
+        ("ru", "Что посоветуете для иммунитета ребёнку 5 лет?"),
+        ("uz", "5 yoshli bolaning immuniteti uchun nima tavsiya qilasiz?"),
+    ],
+)
+async def test_general_age_recommendation_fits_in_russian_as_in_uzbek(test_db, language, question):
+    await seed_recommendation_sizes(test_db)
+    provider = DirectProposal(
+        {
+            "status": "answer",
+            "answer": "Подходит по инструкции."
+            if language == "ru"
+            else "Yoʻriqnomaga koʻra mos keladi.",
+            "source_ids": [f"s21{language}:2"],
+            "product_ids": [21],
+            "open_product_id": None,
+        }
+    )
+    sizes = []
+    respond = provider.response
+
+    async def measured(inputs, last):
+        sizes.append(len(encode(Provider.payload(inputs, last))))
+        return await respond(inputs, last)
+
+    provider.response = measured
+    bot = service(test_db, provider)
+    turn = request(question, language=language).model_copy(update={"page_product_id": None})
+    result = await bot.turn(turn, "age-recommendation")
+    assert result["status"] == "answer"
+    assert [p["id"] for p in result["products"]] == [21]
+    assert result["cautions"] == [f"s21{language}:2"]
+    assert [kind for kind, _ in provider.calls] == ["embedding", "response"]
+    wire = json.loads(provider.calls[1][1][0]["content"])
+    assert wire["candidate_origin"] == "retrieval"
+    assert wire["resolved_product_ids"] == [20, 21]
+    assert sorted({(s["product_id"], s["ordinal"]) for s in wire["preliminary"]["sections"]}) == [
+        (pid, ordinal) for pid in (20, 21) for ordinal in (0, 1, 2)
+    ]
+    # The Russian payload is above the former 12,000-byte bound; the Uzbek one is below it.
+    assert (sizes[0] > 12000) is (language == "ru")

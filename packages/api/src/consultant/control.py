@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.consultant.contracts import Fault
 from src.consultant.models import Budget, Control, Rate, Reservation, Run
+from src.consultant.provider import INPUT_TOKENS
 
 
 class Controls:
@@ -113,9 +114,12 @@ class Controls:
             if budget.attempts >= calls:
                 raise Fault("budget_exhausted", 429)
             if kind == "responses":
-                if budget.input_tokens + 12000 > inputs or budget.output_tokens + 4096 > outputs:
+                if (
+                    budget.input_tokens + INPUT_TOKENS > inputs
+                    or budget.output_tokens + 4096 > outputs
+                ):
                     raise Fault("budget_exhausted", 429)
-                budget.input_tokens += 12000
+                budget.input_tokens += INPUT_TOKENS
                 budget.output_tokens += 4096
             else:
                 if budget.embedding_tokens + 8000 > embeddings:
@@ -143,7 +147,7 @@ class Controls:
             reservation.received = True
             budget.received += 1
             if reservation.kind == "responses":
-                budget.input_tokens += inputs - 12000
+                budget.input_tokens += inputs - INPUT_TOKENS
                 budget.output_tokens += outputs - 4096
             else:
                 budget.embedding_tokens += inputs - 8000
