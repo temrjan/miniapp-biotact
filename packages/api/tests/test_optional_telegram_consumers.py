@@ -83,7 +83,9 @@ class FutureCustomers:
 
 @pytest_asyncio.fixture
 async def customers(scratch, monkeypatch):
-    await asyncio.to_thread(scratch.migrate)
+    # Current code needs the current schema (G1 reads new order columns); S3 at head already
+    # relaxes ``telegram_id``, so the statement below is kept only as a harmless no-op.
+    await asyncio.to_thread(scratch.migrate, target="head")
     scratch.assert_native()
     scratch.execute("ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL")
     scratch.execute("""

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     buyer_protection_key: SecretStr = SecretStr("")
     buyer_public_origin: str = "https://biotact.uz"
     buyer_trusted_proxy_peers: list[str] = []
+    # Website guest checkout (G1); reuses the buyer origin, protection key and proxy peers.
+    guest_checkout_enabled: bool = False
+    payment_callback_base_url: str = ""
+    guest_terms_version: str = ""
+    guest_privacy_version: str = ""
     # Delivery config is validated lazily by the separate worker, independently per lane.
     employee_referral_k2_sender_enabled: str = "false"
     employee_referral_k2_portal_origin: str = ""
@@ -115,23 +120,19 @@ class Settings(BaseSettings):
         ) and not self.buyer_sessions_enabled:
             raise ValueError("Buyer email entry requires buyer sessions")
         if self.buyer_sessions_enabled:
-            key = self.buyer_protection_key.get_secret_value()
-            origin = urlsplit(self.buyer_public_origin)
-            if (
-                len(key.encode("utf-8")) < 32
-                or key == self.secret_key.get_secret_value()
-                or self.database_echo
-                or origin.scheme != "https"
-                or not origin.hostname
-                or origin.username is not None
-                or origin.password is not None
-                or origin.port == 0
-                or origin.path
-                or origin.query
-                or origin.fragment
-                or self.buyer_public_origin != f"https://{origin.netloc}"
-            ):
+            if not self._protection_ready() or not _exact_https_origin(self.buyer_public_origin):
                 raise ValueError("Invalid private buyer configuration")
+            for peer in self.buyer_trusted_proxy_peers:
+                ip_network(peer, strict=True)
+        if self.guest_checkout_enabled:
+            if (
+                not self._protection_ready()
+                or not _exact_https_origin(self.buyer_public_origin)
+                or not _exact_https_origin(self.payment_callback_base_url)
+                or not _edition(self.guest_terms_version)
+                or not _edition(self.guest_privacy_version)
+            ):
+                raise ValueError("Invalid guest checkout configuration")
             for peer in self.buyer_trusted_proxy_peers:
                 ip_network(peer, strict=True)
         if self.buyer_telegram_auth_enabled and (
@@ -152,6 +153,34 @@ class Settings(BaseSettings):
         ):
             raise ValueError("Invalid buyer mail configuration")
         return self
+
+    def _protection_ready(self) -> bool:
+        key = self.buyer_protection_key.get_secret_value()
+        return (
+            len(key.encode("utf-8")) >= 32
+            and key != self.secret_key.get_secret_value()
+            and not self.database_echo
+        )
+
+
+def _exact_https_origin(value: str) -> bool:
+    origin = urlsplit(value)
+    return not (
+        origin.scheme != "https"
+        or not origin.hostname
+        or origin.username is not None
+        or origin.password is not None
+        or origin.port == 0
+        or origin.path
+        or origin.query
+        or origin.fragment
+        or value != f"https://{origin.netloc}"
+    )
+
+
+def _edition(value: str) -> bool:
+    """A published document edition identifier: 1-64 printable ASCII characters."""
+    return 1 <= len(value) <= 64 and all(" " <= c <= "~" for c in value)
 
 
 @lru_cache

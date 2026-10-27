@@ -13,7 +13,7 @@ from tests import test_category_schema_migration as migration
 
 scratch = migration.scratch
 PREVIOUS = "b7e31c904a62"
-CURRENT = "8d1b1791159b"
+CURRENT = "d8a14f90bc21"
 BUYER_TABLES = {
     "buyer_email_identities",
     "buyer_email_challenges",
@@ -79,7 +79,7 @@ def test_predecessor_preservation_native_null_unique_fk_and_parity(scratch):
     scratch.migrate(target=PREVIOUS)
     scratch.seed()
     before = preserved(scratch)
-    scratch.migrate(target="head")
+    scratch.migrate(target=CURRENT)
     assert scratch.marker() == CURRENT
     assert preserved(scratch) == before
     assert scratch.execute(
@@ -109,6 +109,7 @@ def test_predecessor_preservation_native_null_unique_fk_and_parity(scratch):
     ):
         with pytest.raises(error):
             scratch.execute(statement)
+    scratch.migrate(target="head")  # Model parity is defined at the current head (G1 after TG1).
     check_parity(scratch)
 
 
@@ -131,7 +132,7 @@ def test_clean_chain_and_empty_roundtrip(scratch):
 
 @pytest.mark.parametrize("state", ["identity", "challenge", "session", "limit", "null_user"])
 def test_populated_downgrade_refuses_before_any_change(scratch, state):
-    scratch.migrate(target="head")
+    scratch.migrate(target=CURRENT)
     scratch.execute(
         "INSERT INTO users(id,telegram_id,language_code,is_active,is_admin) VALUES(701,990701,'ru',true,false)"
     )

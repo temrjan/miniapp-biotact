@@ -249,6 +249,7 @@ async def process_payment_event(
             # row). Write the real debit now that the card has actually settled the remainder. This
             # sits INSIDE the state-guarded success branch, so a late success on an already
             # cancelled/paid order never reaches here — it cannot double-debit or resurrect a burn.
+            assert order.user_id is not None  # orders_owner_ck: points imply an owner.
             await loyalty_service.commit_redeem(
                 db, user_id=order.user_id, order_id=order.id, amount=order.points_applied
             )

@@ -29,7 +29,7 @@ export interface SizeStockDetails {
 export interface Order {
   id: number;
   order_number: string;
-  user_id: number;
+  user_id: number | null;
   status: OrderStatus;
   payment_uuid: string | null;
   payment_status: PaymentStatus | null;

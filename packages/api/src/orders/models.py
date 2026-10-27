@@ -53,16 +53,31 @@ class Order(Base):
             "'uncertain', 'paid', 'cancelled', 'refunded'))",
             name="orders_size_owner_ck",
         ),
+        # A website guest order (G1) has no owner: it carries an access digest, no points and the
+        # accepted legal editions instead.
+        CheckConstraint(
+            "user_id IS NOT NULL OR (guest_access_digest IS NOT NULL AND points_applied = 0 "
+            "AND legal_terms_version IS NOT NULL AND legal_privacy_version IS NOT NULL "
+            "AND legal_accepted_at IS NOT NULL)",
+            name="orders_owner_ck",
+        ),
+        Index("uq_orders_guest_access_digest", "guest_access_digest", unique=True),
+        Index("uq_orders_guest_idempotency_digest", "guest_idempotency_digest", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_number: Mapped[str] = mapped_column(String(50), unique=True, index=True)
 
-    # User
-    user_id: Mapped[int] = mapped_column(
+    # User; NULL only for a website guest order.
+    user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )
+    guest_access_digest: Mapped[str | None] = mapped_column(String(64))
+    guest_idempotency_digest: Mapped[str | None] = mapped_column(String(64))
+    legal_terms_version: Mapped[str | None] = mapped_column(String(64))
+    legal_privacy_version: Mapped[str | None] = mapped_column(String(64))
+    legal_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Status
     status: Mapped[OrderStatus] = mapped_column(

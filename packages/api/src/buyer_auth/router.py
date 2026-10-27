@@ -243,8 +243,9 @@ async def club(request: Request) -> dict[str, object]:
 class BuyerBoundaryMiddleware:
     """Guard private bodies/origin before Pydantic; run inside auth privacy, outside CORS."""
 
-    def __init__(self, app: ASGIApp, prefix: str, config: Settings) -> None:
-        self.app, self.prefix, self.config = app, prefix, config
+    def __init__(self, app: ASGIApp, prefix: str, config: Settings, *, guest: bool = False) -> None:
+        # ``guest`` reuses the same boundary for the website guest checkout under its own flag.
+        self.app, self.prefix, self.config, self.guest = app, prefix, config, guest
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         path = scope.get("path", "")
@@ -259,14 +260,21 @@ class BuyerBoundaryMiddleware:
         email_route = route in {"/email/challenges", "/email/verify"}
         telegram_route = bridge or route.startswith("/telegram/")
         error = None
-        if route != "/logout" and (
-            not self.config.buyer_sessions_enabled
-            or (email_route and not self.config.buyer_email_auth_enabled)
-            or (telegram_route and not self.config.buyer_telegram_auth_enabled)
-            or (
-                route == "/context"
-                and not (
-                    self.config.buyer_email_auth_enabled or self.config.buyer_telegram_auth_enabled
+        if self.guest and not self.config.guest_checkout_enabled:
+            error = BuyerAuthError(404, "guest_checkout_disabled")
+        elif (
+            not self.guest
+            and route != "/logout"
+            and (
+                not self.config.buyer_sessions_enabled
+                or (email_route and not self.config.buyer_email_auth_enabled)
+                or (telegram_route and not self.config.buyer_telegram_auth_enabled)
+                or (
+                    route == "/context"
+                    and not (
+                        self.config.buyer_email_auth_enabled
+                        or self.config.buyer_telegram_auth_enabled
+                    )
                 )
             )
         ):
