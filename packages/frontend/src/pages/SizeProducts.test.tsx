@@ -118,3 +118,17 @@ for (const language of ['ru', 'uz'] as const) {
     });
   }
 }
+
+it('full page video sends the origin as referrer despite the document no-referrer policy', async () => {
+  Object.assign(vest, { video_url: 'https://www.youtube.com/watch?v=abc123XYZ' });
+  render(
+    <MemoryRouter initialEntries={['/product/39']}>
+      <Routes>
+        <Route path="/product/:productId" element={<ProductPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+  const video = await screen.findByTitle('Product video');
+  expect(video).toHaveAttribute('src', 'https://www.youtube.com/embed/abc123XYZ');
+  expect(video).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+});
