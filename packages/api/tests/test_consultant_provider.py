@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from starlette.requests import Request
 
 from src.consultant.contracts import ContextArgs, Fault, Proposal
-from src.consultant.provider import Provider
+from src.consultant.provider import INPUT_TOKENS, Provider
 from src.consultant.router import network
 
 
@@ -39,7 +39,7 @@ async def test_real_adapter_uses_exact_profile_no_retry_and_bounded_body():
         with pytest.raises(Fault, match="invalid_answer"):
             await provider.response([], True)
         with pytest.raises(Fault, match="context_too_large"):
-            await provider.response([{"role": "user", "content": "x" * 12000}], False)
+            await provider.response([{"role": "user", "content": "x" * INPUT_TOKENS}], False)
         assert len(received) == 2  # oversized input never reached the HTTP channel
 
 
