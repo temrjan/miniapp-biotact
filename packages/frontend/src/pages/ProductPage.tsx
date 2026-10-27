@@ -279,7 +279,7 @@ export function ProductPage() {
           <>
             <div>
               <div className="aspect-video rounded-xl overflow-hidden">
-                <iframe src={embedUrl} title="Product video" className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                <iframe src={embedUrl} title="Product video" className="w-full h-full" referrerPolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
               </div>
             </div>
             <div className="h-px bg-[var(--border)]" />
