@@ -55,9 +55,10 @@ ENGINE_ORDER: tuple[str, ...] = ("1", "2", "3", "4", "5", "5.1", "5.2", "5.3", "
 ENGINE_ORDER += ("5.5", "5.6", "5.7", "5.8", "6", "7")
 
 # Jev through OpenRouter System One (plan r4 §3.5.1). The instruction sentence is the one
-# pilot r3 measured; criteria are the data's jev_criterion_full.
+# pilot r3 measured; criteria are the data's jev_criterion_full. The request names the pinned
+# 1.14 id (Captain D37 (1)); the served model is still checked against JEV_VERSION.
 JEV_URL = "https://openrouter.ai/api/v1/systemone"
-JEV_MODEL = "~typesafe/jev-latest"
+JEV_MODEL = "typesafe/jev-1.14"
 JEV_VERSION = re.compile(r"typesafe/jev-1\.14(?:-[0-9A-Za-z.]+)?")
 JEV_TIMEOUT = 3.0
 JEV_INSTRUCTIONS = (

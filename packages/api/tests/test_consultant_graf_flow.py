@@ -536,7 +536,7 @@ async def test_jev_request_shape():
     router = OpenRouter({"часто болею": "immunity"})
     await talk(router, ["часто болею"])
     (body,) = router.calls
-    assert body["model"] == "~typesafe/jev-latest"
+    assert body["model"] == "typesafe/jev-1.14"  # pinned id, Captain D37 (1)
     assert body["state"] == "часто болею"
     topic = body["questions"]["topic"]
     assert topic["type"] == "choice"
