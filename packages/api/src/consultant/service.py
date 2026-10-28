@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from src.consultant.context import SENSITIVE, Subject, Tokens, pure_open, resolve
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
+from src.consultant.graf import Graf, Reply
 from src.consultant.knowledge import ADVICE, Evidence, Knowledge
 from src.consultant.provider import Provider
 
@@ -45,7 +46,12 @@ RUSSIAN_PROSE = re.compile(
 
 class Consultant:
     def __init__(
-        self, controls: Controls, knowledge: Knowledge, provider: Provider, tokens: Tokens
+        self,
+        controls: Controls,
+        knowledge: Knowledge,
+        provider: Provider,
+        tokens: Tokens,
+        graf: Graf | None = None,
     ) -> None:
         self.controls, self.knowledge, self.provider, self.tokens = (
             controls,
@@ -53,6 +59,8 @@ class Consultant:
             provider,
             tokens,
         )
+        # Graf is on only when its key is configured (plan r4 section 2).
+        self.graf = graf
 
     async def waiting(self, owner: str, work: Coroutine[Any, Any, T]) -> T:
         task = asyncio.create_task(work)
@@ -83,11 +91,27 @@ class Consultant:
         selection, epoch = (
             self.tokens.read(request) if request.context_token else ([], str(uuid4()))
         )
+        if self.graf is not None:
+            # Plan r4 step 2: the ambulance list runs before register and snapshot. A "no"
+            # to the check question continues with the checked message instead.
+            early, request = self.graf.safety(request)
+            if early is not None:
+                return self.grafted(request, epoch, early)
         owner = await self.controls.register(request.request_id, request.tab_id)
         deadline = asyncio.get_running_loop().time() + 60
         try:
             async with asyncio.timeout_at(deadline):
                 evidence = await self.knowledge.snapshot(request.language)
+
+                def jev(work: Coroutine[Any, Any, T]) -> Coroutine[Any, Any, T]:
+                    return self.waiting(owner, work)
+
+                owned = self.graf is not None and self.graf.owns(request)
+                reply = (
+                    await self.graf.continuation(request, evidence, jev)
+                    if self.graf is not None and owned
+                    else None
+                )
                 if any(i not in evidence.products for i in selection):
                     selection = []
                 subject = resolve(
@@ -99,7 +123,11 @@ class Consultant:
                     else None,
                     request.context_token is None,
                 )
-                if subject.clarify:
+                if self.graf is not None and not owned and not subject.explicit and not selection:
+                    reply = await self.graf.first(request, evidence, jev)
+                if reply is not None:
+                    response = self.grafted(request, epoch, reply)
+                elif subject.clarify:
                     response = self.envelope(
                         request,
                         epoch,
@@ -176,6 +204,19 @@ class Consultant:
             with suppress(TimeoutError):
                 async with asyncio.timeout_at(deadline):
                     await self.controls.finish(owner)
+
+    def grafted(self, request: Turn, epoch: str, reply: Reply) -> dict[str, Any]:
+        return self.envelope(
+            request,
+            epoch,
+            reply.ids,
+            reply.status,
+            reply.answer,
+            reply.sources,
+            reply.products,
+            None,
+            reply.cautions,
+        )
 
     def native(
         self,

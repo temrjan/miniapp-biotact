@@ -18,6 +18,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from src.consultant.context import Tokens
 from src.consultant.contracts import Cancel, Fault, Refresh, Turn
 from src.consultant.control import Controls
+from src.consultant.graf import Graf, Jev
 from src.consultant.knowledge import Knowledge
 from src.consultant.provider import Provider
 from src.consultant.service import Consultant
@@ -174,12 +175,14 @@ async def runtime(app: Any, config: Any, sessions: Any) -> AsyncIterator[None]:
             config.consultant_daily_embedding_tokens,
         ),
     )
+    graf_key = config.consultant_graf_key.get_secret_value()
     async with httpx.AsyncClient(timeout=60, follow_redirects=False, trust_env=False) as client:
         app.state.consultant = Consultant(
             controls,
             Knowledge(sessions),
             Provider(client, provider_key),
             Tokens(config.consultant_protection_key.get_secret_value()),
+            Graf(Jev(client, graf_key)) if graf_key else None,
         )
         app.state.consultant_origins = config.consultant_origins
         app.state.consultant_trusted_proxy_peers = config.consultant_trusted_proxy_peers

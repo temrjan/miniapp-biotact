@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     consultant_daily_input_tokens: int = 0
     consultant_daily_output_tokens: int = 0
     consultant_daily_embedding_tokens: int = 0
+    # Graf (deterministic product offer through Jev); empty means Graf is off.
+    consultant_graf_key: SecretStr = SecretStr("")
 
     # Database
     database_url: str
