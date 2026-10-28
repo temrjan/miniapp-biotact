@@ -171,6 +171,27 @@ async def test_danger_bypass_branches_reach_103_before_register(test_db, message
     assert await runs(consultant) == 1
 
 
+@pytest.mark.parametrize(
+    "danger", ["не может дышать", "губы синеют", "nafas ololmayapman", "нафас ололмаяпти"]
+)
+async def test_danger_in_a_reply_to_a_graf_question_reaches_103_before_register(test_db, danger):
+    # Review r1 TST-01: the ambulance list also runs on a Graf-owned continuation turn.
+    await seed(test_db)
+    message = "сын часто болеет"
+    router = OpenRouter({message: "immunity"})
+    consultant = bot(test_db, router)
+    first = await say(consultant, message)
+    history = [(message, first.answer)]
+    assert first.status == "clarification"
+    assert graf.Graf.owns(turn("ему 5", first, history))
+    reply = await say(consultant, f"ему 5, {danger}", first, history)
+    assert reply.answer in variants("emergency.general")
+    assert (reply.status, reply.products, reply.sources) == ("limited", [], [])
+    assert router.states == [message]
+    assert consultant.provider.calls == []
+    assert await runs(consultant) == 1  # only the first turn was registered
+
+
 async def test_ambulance_layer_works_while_knowledge_is_unavailable(test_db):
     await seed(test_db)
     consultant = bot(test_db)

@@ -1047,6 +1047,25 @@ def rebuild(history: Sequence[Any]) -> Flow | None:
     return Flow(facts, last, templates)
 
 
+def pregnancy_context(request: Turn) -> bool:
+    """The ambulance slot 'pregnant' (match_spec requires_slot) for every customer message in
+    the window: a non-negated pregnancy word, or a reply that answers Graf's own pregnancy
+    question as pregnant, parsed as Facts.answer parses that slot (review r1 SAF-01)."""
+    messages = [p.question for p in request.history] + [request.question]
+    before: list[str | None] = [None] + [p.answer for p in request.history]
+    for text, answer in zip(messages, before, strict=True):
+        if any(r == "hit" for _, r in scan(text, PREGNANCY_WORDS)):
+            return True
+        asked = decode(answer) if answer is not None else None
+        if (
+            asked is not None
+            and asked.slot == "pregnant_or_lactating"
+            and parse_pregnancy_reply(text)
+        ):
+            return True
+    return False
+
+
 class Graf:
     """Steps 2, 3 and 5 to 7 of plan r4 section 3; service.py runs steps 1 and 4."""
 
@@ -1055,12 +1074,7 @@ class Graf:
 
     def safety(self, request: Turn) -> tuple[Reply | None, Turn]:
         """Step 2: ambulance list on every message, before register and snapshot."""
-        pregnant = any(
-            r == "hit"
-            for text in [request.question] + [p.question for p in request.history]
-            for _, r in scan(text, PREGNANCY_WORDS)
-        )
-        level, hits = tier(request.question, {"pregnant": pregnant})
+        level, hits = tier(request.question, {"pregnant": pregnancy_context(request)})
         writer = Writer(request)
         if level == "strong":
             templates = {

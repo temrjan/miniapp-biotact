@@ -599,6 +599,56 @@ async def test_danger_in_a_continuation_reply_still_gets_103():
     assert replies[1].answer in variants("emergency.general")
 
 
+# Review r1 SAF-01: a yes to Graf's own pregnancy question is pregnancy context for the
+# ambulance list, like a pregnancy word (plan r4 §4, D28 DN-11: pregnancy danger signs → 103).
+# "нет", "не знаю" and "bilmayman" are not; the "нет" row offers the non-pregnancy product.
+@pytest.mark.parametrize(
+    ("language", "messages", "expected"),
+    [
+        ("ru", ["часто болею", "мне 30", "женщина", "да, кровотечение"], "103"),
+        ("ru", ["часто болею", "мне 30", "женщина", "да, сильно болит живот"], "103"),
+        ("uz", ["tez-tez kasal bo'laman", "30 yoshdaman", "ayol", "ha, qon ketyapti"], "103"),
+        (
+            "uz",
+            ["tez-tez kasal bo'laman", "30 yoshdaman", "ayol", "ha, qorin qattiq og'riyapti"],
+            "103",
+        ),
+        ("uz", ["тез-тез касал бўламан", "30 ёшдаман", "аёл", "ҳа, қон кетяпти"], "103"),
+        ("ru", ["часто болею", "мне 30", "женщина", "да", "кровотечение"], "103"),
+        ("ru", ["часто болею", "мне 30", "женщина", "нет, кровотечение"], "offer"),
+        ("ru", ["часто болею", "мне 30", "женщина", "не знаю, кровотечение"], "reask"),
+        (
+            "uz",
+            ["tez-tez kasal bo'laman", "30 yoshdaman", "ayol", "bilmayman, qon ketyapti"],
+            "reask",
+        ),
+    ],
+)
+async def test_pregnancy_yes_answer_with_a_danger_sign_gets_103(language, messages, expected):
+    router = OpenRouter({messages[0]: "immunity"})
+    replies = await talk(router, messages, language)
+    assert any(v in replies[2].answer for v in variants("ask.pregnancy", language))
+    last = replies[-1]
+    assert last is not None
+    if expected == "103":
+        assert last.answer in variants("emergency.pregnancy", language)
+        assert (last.status, last.ids, last.products) == ("limited", [], [])
+        assert router.states == [messages[0]]
+    elif expected == "offer":
+        assert offered(last) == ["immunocomplex"]
+    else:
+        assert any(v in last.answer for v in variants("reask.pregnancy", language))
+
+
+async def test_pregnancy_word_in_an_earlier_message_carries_to_the_ambulance_list():
+    # Review r1 TST-02: the pregnancy word is only in the first message.
+    messages = ["я беременна, хочу что-нибудь для иммунитета", "30, сильно болит живот"]
+    replies = await talk(OpenRouter({messages[0]: "immunity"}), messages)
+    assert any(v in replies[0].answer for v in variants("ack.immunity"))
+    assert replies[1].answer in variants("emergency.pregnancy")
+    assert (replies[1].status, replies[1].ids) == ("limited", [])
+
+
 # --- determinism, wording, logs -----------------------------------------------------------
 
 
