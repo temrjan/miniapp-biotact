@@ -1,0 +1,3196 @@
+{
+ "version": "graf-data r4 (2026-10-28)",
+ "engine": {
+  "order": [
+   "1 Existing rate and SENSITIVE checks (service.py:78-82).",
+   "2 Ambulance list on every message while Graf is on (D31), in all three scripts regardless of request.language, before register and before the knowledge snapshot. Tiers (safety.json match_spec.ambulance_tiers): strong hit → 103 text (emergency.*), status limited, no product, empty selection; weak hit or negated strong hit → emergency.check, status clarification. Reply to emergency.check (templates continuation.check_map): yes or unparsed → 103; no → the message before the check continues from step 3 with ambulance hits ignored for it. Only this list runs on named-product questions.",
+   "3 Continuation: if the last history answer starts with a Graf acknowledgement variant AND contains a Graf question (templates.json continuation.ack_map + question_map), Graf owns the turn before resolve(). Situation from the ack, slot from the question; the reply is parsed by that slot's parser (safety.json parsers). The doctor lists and doctor_rules_with_slots run on this reply too, with the slots known at that point (review r3 I5), before the next question or the offer. Unparsed reply → one Jev call on the reply alone: a different situation at >= 0.7 starts a new flow, otherwise one re-ask (counted from history), then the no-product answer. Start pair outside the 4-pair window → step aside.",
+   "4 Named or displayed product (subject.explicit or a non-empty selection) → existing path, unchanged. An open product page alone does NOT stop Graf.",
+   "5 Graf first turn:",
+   "5.1 Jev: one Choice over the 46 situations with jev_criterion_full (unchanged since r2); state = the message; timeout 3 s; accept only a response model starting with typesafe/jev-1.14 (or a pinned 1.14 id).",
+   "5.2 Below 0.7, error or timeout → step aside. Version mismatch → step aside and one log line without customer text (D32 3). 'unclear' → step aside. 'other_unhandled' → uncovered_mode (D30: no_product_template).",
+   "5.3 Second complaint (D17): if the second-highest probability is >= 0.2 (provisional, ADR) and that situation has a different, non-null product_group, Graf steps aside.",
+   "5.4 Doctor lists (safety.json class 'doctor' + doctor_rules_with_slots; only inside Graf: here, on every continuation reply, and again before the offer with all slots known — review r3 I5) → doctor.* text, no product.",
+   "5.5 Hard exclusions: intolerance to the product or its components → intolerance.answer (no product); diarrhea words → the whole turn routes to situation 'diarrhea', where MAGNIY never appears (NI7).",
+   "5.6 Pregnancy situations need a pregnancy word in the message (or the pregnancy slot already true); otherwise route to the situation's 'without_pregnancy_word' neighbour (NI6).",
+   "5.7 Routing by the situation's routing rows (selection-rules r2 + D28); first matching 'when' wins.",
+   "5.8 Slots, one question per message (question.message = ack + question): who + age (age required); duration for acute situations; temperature for an infant under 6 months with a fever word; sex only if 18–60 and unknown and pregnancy_question = ask; pregnancy only where it changes the product (D28 DN-10). Situations imply slots.",
+   "6 Answer from templates.json only: [opening.not_treat when a treat word was written, D32] + acknowledgement + offer + reason per product + dose for the age band + notes; status answer; selection = offered product ids in text order, at most 2 (see 'answer').",
+   "7 Product lookup: exact Shop name and form from products.json, exactly one admitted product per id."
+  ],
+  "uncovered_mode": "no_product_template",
+  "uncovered_mode_values": {
+   "existing_path": "step aside to the existing consultant path",
+   "no_product_template": "answer with templates.json no_product.general (D30, Captain: 'Б, честный ответ без продукта')"
+  },
+  "storage": "D30 / D14: Graf stores no phrase, no conversation and no queue entry.",
+  "answer": {
+   "order": "Offer items are listed primary first, exactly as selection-rules r2 names them (e.g. diarrhea: BIFOLAK, then ZINCUM sticks). Text order = selection order, so ordinals in follow-ups resolve to the right card (NI5).",
+   "availability": "If one of two products is not admitted or not in stock in the current Shop snapshot, offer only the available one (offer.one with its own reason and dose). If none is available → no_product.unavailable (NI5).",
+   "status": {
+    "question": "clarification",
+    "emergency.check": "clarification",
+    "offer": "answer",
+    "doctor / ambulance / no_product / intolerance": "limited"
+   },
+   "treat_words": "D32 (2): messages with лечить / вылечить / назначь (safety.json vocab topic_treat) get Graf's offer like any other; the offer answer starts with opening.not_treat.",
+   "magniy_diarrhea_note": "note_magniy_diarrhea is prepended to the diarrhea answer only when Jev's top situation was in product_group 'magniy' and the diarrhea words rerouted the turn; otherwise it is not shown (review r3 I8)."
+  },
+  "hard_exclusions": {
+   "intolerance": "intolerance.answer (product named) or intolerance.answer_no_name; no product; allergy as a complaint ('у него аллергия') is NOT intolerance (NI4).",
+   "diarrhea": "Diarrhea words route the whole turn to situation 'diarrhea' (author's choice, NI7): e.g. 'нервный ребёнок, от стресса понос' → BIFOLAK + ZINCUM sticks, not NEUROCOMPLEX KIDS. MAGNIY never appears with diarrhea words."
+  },
+  "second_complaint": {
+   "rule": "D17 / plan r3 §3.5.3: Jev's second-best situation with probability >= 0.2 and a product_group different from the top situation's group → step aside. A null group (clarify-only, no-complaint) never triggers.",
+   "threshold": 0.2,
+   "threshold_status": "provisional; measured once with phrases-two-complaints.json during implementation"
+  },
+  "slots": {
+   "age": "required for every offer situation; read only with an age marker or as the reply to an age question (safety.json parsers.age, NB4).",
+   "whom": "optional; one relation per reply, a relation word beats a self word (NI2); used only for wording.",
+   "duration": "acute_cold and ent; 'N лет / недель' next to a duration word is a duration, never an age.",
+   "temperature": "asked only for an infant under 6 months with a fever word; needs a unit or a fever word (NS5).",
+   "sex": "asked only when age is 18–60, sex unknown, and pregnancy_question = 'ask' (D5).",
+   "pregnant_or_lactating": "asked only for a woman 18–60 when pregnancy_question = 'ask' (D5; D28 DN-10); otherwise set only from pregnancy words; never when the product person is a child or under 15.",
+   "form_pref": "'stick' when the text says the person cannot swallow capsules or asks for powder; never asked.",
+   "topic": "sub-topic words (safety.json vocab topic_*) choose the reason line only, never the product (exception: topic_osteoporosis in bones_50plus, D28 DN-8).",
+   "after_clarify": "true when the person already answered this situation's clarifying question."
+  },
+  "when_keys": {
+   "age_lt": "age < value",
+   "age_ge": "age >= value",
+   "pregnant_or_lactating": "slot value",
+   "sex": "slot value",
+   "topic": "topic word present",
+   "after_clarify": "clarifying question already answered"
+  },
+  "families": "'active' and 'magniy' resolve to capsule or stick by products.json families (age <= 7 → stick; older than 7 → capsules unless form_pref = stick; D28 DN-1).",
+  "dose_modes": {
+   "default": "dose_bands",
+   "acute_cold": "dose_acute_cold (ZINCUM+C+D3 only)",
+   "diarrhea": "dose_diarrhea (ZINCUM sticks only)"
+  },
+  "pregnancy_question_values": {
+   "ask": "ask sex/pregnancy per D5 because the routing changes (immunity → ZINCUM+C+D3)",
+   "detect_only": "never asked; set only from pregnancy words; note_pregnancy added then",
+   "implied_yes": "a pregnancy situation: allowed only with a pregnancy word, otherwise 'without_pregnancy_word' (NI6)",
+   "never": "not applicable"
+  },
+  "outcomes": {
+   "offer": "answer with products",
+   "doctor_soon": "doctor.* text",
+   "emergency": "emergency.* text",
+   "no_product": "named template",
+   "clarify": "clarifying question of the situation",
+   "reroute": "continue as situation 'to'",
+   "uncovered": "engine.uncovered_mode",
+   "step_aside": "existing consultant path"
+  },
+  "decisions": "D28 (DN-1…DN-12), D30, D31 and D32 applied.",
+  "scripts": "All safety lists, vocabularies and parsers run on every message in all three scripts (RU, UZ Latin, UZ Cyrillic), whatever request.language is (review r3 I8).",
+  "clarify_only_situations": "sport_general, child_poor_appetite, womens_health_bare and elderly_bare ask their clarifying question before age; the target situation then asks age (review r3 S6).",
+  "product_groups": {
+   "immune": [
+    "immunity",
+    "acute_cold",
+    "ent",
+    "recovery_after_illness"
+   ],
+   "gut": [
+    "diarrhea",
+    "gut_upset",
+    "gut_after_surgery",
+    "helminths",
+    "general_allergy",
+    "sport_nutrition"
+   ],
+   "skin_hair_nails": [
+    "skin_allergy",
+    "skin_hair",
+    "nails_only",
+    "nails_skin_hair"
+   ],
+   "eyes": [
+    "eyes",
+    "after_eye_surgery"
+   ],
+   "magniy": [
+    "constipation",
+    "adult_stress_sleep",
+    "pms_menopause",
+    "muscle_cramps",
+    "child_hyperactive_sleep",
+    "sport_muscles",
+    "pregnancy_tone_cramps"
+   ],
+   "neuro": [
+    "child_memory_attention",
+    "child_nervous_unspecified",
+    "premature_low_birth_weight",
+    "child_nervous_recovery"
+   ],
+   "bones": [
+    "sport_joints",
+    "pregnancy_teeth_bones",
+    "child_bones_teeth",
+    "recovery_injury_dental",
+    "bones_50plus"
+   ],
+   "growth_weight": [
+    "child_low_weight",
+    "child_growth_slow",
+    "sport_mass",
+    "child_poor_appetite"
+   ],
+   "zincum_c_d3": [
+    "sport_endurance",
+    "fertility_mens_health",
+    "pregnancy_general"
+   ],
+   "doctor": [
+    "see_doctor_soon"
+   ],
+   "uncovered": [
+    "other_unhandled"
+   ],
+   "None": [
+    "sport_general",
+    "womens_health_bare",
+    "elderly_bare",
+    "emergency",
+    "unclear"
+   ]
+  },
+  "product_groups_note": "Groups of situations whose offers share products; a second complaint in a different group makes Graf step aside (D17). 'None' = never triggers (clarify-only and no-complaint situations)."
+ },
+ "situations": [
+  {
+   "id": "immunity",
+   "name_ru": "Частые простуды, слабый иммунитет",
+   "name_uz": "Tez-tez shamollash, zaif immunitet",
+   "jev_criterion": "Gets ill often or has weak immunity and wants support or prevention, e.g. for the cold season; not ill right now.",
+   "jev_hints": {
+    "ru": [
+     "часто болеет",
+     "иммунитет слабый",
+     "ОРВИ замучили",
+     "на зиму",
+     "для иммунитета"
+    ],
+    "uz_latn": [
+     "tez-tez kasal",
+     "immunitet zaif",
+     "qishga",
+     "immunitet uchun"
+    ],
+    "uz_cyrl": [
+     "тез-тез касал",
+     "иммунитет заиф",
+     "қишга",
+     "иммунитет учун"
+    ]
+   },
+   "jev_criterion_full": "Gets ill often or has weak immunity and wants support or prevention, e.g. for the cold season; not ill right now. (RU: часто болеет, иммунитет слабый, ОРВИ замучили, на зиму, для иммунитета; UZ: tez-tez kasal, immunitet zaif, qishga, immunitet uchun / тез-тез касал, иммунитет заиф, қишга, иммунитет учун)",
+   "selection_rules_ref": "Immunity row; D18; D25",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "ask",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "pregnant_or_lactating": true
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "pregnancy",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_pregnancy"
+      ],
+      "rule_ref": "D25"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 7
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "immunocomplex_kids",
+        "indication": "weak_immunity",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D18"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 7
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "immunocomplex",
+        "indication": "weak_immunity",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D18"
+     }
+    }
+   ],
+   "ack_template": "ack.immunity",
+   "product_group": "immune"
+  },
+  {
+   "id": "acute_cold",
+   "name_ru": "Простуда сейчас",
+   "name_uz": "Hozir shamollagan",
+   "jev_criterion": "Has a cold now: sore throat, runny nose, cough or fever for a short time.",
+   "jev_hints": {
+    "ru": [
+     "простыл",
+     "горло болит",
+     "насморк",
+     "температура",
+     "кашель"
+    ],
+    "uz_latn": [
+     "shamolladim",
+     "tomog'im og'riyapti",
+     "tumov",
+     "isitma",
+     "yo'tal"
+    ],
+    "uz_cyrl": [
+     "шамолладим",
+     "томоғим оғрияпти",
+     "тумов",
+     "иситма",
+     "йўтал"
+    ]
+   },
+   "jev_criterion_full": "Has a cold now: sore throat, runny nose, cough or fever for a short time. (RU: простыл, горло болит, насморк, температура, кашель; UZ: shamolladim, tomog'im og'riyapti, tumov, isitma, yo'tal / шамолладим, томоғим оғрияпти, тумов, иситма, йўтал)",
+   "selection_rules_ref": "Acute cold row; D19",
+   "required_slots": [
+    "age",
+    "duration"
+   ],
+   "pregnancy_question": "ask",
+   "doctor_checks": [
+    "fever_duration",
+    "cold_over_10_days",
+    "cough_over_3_weeks",
+    "shortness_of_breath",
+    "infant_fever"
+   ],
+   "routing": [
+    {
+     "when": {
+      "pregnant_or_lactating": true
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "pregnancy",
+        "dose": "acute_cold"
+       }
+      ],
+      "notes": [
+       "note_pregnancy"
+      ],
+      "rule_ref": "D25"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 7
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "immunocomplex_kids",
+        "indication": "respiratory_ent",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D19"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 7,
+      "age_lt": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "immunocomplex",
+        "indication": "respiratory_ent",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D19"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "respiratory_cold",
+        "dose": "acute_cold"
+       }
+      ],
+      "rule_ref": "D19"
+     }
+    }
+   ],
+   "ack_template": "ack.acute_cold",
+   "product_group": "immune"
+  },
+  {
+   "id": "ent",
+   "name_ru": "ЛОР: отит, гайморит, ангина",
+   "name_uz": "LOR: otit, gaymorit, angina",
+   "jev_criterion": "Names an ear, nose or throat infection such as otitis, sinusitis or tonsillitis.",
+   "jev_hints": {
+    "ru": [
+     "отит",
+     "гайморит",
+     "ангина",
+     "ухо болит",
+     "тонзиллит"
+    ],
+    "uz_latn": [
+     "otit",
+     "gaymorit",
+     "angina",
+     "qulog'i og'riyapti"
+    ],
+    "uz_cyrl": [
+     "отит",
+     "гайморит",
+     "ангина",
+     "қулоғи оғрияпти"
+    ]
+   },
+   "jev_criterion_full": "Names an ear, nose or throat infection such as otitis, sinusitis or tonsillitis. (RU: отит, гайморит, ангина, ухо болит, тонзиллит; UZ: otit, gaymorit, angina, qulog'i og'riyapti / отит, гайморит, ангина, қулоғи оғрияпти)",
+   "selection_rules_ref": "ENT row; D26",
+   "required_slots": [
+    "age",
+    "duration"
+   ],
+   "pregnancy_question": "ask",
+   "doctor_checks": [
+    "fever_duration",
+    "cold_over_10_days",
+    "cough_over_3_weeks",
+    "shortness_of_breath",
+    "infant_fever"
+   ],
+   "routing": [
+    {
+     "when": {
+      "pregnant_or_lactating": true
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "pregnancy",
+        "dose": "acute_cold"
+       }
+      ],
+      "notes": [
+       "note_pregnancy"
+      ],
+      "rule_ref": "D25 + D26 ENT"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 7
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "immunocomplex_kids",
+        "indication": "respiratory_ent",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D26 ENT → D19"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 7,
+      "age_lt": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "immunocomplex",
+        "indication": "respiratory_ent",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D26 ENT → D19"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "respiratory_cold",
+        "dose": "acute_cold"
+       }
+      ],
+      "rule_ref": "D26 ENT → D19"
+     }
+    }
+   ],
+   "ack_template": "ack.ent",
+   "product_group": "immune"
+  },
+  {
+   "id": "constipation",
+   "name_ru": "Запор",
+   "name_uz": "Qabziyat",
+   "jev_criterion": "Has constipation: hard or rare stool, cannot go to the toilet.",
+   "jev_hints": {
+    "ru": [
+     "запор",
+     "не могу сходить в туалет",
+     "твёрдый стул"
+    ],
+    "uz_latn": [
+     "qabziyat",
+     "ich qotishi",
+     "hojatxonaga chiqolmayapman"
+    ],
+    "uz_cyrl": [
+     "қабзият",
+     "ич қотиши"
+    ]
+   },
+   "jev_criterion_full": "Has constipation: hard or rare stool, cannot go to the toilet. (RU: запор, не могу сходить в туалет, твёрдый стул; UZ: qabziyat, ich qotishi, hojatxonaga chiqolmayapman / қабзият, ич қотиши)",
+   "selection_rules_ref": "Constipation row; D21; hard exclusion: diarrhea words remove MAGNIY (B1)",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "magniy",
+        "indication": "constipation",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    }
+   ],
+   "ack_template": "ack.constipation",
+   "product_group": "magniy"
+  },
+  {
+   "id": "diarrhea",
+   "name_ru": "Понос, диарея",
+   "name_uz": "Ich ketishi, diareya",
+   "jev_criterion": "Has diarrhea: loose or watery stool.",
+   "jev_hints": {
+    "ru": [
+     "понос",
+     "диарея",
+     "жидкий стул",
+     "расстройство кишечника"
+    ],
+    "uz_latn": [
+     "ich ketyapti",
+     "ichi ketyapti",
+     "diareya",
+     "suyuq axlat"
+    ],
+    "uz_cyrl": [
+     "ич кетяпти",
+     "ичи кетяпти",
+     "диарея"
+    ]
+   },
+   "jev_criterion_full": "Has diarrhea: loose or watery stool. (RU: понос, диарея, жидкий стул, расстройство кишечника; UZ: ich ketyapti, ichi ketyapti, diareya, suyuq axlat / ич кетяпти, ичи кетяпти, диарея)",
+   "selection_rules_ref": "Diarrhea row; D21",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [
+    "blood_in_stool",
+    "child_dehydration",
+    "infant_diarrhea"
+   ],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 1
+     },
+     "then": {
+      "outcome": "doctor_soon",
+      "template": "doctor.infant_diarrhea",
+      "rule_ref": "D21; global rule 3"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 1,
+      "age_lt": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neo",
+        "indication": "digestion",
+        "dose": "default"
+       },
+       {
+        "product": "zincum_stick",
+        "indication": "diarrhea",
+        "dose": "diarrhea"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "digestion",
+        "dose": "default"
+       },
+       {
+        "product": "zincum_stick",
+        "indication": "diarrhea",
+        "dose": "diarrhea"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    }
+   ],
+   "ack_template": "ack.diarrhea",
+   "note": "MAGNIY is never offered on this path (B1). The ACTIVE/NEO reason quotes 'Нарушения пищеварения и стула' because no BIFOLAK indication line names diarrhea itself.",
+   "product_group": "gut"
+  },
+  {
+   "id": "gut_upset",
+   "name_ru": "Расстройство пищеварения, вздутие, после антибиотиков, отравление",
+   "name_uz": "Hazm buzilishi, qorin dam, antibiotikdan keyin, zaharlanish",
+   "jev_criterion": "Has an upset stomach, bloating, digestion trouble, gut problems after antibiotics, or food poisoning.",
+   "jev_hints": {
+    "ru": [
+     "вздутие",
+     "живот пучит",
+     "после антибиотиков",
+     "отравился",
+     "пищеварение"
+    ],
+    "uz_latn": [
+     "qorin dam",
+     "ovqat hazm bo'lmayapti",
+     "antibiotikdan keyin",
+     "zaharlandim"
+    ],
+    "uz_cyrl": [
+     "қорин дам",
+     "овқат ҳазм",
+     "антибиотикдан кейин",
+     "заҳарландим"
+    ]
+   },
+   "jev_criterion_full": "Has an upset stomach, bloating, digestion trouble, gut problems after antibiotics, or food poisoning. (RU: вздутие, живот пучит, после антибиотиков, отравился, пищеварение; UZ: qorin dam, ovqat hazm bo'lmayapti, antibiotikdan keyin, zaharlandim / қорин дам, овқат ҳазм, антибиотикдан кейин, заҳарландим)",
+   "selection_rules_ref": "Gut upset row; D21",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [
+    "blood_in_stool",
+    "child_dehydration"
+   ],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 3,
+      "topic": "antibiotics"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neo",
+        "indication": "antibiotics",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3,
+      "topic": "antibiotics"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "antibiotics",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 3,
+      "topic": "poisoning"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neo",
+        "indication": "poisoning",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3,
+      "topic": "poisoning"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "poisoning",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neo",
+        "indication": "digestion",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "digestion",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D21"
+     }
+    }
+   ],
+   "ack_template": "ack.gut_upset",
+   "note": "'topic' is set by safety.json vocabulary 'topic_antibiotics' / 'topic_poisoning'; it chooses only the reason line, never the product.",
+   "product_group": "gut"
+  },
+  {
+   "id": "gut_after_surgery",
+   "name_ru": "Кишечник после операции",
+   "name_uz": "Operatsiyadan keyin ichak",
+   "jev_criterion": "Wants to restore the gut after an operation.",
+   "jev_hints": {
+    "ru": [
+     "после операции на кишечнике",
+     "после операции живот",
+     "восстановить кишечник"
+    ],
+    "uz_latn": [
+     "operatsiyadan keyin ichak",
+     "ichak operatsiyasi"
+    ],
+    "uz_cyrl": [
+     "операциядан кейин ичак"
+    ]
+   },
+   "jev_criterion_full": "Wants to restore the gut after an operation. (RU: после операции на кишечнике, после операции живот, восстановить кишечник; UZ: operatsiyadan keyin ichak, ichak operatsiyasi / операциядан кейин ичак)",
+   "selection_rules_ref": "Gut after surgery row; I5",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neo",
+        "indication": "after_surgery",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_disease"
+      ],
+      "rule_ref": "I5"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "after_surgery",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_disease"
+      ],
+      "rule_ref": "I5"
+     }
+    }
+   ],
+   "ack_template": "ack.gut_after_surgery",
+   "product_group": "gut"
+  },
+  {
+   "id": "helminths",
+   "name_ru": "Глисты",
+   "name_uz": "Gijja",
+   "jev_criterion": "Mentions worms or helminths (parasites in the gut).",
+   "jev_hints": {
+    "ru": [
+     "глисты",
+     "гельминты",
+     "паразиты"
+    ],
+    "uz_latn": [
+     "gijja",
+     "gijjalar",
+     "parazit"
+    ],
+    "uz_cyrl": [
+     "гижжа",
+     "паразит"
+    ]
+   },
+   "jev_criterion_full": "Mentions worms or helminths (parasites in the gut). (RU: глисты, гельминты, паразиты; UZ: gijja, gijjalar, parazit / гижжа, паразит)",
+   "selection_rules_ref": "Helminths row; D26",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neo",
+        "indication": "helminths",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_disease"
+      ],
+      "rule_ref": "D26"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "helminths",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_disease"
+      ],
+      "rule_ref": "D26"
+     }
+    }
+   ],
+   "ack_template": "ack.helminths",
+   "product_group": "gut"
+  },
+  {
+   "id": "skin_allergy",
+   "name_ru": "Кожная аллергия, дерматит, сыпь, зуд",
+   "name_uz": "Teri allergiyasi, dermatit, toshma, qichishish",
+   "jev_criterion": "Has skin allergy symptoms: rash, itching, redness, irritation or dermatitis.",
+   "jev_hints": {
+    "ru": [
+     "сыпь",
+     "чешется",
+     "покраснение",
+     "дерматит",
+     "аллергия на коже"
+    ],
+    "uz_latn": [
+     "toshma",
+     "qichishyapti",
+     "qizarish",
+     "dermatit",
+     "teri allergiyasi"
+    ],
+    "uz_cyrl": [
+     "тошма",
+     "қичишяпти",
+     "қизариш",
+     "дерматит"
+    ]
+   },
+   "jev_criterion_full": "Has skin allergy symptoms: rash, itching, redness, irritation or dermatitis. (RU: сыпь, чешется, покраснение, дерматит, аллергия на коже; UZ: toshma, qichishyapti, qizarish, dermatit, teri allergiyasi / тошма, қичишяпти, қизариш, дерматит)",
+   "selection_rules_ref": "Skin allergy row; D22; D26",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neo",
+        "indication": "allergy",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D22"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3,
+      "age_lt": 4
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "allergy",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D22"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 4
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "dermacomplex",
+        "indication": "skin",
+        "dose": "default"
+       },
+       {
+        "product": "active",
+        "indication": "allergy",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D22, D26"
+     }
+    }
+   ],
+   "ack_template": "ack.skin_allergy",
+   "note": "A rash that does not fade when pressed is an ambulance sign (safety.json) and is checked first.",
+   "product_group": "skin_hair_nails"
+  },
+  {
+   "id": "general_allergy",
+   "name_ru": "Аллергия, диатез",
+   "name_uz": "Allergiya, diatez",
+   "jev_criterion": "Has an allergy in general (not about the skin) or an infant has diathesis.",
+   "jev_hints": {
+    "ru": [
+     "аллергия",
+     "диатез",
+     "аллергик"
+    ],
+    "uz_latn": [
+     "allergiya",
+     "diatez"
+    ],
+    "uz_cyrl": [
+     "аллергия",
+     "диатез"
+    ]
+   },
+   "jev_criterion_full": "Has an allergy in general (not about the skin) or an infant has diathesis. (RU: аллергия, диатез, аллергик; UZ: allergiya, diatez / аллергия, диатез)",
+   "selection_rules_ref": "General allergy row; D22",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neo",
+        "indication": "allergy",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D22"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "allergy",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D22"
+     }
+    }
+   ],
+   "ack_template": "ack.general_allergy",
+   "note": "Allergy or intolerance TO A PRODUCT is a hard exclusion (safety.json), not this situation.",
+   "product_group": "gut"
+  },
+  {
+   "id": "skin_hair",
+   "name_ru": "Сухая кожа, прыщи, грибок, выпадение и ломкость волос",
+   "name_uz": "Quruq teri, husnbuzar, zamburug', soch to'kilishi",
+   "jev_criterion": "Has dry skin, acne, skin fungus, or hair loss, slow hair growth or brittle hair.",
+   "jev_hints": {
+    "ru": [
+     "сухая кожа",
+     "прыщи",
+     "грибок",
+     "выпадают волосы",
+     "волосы секутся"
+    ],
+    "uz_latn": [
+     "terim quruq",
+     "husnbuzar",
+     "zamburug'",
+     "sochim to'kilyapti"
+    ],
+    "uz_cyrl": [
+     "терим қуруқ",
+     "ҳуснбузар",
+     "замбуруғ",
+     "сочим тўкиляпти"
+    ]
+   },
+   "jev_criterion_full": "Has dry skin, acne, skin fungus, or hair loss, slow hair growth or brittle hair. (RU: сухая кожа, прыщи, грибок, выпадают волосы, волосы секутся; UZ: terim quruq, husnbuzar, zamburug', sochim to'kilyapti / терим қуруқ, ҳуснбузар, замбуруғ, сочим тўкиляпти)",
+   "selection_rules_ref": "Dry skin / hair row",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 4
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.age_skin",
+      "rule_ref": "single-product row"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 4
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "dermacomplex",
+        "indication": "skin",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "single-product row"
+     }
+    }
+   ],
+   "ack_template": "ack.skin_hair",
+   "note": "Reason line: 'skin' for skin words, 'hair' for hair words (vocabulary topic_hair in safety.json). Fungus words add note_disease (review.groups S8 not approved; note trigger only).",
+   "product_group": "skin_hair_nails"
+  },
+  {
+   "id": "nails_only",
+   "name_ru": "Ломкие ногти",
+   "name_uz": "Mo'rt tirnoqlar",
+   "jev_criterion": "Has brittle, splitting or dull nails, with no skin or hair complaint.",
+   "jev_hints": {
+    "ru": [
+     "ломаются ногти",
+     "ногти слоятся",
+     "ломкие ногти"
+    ],
+    "uz_latn": [
+     "tirnoqlarim sinyapti",
+     "tirnoq mo'rt"
+    ],
+    "uz_cyrl": [
+     "тирноқларим синяпти",
+     "тирноқ мўрт"
+    ]
+   },
+   "jev_criterion_full": "Has brittle, splitting or dull nails, with no skin or hair complaint. (RU: ломаются ногти, ногти слоятся, ломкие ногти; UZ: tirnoqlarim sinyapti, tirnoq mo'rt / тирноқларим синяпти, тирноқ мўрт)",
+   "selection_rules_ref": "Nails only row; G8",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 4
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "nails",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G8"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 4
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "dermacomplex",
+        "indication": "nails",
+        "dose": "default"
+       },
+       {
+        "product": "calciy",
+        "indication": "nails",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G8"
+     }
+    }
+   ],
+   "ack_template": "ack.nails_only",
+   "product_group": "skin_hair_nails"
+  },
+  {
+   "id": "nails_skin_hair",
+   "name_ru": "Ногти вместе с кожей или волосами",
+   "name_uz": "Tirnoq bilan teri yoki soch",
+   "jev_criterion": "Has nail problems together with skin or hair problems.",
+   "jev_hints": {
+    "ru": [
+     "ногти и волосы",
+     "волосы и ногти ломкие",
+     "кожа и ногти"
+    ],
+    "uz_latn": [
+     "soch va tirnoq",
+     "tirnoq va teri"
+    ],
+    "uz_cyrl": [
+     "соч ва тирноқ",
+     "тирноқ ва тери"
+    ]
+   },
+   "jev_criterion_full": "Has nail problems together with skin or hair problems. (RU: ногти и волосы, волосы и ногти ломкие, кожа и ногти; UZ: soch va tirnoq, tirnoq va teri / соч ва тирноқ, тирноқ ва тери)",
+   "selection_rules_ref": "Nails with skin or hair row; G8",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 4
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "nails",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D28 (DN-7)"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 4
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "dermacomplex",
+        "indication": "nails",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G8"
+     }
+    }
+   ],
+   "ack_template": "ack.nails_skin_hair",
+   "product_group": "skin_hair_nails"
+  },
+  {
+   "id": "eyes",
+   "name_ru": "Глаза: компьютер, усталость, сухость, очки, зрение после 40",
+   "name_uz": "Ko'z: kompyuter, charchoq, quruqlik, ko'zoynak",
+   "jev_criterion": "Has tired, dry or red eyes, works at a computer, wears glasses or lenses, or vision changes with age.",
+   "jev_hints": {
+    "ru": [
+     "устают глаза",
+     "сухость глаз",
+     "компьютер",
+     "линзы",
+     "зрение падает"
+    ],
+    "uz_latn": [
+     "ko'zim charchayapti",
+     "ko'z quruq",
+     "kompyuter",
+     "linza",
+     "ko'rish pasaydi"
+    ],
+    "uz_cyrl": [
+     "кўзим чарчаяпти",
+     "кўз қуруқ",
+     "компьютер",
+     "линза"
+    ]
+   },
+   "jev_criterion_full": "Has tired, dry or red eyes, works at a computer, wears glasses or lenses, or vision changes with age. (RU: устают глаза, сухость глаз, компьютер, линзы, зрение падает; UZ: ko'zim charchayapti, ko'z quruq, kompyuter, linza, ko'rish pasaydi / кўзим чарчаяпти, кўз қуруқ, компьютер, линза)",
+   "selection_rules_ref": "Eyes row; G9",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [
+    "sudden_vision_loss_eye_pain"
+   ],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 7
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.age_eyes",
+      "rule_ref": "single-product row"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 7
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "ophtalmocomplex",
+        "indication": "eye_fatigue",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "single-product row, G9"
+     }
+    }
+   ],
+   "ack_template": "ack.eyes",
+   "note": "Reason by topic words: computer → 'computer', glasses/lenses → 'glasses_lenses', age 40+ or 'зрение' → 'age_40', eye disease words → 'eye_disease' + note_disease, otherwise 'eye_fatigue'.",
+   "product_group": "eyes"
+  },
+  {
+   "id": "after_eye_surgery",
+   "name_ru": "После операции на глазах",
+   "name_uz": "Ko'z operatsiyasidan keyin",
+   "jev_criterion": "Recovering after eye surgery.",
+   "jev_hints": {
+    "ru": [
+     "после операции на глазах",
+     "лазерная коррекция",
+     "после операции катаракты"
+    ],
+    "uz_latn": [
+     "ko'z operatsiyasidan keyin"
+    ],
+    "uz_cyrl": [
+     "кўз операциясидан кейин"
+    ]
+   },
+   "jev_criterion_full": "Recovering after eye surgery. (RU: после операции на глазах, лазерная коррекция, после операции катаракты; UZ: ko'z operatsiyasidan keyin / кўз операциясидан кейин)",
+   "selection_rules_ref": "After eye surgery row; G7",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [
+    "sudden_vision_loss_eye_pain"
+   ],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 7
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.age_eyes",
+      "rule_ref": "G7"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 7
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "ophtalmocomplex",
+        "indication": "after_surgery",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_disease"
+      ],
+      "rule_ref": "G7"
+     }
+    }
+   ],
+   "ack_template": "ack.after_eye_surgery",
+   "product_group": "eyes"
+  },
+  {
+   "id": "adult_stress_sleep",
+   "name_ru": "Стресс, усталость, плохой сон, тревога, раздражительность",
+   "name_uz": "Stress, charchoq, uyqusizlik, xavotir",
+   "jev_criterion": "An adult has stress, fatigue, poor sleep, anxiety or irritability.",
+   "jev_hints": {
+    "ru": [
+     "стресс",
+     "не могу уснуть",
+     "устаю",
+     "нервы",
+     "тревога"
+    ],
+    "uz_latn": [
+     "stress",
+     "uxlay olmayapman",
+     "charchayman",
+     "asabim",
+     "xavotir"
+    ],
+    "uz_cyrl": [
+     "стресс",
+     "ухлай олмаяпман",
+     "чарчайман",
+     "асабим",
+     "хавотир"
+    ]
+   },
+   "jev_criterion_full": "An adult has stress, fatigue, poor sleep, anxiety or irritability. (RU: стресс, не могу уснуть, устаю, нервы, тревога; UZ: stress, uxlay olmayapman, charchayman, asabim, xavotir / стресс, ухлай олмаяпман, чарчайман, асабим, хавотир)",
+   "selection_rules_ref": "Adult stress row; D23",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_ge": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "magniy",
+        "indication": "stress_sleep",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D23; D28 (DN-6: adult rows from 15)"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 15
+     },
+     "then": {
+      "outcome": "reroute",
+      "rule_ref": "D28 (DN-6); under 15 the child rows apply",
+      "to": "child_nervous_unspecified"
+     }
+    }
+   ],
+   "ack_template": "ack.adult_stress_sleep",
+   "product_group": "magniy"
+  },
+  {
+   "id": "pms_menopause",
+   "name_ru": "ПМС, климакс",
+   "name_uz": "Hayz oldi holati, klimaks",
+   "jev_criterion": "A woman has premenstrual syndrome or menopause complaints such as hot flushes.",
+   "jev_hints": {
+    "ru": [
+     "ПМС",
+     "перед месячными",
+     "климакс",
+     "приливы"
+    ],
+    "uz_latn": [
+     "hayz oldidan",
+     "klimaks"
+    ],
+    "uz_cyrl": [
+     "ҳайз олдидан",
+     "климакс"
+    ]
+   },
+   "jev_criterion_full": "A woman has premenstrual syndrome or menopause complaints such as hot flushes. (RU: ПМС, перед месячными, климакс, приливы; UZ: hayz oldidan, klimaks / ҳайз олдидан, климакс)",
+   "selection_rules_ref": "Adult stress row (PMS, menopause); D23; G9",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "never",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_ge": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "magniy",
+        "indication": "pms_menopause",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D23, G9; D28 (DN-6: adult rows from 15)"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 15
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.general",
+      "rule_ref": "D28 (DN-6): adult row starts at 15"
+     }
+    }
+   ],
+   "ack_template": "ack.pms_menopause",
+   "implied_sex": "female",
+   "product_group": "magniy"
+  },
+  {
+   "id": "muscle_cramps",
+   "name_ru": "Судороги в мышцах, спазмы, подёргивания",
+   "name_uz": "Mushak tortishishi, spazm",
+   "jev_criterion": "Has muscle cramps, spasms, twitching or tension (not after training, not a child's seizure with fever).",
+   "jev_hints": {
+    "ru": [
+     "сводит ногу",
+     "судороги в икрах",
+     "дёргается веко",
+     "спазмы мышц"
+    ],
+    "uz_latn": [
+     "oyog'im tortishyapti",
+     "mushak spazmi",
+     "ko'z qovog'im uchyapti"
+    ],
+    "uz_cyrl": [
+     "оёғим тортишяпти",
+     "мушак спазми"
+    ]
+   },
+   "jev_criterion_full": "Has muscle cramps, spasms, twitching or tension (not after training, not a child's seizure with fever). (RU: сводит ногу, судороги в икрах, дёргается веко, спазмы мышц; UZ: oyog'im tortishyapti, mushak spazmi, ko'z qovog'im uchyapti / оёғим тортишяпти, мушак спазми)",
+   "selection_rules_ref": "Muscle cramps row; D23",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "magniy",
+        "indication": "muscle",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D23"
+     }
+    }
+   ],
+   "ack_template": "ack.muscle_cramps",
+   "note": "A child's seizures with fever or loss of consciousness are an ambulance sign (safety.json).",
+   "product_group": "magniy"
+  },
+  {
+   "id": "child_memory_attention",
+   "name_ru": "Ребёнок: память, внимание, учёба, адаптация к саду или школе",
+   "name_uz": "Bola: xotira, diqqat, o'qish, moslashish",
+   "jev_criterion": "A child has poor memory or attention, struggles with study, or adapts to kindergarten or school.",
+   "jev_hints": {
+    "ru": [
+     "невнимательный",
+     "плохо запоминает",
+     "учёба",
+     "адаптация к садику",
+     "школа"
+    ],
+    "uz_latn": [
+     "diqqati tarqoq",
+     "eslab qololmaydi",
+     "maktab",
+     "bog'cha"
+    ],
+    "uz_cyrl": [
+     "диққати тарқоқ",
+     "эслаб қололмайди",
+     "мактаб",
+     "боғча"
+    ]
+   },
+   "jev_criterion_full": "A child has poor memory or attention, struggles with study, or adapts to kindergarten or school. (RU: невнимательный, плохо запоминает, учёба, адаптация к садику, школа; UZ: diqqati tarqoq, eslab qololmaydi, maktab, bog'cha / диққати тарқоқ, эслаб қололмайди, мактаб, боғча)",
+   "selection_rules_ref": "Child memory row; D23",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 18,
+      "topic": "adaptation"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neurocomplex_kids",
+        "indication": "adaptation",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D23; D28 (DN-6: child rows up to 17)"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 18
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neurocomplex_kids",
+        "indication": "memory_attention",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D23; D28 (DN-6: child rows up to 17)"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 18
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.general",
+      "rule_ref": "D28 (DN-6); no original names memory for adults"
+     }
+    }
+   ],
+   "ack_template": "ack.child_memory_attention",
+   "product_group": "neuro"
+  },
+  {
+   "id": "child_hyperactive_sleep",
+   "name_ru": "Ребёнок гиперактивный, плохо спит, возбудимый",
+   "name_uz": "Bola giperaktiv, yomon uxlaydi",
+   "jev_criterion": "A child is hyperactive, excitable or sleeps badly.",
+   "jev_hints": {
+    "ru": [
+     "гиперактивный",
+     "не сидит на месте",
+     "плохо спит",
+     "возбудимый"
+    ],
+    "uz_latn": [
+     "giperaktiv",
+     "yomon uxlaydi",
+     "tinch o'tirmaydi"
+    ],
+    "uz_cyrl": [
+     "гиперактив",
+     "ёмон ухлайди",
+     "тинч ўтирмайди"
+    ]
+   },
+   "jev_criterion_full": "A child is hyperactive, excitable or sleeps badly. (RU: гиперактивный, не сидит на месте, плохо спит, возбудимый; UZ: giperaktiv, yomon uxlaydi, tinch o'tirmaydi / гиперактив, ёмон ухлайди, тинч ўтирмайди)",
+   "selection_rules_ref": "Child hyperactive row; D23",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "topic": "child_sleep"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "magniy",
+        "indication": "stress_sleep",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D23"
+     }
+    },
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "magniy",
+        "indication": "hyperactivity",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D23"
+     }
+    }
+   ],
+   "ack_template": "ack.child_hyperactive_sleep",
+   "product_group": "magniy"
+  },
+  {
+   "id": "child_nervous_unspecified",
+   "name_ru": "Нервный ребёнок (без уточнения)",
+   "name_uz": "Asabiy bola",
+   "jev_criterion": "A child is 'nervous' or anxious without a more specific complaint.",
+   "jev_hints": {
+    "ru": [
+     "нервный ребёнок",
+     "ребёнок нервничает",
+     "капризный"
+    ],
+    "uz_latn": [
+     "bolam asabiy",
+     "injiq"
+    ],
+    "uz_cyrl": [
+     "болам асабий",
+     "инжиқ"
+    ]
+   },
+   "jev_criterion_full": "A child is 'nervous' or anxious without a more specific complaint. (RU: нервный ребёнок, ребёнок нервничает, капризный; UZ: bolam asabiy, injiq / болам асабий, инжиқ)",
+   "selection_rules_ref": "'Nervous child' row; D23",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 18
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neurocomplex_kids",
+        "indication": "mental_load_stress",
+        "dose": "default"
+       },
+       {
+        "product": "magniy",
+        "indication": "stress_sleep",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D23; D28 (DN-6: child rows up to 17)"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 18
+     },
+     "then": {
+      "outcome": "reroute",
+      "rule_ref": "D28 (DN-6): an adult goes to the adult row",
+      "to": "adult_stress_sleep"
+     }
+    }
+   ],
+   "ack_template": "ack.child_nervous_unspecified",
+   "product_group": "neuro"
+  },
+  {
+   "id": "sport_endurance",
+   "name_ru": "Спорт: сила, выносливость, «после зала часто болею»",
+   "name_uz": "Sport: kuch, chidamlilik",
+   "jev_criterion": "Does sport and wants more strength or endurance, or often gets ill after training.",
+   "jev_hints": {
+    "ru": [
+     "выносливость",
+     "сила",
+     "зал",
+     "тренировки"
+    ],
+    "uz_latn": [
+     "chidamlilik",
+     "kuch",
+     "zal",
+     "mashg'ulot"
+    ],
+    "uz_cyrl": [
+     "чидамлилик",
+     "куч",
+     "зал",
+     "машғулот"
+    ]
+   },
+   "jev_criterion_full": "Does sport and wants more strength or endurance, or often gets ill after training. (RU: выносливость, сила, зал, тренировки; UZ: chidamlilik, kuch, zal, mashg'ulot / чидамлилик, куч, зал, машғулот)",
+   "selection_rules_ref": "Sport strength row; D24; D28 (DN-3)",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_ge": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "sport",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D24"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 15,
+      "after_clarify": true
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.sport_child_endurance",
+      "rule_ref": "D28 (DN-3): endurance under 15 has no product"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 15
+     },
+     "then": {
+      "outcome": "clarify",
+      "rule_ref": "D28 (DN-3)",
+      "clarify": "sport_child"
+     }
+    }
+   ],
+   "ack_template": "ack.sport_endurance",
+   "clarify": {
+    "template": "clarify.sport_child",
+    "options": [
+     {
+      "id": "muscles",
+      "to": "sport_muscles"
+     },
+     {
+      "id": "joints",
+      "to": "sport_joints"
+     },
+     {
+      "id": "mass",
+      "to": "sport_mass"
+     },
+     {
+      "id": "endurance",
+      "to": "sport_endurance",
+      "set": {
+       "after_clarify": true
+      }
+     }
+    ]
+   },
+   "product_group": "zincum_c_d3"
+  },
+  {
+   "id": "sport_muscles",
+   "name_ru": "Спорт: болят или сводит мышцы после тренировки",
+   "name_uz": "Sport: mashg'ulotdan keyin mushak og'rig'i",
+   "jev_criterion": "Muscles are sore or cramp after training.",
+   "jev_hints": {
+    "ru": [
+     "мышцы болят после тренировки",
+     "крепатура",
+     "сводит после зала"
+    ],
+    "uz_latn": [
+     "mashg'ulotdan keyin mushaklarim og'riyapti"
+    ],
+    "uz_cyrl": [
+     "машғулотдан кейин мушакларим оғрияпти"
+    ]
+   },
+   "jev_criterion_full": "Muscles are sore or cramp after training. (RU: мышцы болят после тренировки, крепатура, сводит после зала; UZ: mashg'ulotdan keyin mushaklarim og'riyapti / машғулотдан кейин мушакларим оғрияпти)",
+   "selection_rules_ref": "Sport muscles row; D24; I11",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "magniy",
+        "indication": "sport_muscle",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D24, I11"
+     }
+    }
+   ],
+   "ack_template": "ack.sport_muscles",
+   "product_group": "magniy"
+  },
+  {
+   "id": "sport_joints",
+   "name_ru": "Спорт: суставы и кости при нагрузке",
+   "name_uz": "Sport: bo'g'im va suyaklar",
+   "jev_criterion": "Wants to protect joints and bones under sport load.",
+   "jev_hints": {
+    "ru": [
+     "суставы",
+     "колени",
+     "связки",
+     "кости"
+    ],
+    "uz_latn": [
+     "bo'g'im",
+     "tizza",
+     "suyak"
+    ],
+    "uz_cyrl": [
+     "бўғим",
+     "тизза",
+     "суяк"
+    ]
+   },
+   "jev_criterion_full": "Wants to protect joints and bones under sport load. (RU: суставы, колени, связки, кости; UZ: bo'g'im, tizza, suyak / бўғим, тизза, суяк)",
+   "selection_rules_ref": "Sport joints row; D24",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [
+    "acute_injury"
+   ],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "sport_joints",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D24"
+     }
+    }
+   ],
+   "ack_template": "ack.sport_joints",
+   "product_group": "bones"
+  },
+  {
+   "id": "sport_nutrition",
+   "name_ru": "Спорт: усвоение белка, сушка, похудение",
+   "name_uz": "Sport: oqsil o'zlashtirish, ozish",
+   "jev_criterion": "Wants better absorption of protein or nutrients for sport, or wants to lose weight or dry out.",
+   "jev_hints": {
+    "ru": [
+     "усвоение белка",
+     "сушка",
+     "похудеть",
+     "протеин"
+    ],
+    "uz_latn": [
+     "ozmoqchiman",
+     "oqsil",
+     "protein"
+    ],
+    "uz_cyrl": [
+     "озмоқчиман",
+     "оқсил",
+     "протеин"
+    ]
+   },
+   "jev_criterion_full": "Wants better absorption of protein or nutrients for sport, or wants to lose weight or dry out. (RU: усвоение белка, сушка, похудеть, протеин; UZ: ozmoqchiman, oqsil, protein / озмоқчиман, оқсил, протеин)",
+   "selection_rules_ref": "Sport nutrition row; D24",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 3
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.general",
+      "rule_ref": "D24 (3+)"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3,
+      "topic": "weight_loss"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "weight_loss",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D24"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 3
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "active",
+        "indication": "sport",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D24"
+     }
+    }
+   ],
+   "ack_template": "ack.sport_nutrition",
+   "product_group": "gut"
+  },
+  {
+   "id": "sport_mass",
+   "name_ru": "Спорт/вес: набрать массу, «худой»",
+   "name_uz": "Vazn olish, ozg'in",
+   "jev_criterion": "Wants to gain muscle mass or weight, or says the person is too thin, in a sport context.",
+   "jev_hints": {
+    "ru": [
+     "набрать массу",
+     "худой",
+     "мышечная масса"
+    ],
+    "uz_latn": [
+     "vazn olish",
+     "massa",
+     "ozg'in"
+    ],
+    "uz_cyrl": [
+     "вазн олиш",
+     "масса",
+     "озғин"
+    ]
+   },
+   "jev_criterion_full": "Wants to gain muscle mass or weight, or says the person is too thin, in a sport context. (RU: набрать массу, худой, мышечная масса; UZ: vazn olish, massa, ozg'in / вазн олиш, масса, озғин)",
+   "selection_rules_ref": "Sport, child: mass row; D26",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 1
+     },
+     "then": {
+      "outcome": "doctor_soon",
+      "template": "doctor.infant_weight",
+      "rule_ref": "B2"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 1,
+      "age_lt": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_stick",
+        "indication": "low_weight",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D26 child sport"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "sport",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D28 (DN-4)"
+     }
+    }
+   ],
+   "ack_template": "ack.sport_mass",
+   "product_group": "growth_weight"
+  },
+  {
+   "id": "sport_general",
+   "name_ru": "«Что для спорта» без уточнения",
+   "name_uz": "Sport uchun nima",
+   "jev_criterion": "Asks in general what to take for sport, with no specific goal.",
+   "jev_hints": {
+    "ru": [
+     "что для спорта",
+     "для спортсмена",
+     "хожу в зал, что пить"
+    ],
+    "uz_latn": [
+     "sport uchun nima",
+     "sportchi uchun"
+    ],
+    "uz_cyrl": [
+     "спорт учун нима"
+    ]
+   },
+   "jev_criterion_full": "Asks in general what to take for sport, with no specific goal. (RU: что для спорта, для спортсмена, хожу в зал, что пить; UZ: sport uchun nima, sportchi uchun / спорт учун нима)",
+   "selection_rules_ref": "'Что для спорта' row; D24",
+   "required_slots": [],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "outcome": "clarify",
+      "rule_ref": "D24",
+      "clarify": "sport_general"
+     }
+    }
+   ],
+   "ack_template": "ack.sport_general",
+   "clarify": {
+    "template": "clarify.sport_general",
+    "options": [
+     {
+      "id": "endurance",
+      "to": "sport_endurance"
+     },
+     {
+      "id": "muscles",
+      "to": "sport_muscles"
+     },
+     {
+      "id": "joints",
+      "to": "sport_joints"
+     },
+     {
+      "id": "nutrition",
+      "to": "sport_nutrition"
+     }
+    ]
+   },
+   "product_group": null
+  },
+  {
+   "id": "pregnancy_general",
+   "name_ru": "Беременность или кормление, без жалобы",
+   "name_uz": "Homiladorlik yoki emizish, shikoyatsiz",
+   "jev_criterion": "A pregnant or breastfeeding woman asks what she can take, with no specific complaint.",
+   "jev_hints": {
+    "ru": [
+     "беременна",
+     "кормлю грудью",
+     "что можно беременным"
+    ],
+    "uz_latn": [
+     "homiladorman",
+     "emizaman",
+     "homiladorlarga nima mumkin"
+    ],
+    "uz_cyrl": [
+     "ҳомиладорман",
+     "эмизаман"
+    ]
+   },
+   "jev_criterion_full": "A pregnant or breastfeeding woman asks what she can take, with no specific complaint. (RU: беременна, кормлю грудью, что можно беременным; UZ: homiladorman, emizaman, homiladorlarga nima mumkin / ҳомиладорман, эмизаман)",
+   "selection_rules_ref": "Pregnancy, no complaint row; D25",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "implied_yes",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "pregnancy",
+        "dose": "default"
+       },
+       {
+        "product": "calciy",
+        "indication": "pregnancy",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_pregnancy"
+      ],
+      "rule_ref": "D25"
+     }
+    }
+   ],
+   "ack_template": "ack.pregnancy_general",
+   "implied_sex": "female",
+   "product_group": "zincum_c_d3",
+   "requires_word": "pregnant_or_lactating",
+   "without_pregnancy_word": "womens_health_bare"
+  },
+  {
+   "id": "pregnancy_tone_cramps",
+   "name_ru": "Беременность: тонус, тревога, судороги в икрах",
+   "name_uz": "Homiladorlik: tonus, xavotir, boldir tortishishi",
+   "jev_criterion": "A pregnant woman has uterine tone, anxiety, calf cramps or poor sleep.",
+   "jev_hints": {
+    "ru": [
+     "тонус",
+     "сводит икры",
+     "беременна и тревожно"
+    ],
+    "uz_latn": [
+     "bachadon tonusi",
+     "boldirim tortishyapti"
+    ],
+    "uz_cyrl": [
+     "бачадон тонуси",
+     "болдирим тортишяпти"
+    ]
+   },
+   "jev_criterion_full": "A pregnant woman has uterine tone, anxiety, calf cramps or poor sleep. (RU: тонус, сводит икры, беременна и тревожно; UZ: bachadon tonusi, boldirim tortishyapti / бачадон тонуси, болдирим тортишяпти)",
+   "selection_rules_ref": "Pregnancy tone row; D25; hard exclusion diarrhea (B1)",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "implied_yes",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "magniy",
+        "indication": "pregnancy",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_pregnancy"
+      ],
+      "rule_ref": "D25"
+     }
+    }
+   ],
+   "ack_template": "ack.pregnancy_tone_cramps",
+   "implied_sex": "female",
+   "product_group": "magniy",
+   "requires_word": "pregnant_or_lactating",
+   "without_pregnancy_word": "muscle_cramps"
+  },
+  {
+   "id": "pregnancy_teeth_bones",
+   "name_ru": "Беременность: зубы, кости",
+   "name_uz": "Homiladorlik: tish, suyak",
+   "jev_criterion": "A pregnant or breastfeeding woman worries about her teeth or bones, or asks about calcium.",
+   "jev_hints": {
+    "ru": [
+     "зубы крошатся при беременности",
+     "кальций беременным",
+     "кости"
+    ],
+    "uz_latn": [
+     "homiladorlikda tishlarim",
+     "kalsiy"
+    ],
+    "uz_cyrl": [
+     "ҳомиладорликда тишларим",
+     "кальций"
+    ]
+   },
+   "jev_criterion_full": "A pregnant or breastfeeding woman worries about her teeth or bones, or asks about calcium. (RU: зубы крошатся при беременности, кальций беременным, кости; UZ: homiladorlikda tishlarim, kalsiy / ҳомиладорликда тишларим, кальций)",
+   "selection_rules_ref": "Pregnancy teeth row; D25",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "implied_yes",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "pregnancy",
+        "dose": "default"
+       }
+      ],
+      "notes": [
+       "note_pregnancy"
+      ],
+      "rule_ref": "D25"
+     }
+    }
+   ],
+   "ack_template": "ack.pregnancy_teeth_bones",
+   "implied_sex": "female",
+   "product_group": "bones",
+   "requires_word": "pregnant_or_lactating",
+   "without_pregnancy_word": "bones_50plus"
+  },
+  {
+   "id": "child_low_weight",
+   "name_ru": "Ребёнок с низким весом",
+   "name_uz": "Bolaning vazni kam",
+   "jev_criterion": "A child weighs too little or does not gain weight.",
+   "jev_hints": {
+    "ru": [
+     "плохо набирает вес",
+     "мало весит",
+     "вес ниже нормы"
+    ],
+    "uz_latn": [
+     "vazn olmayapti",
+     "vazni kam"
+    ],
+    "uz_cyrl": [
+     "вазн олмаяпти",
+     "вазни кам"
+    ]
+   },
+   "jev_criterion_full": "A child weighs too little or does not gain weight. (RU: плохо набирает вес, мало весит, вес ниже нормы; UZ: vazn olmayapti, vazni kam / вазн олмаяпти, вазни кам)",
+   "selection_rules_ref": "Child low weight row; G6; B2",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 1
+     },
+     "then": {
+      "outcome": "doctor_soon",
+      "template": "doctor.infant_weight",
+      "rule_ref": "B2"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 1,
+      "age_lt": 18
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_stick",
+        "indication": "low_weight",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G6"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 18
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.general",
+      "rule_ref": "D28 (DN-5): adult low weight, honest answer; nothing stored (D30)"
+     }
+    }
+   ],
+   "ack_template": "ack.child_low_weight",
+   "product_group": "growth_weight"
+  },
+  {
+   "id": "child_poor_appetite",
+   "name_ru": "Ребёнок плохо ест (без слова о весе)",
+   "name_uz": "Bola yomon ovqatlanadi",
+   "jev_criterion": "A child eats poorly, with nothing said about weight.",
+   "jev_hints": {
+    "ru": [
+     "плохо ест",
+     "нет аппетита",
+     "не хочет есть"
+    ],
+    "uz_latn": [
+     "yomon ovqatlanadi",
+     "ishtahasi yo'q"
+    ],
+    "uz_cyrl": [
+     "ёмон овқатланади",
+     "иштаҳаси йўқ"
+    ]
+   },
+   "jev_criterion_full": "A child eats poorly, with nothing said about weight. (RU: плохо ест, нет аппетита, не хочет есть; UZ: yomon ovqatlanadi, ishtahasi yo'q / ёмон овқатланади, иштаҳаси йўқ)",
+   "selection_rules_ref": "Data note I8",
+   "required_slots": [],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "outcome": "clarify",
+      "rule_ref": "I8",
+      "clarify": "weight_low"
+     }
+    }
+   ],
+   "ack_template": "ack.child_poor_appetite",
+   "clarify": {
+    "template": "clarify.weight_low",
+    "options": [
+     {
+      "id": "yes",
+      "to": "child_low_weight"
+     },
+     {
+      "id": "no",
+      "to": "other_unhandled"
+     }
+    ]
+   },
+   "product_group": "growth_weight"
+  },
+  {
+   "id": "child_growth_slow",
+   "name_ru": "Ребёнок медленно растёт",
+   "name_uz": "Bola sekin o'syapti",
+   "jev_criterion": "A child grows slowly or is short for the age.",
+   "jev_hints": {
+    "ru": [
+     "плохо растёт",
+     "маленький рост",
+     "отстаёт в росте"
+    ],
+    "uz_latn": [
+     "bo'yi o'smayapti",
+     "past bo'yli"
+    ],
+    "uz_cyrl": [
+     "бўйи ўсмаяпти",
+     "паст бўйли"
+    ]
+   },
+   "jev_criterion_full": "A child grows slowly or is short for the age. (RU: плохо растёт, маленький рост, отстаёт в росте; UZ: bo'yi o'smayapti, past bo'yli / бўйи ўсмаяпти, паст бўйли)",
+   "selection_rules_ref": "Child growing slowly row; G6",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 1
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "children_bones",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G6"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 1
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_stick",
+        "indication": "growth",
+        "dose": "default"
+       },
+       {
+        "product": "calciy",
+        "indication": "children_bones",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G6"
+     }
+    }
+   ],
+   "ack_template": "ack.child_growth_slow",
+   "product_group": "growth_weight"
+  },
+  {
+   "id": "child_bones_teeth",
+   "name_ru": "Рахит, осанка, детские зубы",
+   "name_uz": "Raxit, qomat, bolalar tishlari",
+   "jev_criterion": "Asks about preventing rickets, posture or curvature, or a child's teeth and caries.",
+   "jev_hints": {
+    "ru": [
+     "рахит",
+     "осанка",
+     "сутулится",
+     "зубки крошатся"
+    ],
+    "uz_latn": [
+     "raxit",
+     "qomat",
+     "tishlari chiriyapti"
+    ],
+    "uz_cyrl": [
+     "рахит",
+     "қомат",
+     "тишлари чирияпти"
+    ]
+   },
+   "jev_criterion_full": "Asks about preventing rickets, posture or curvature, or a child's teeth and caries. (RU: рахит, осанка, сутулится, зубки крошатся; UZ: raxit, qomat, tishlari chiriyapti / рахит, қомат, тишлари чирияпти)",
+   "selection_rules_ref": "Rickets, posture, children's teeth row; G6",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "children_bones",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G6"
+     }
+    }
+   ],
+   "ack_template": "ack.child_bones_teeth",
+   "note": "Reason quotes only the original line ('предотвращения рахита, искривлений…'); posture words map to 'искривлений' (I8).",
+   "product_group": "bones"
+  },
+  {
+   "id": "premature_low_birth_weight",
+   "name_ru": "Недоношенный, низкий вес при рождении",
+   "name_uz": "Chala tug'ilgan, kam vazn bilan tug'ilgan",
+   "jev_criterion": "The child was born prematurely or with low birth weight.",
+   "jev_hints": {
+    "ru": [
+     "недоношенный",
+     "родился раньше срока",
+     "маленький вес при рождении"
+    ],
+    "uz_latn": [
+     "chala tug'ilgan",
+     "muddatidan oldin tug'ilgan"
+    ],
+    "uz_cyrl": [
+     "чала туғилган",
+     "муддатидан олдин туғилган"
+    ]
+   },
+   "jev_criterion_full": "The child was born prematurely or with low birth weight. (RU: недоношенный, родился раньше срока, маленький вес при рождении; UZ: chala tug'ilgan, muddatidan oldin tug'ilgan / чала туғилган, муддатидан олдин туғилган)",
+   "selection_rules_ref": "Premature birth row; G6",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "neurocomplex_kids",
+        "indication": "premature_low_birth_weight",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G6"
+     }
+    }
+   ],
+   "ack_template": "ack.premature_low_birth_weight",
+   "product_group": "neuro"
+  },
+  {
+   "id": "recovery_after_illness",
+   "name_ru": "Восстановление после болезни",
+   "name_uz": "Kasallikdan keyin tiklanish",
+   "jev_criterion": "Wants to recover after an illness: weakness, no strength.",
+   "jev_hints": {
+    "ru": [
+     "после болезни слабость",
+     "восстановиться после гриппа",
+     "нет сил после болезни"
+    ],
+    "uz_latn": [
+     "kasallikdan keyin holsizman",
+     "tiklanish"
+    ],
+    "uz_cyrl": [
+     "касалликдан кейин ҳолсизман",
+     "тикланиш"
+    ]
+   },
+   "jev_criterion_full": "Wants to recover after an illness: weakness, no strength. (RU: после болезни слабость, восстановиться после гриппа, нет сил после болезни; UZ: kasallikdan keyin holsizman, tiklanish / касалликдан кейин ҳолсизман, тикланиш)",
+   "selection_rules_ref": "Recovery after illness row; G7",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 7
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "immunocomplex_kids",
+        "indication": "recovery",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G7"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 7
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "immunocomplex",
+        "indication": "recovery",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G7"
+     }
+    }
+   ],
+   "ack_template": "ack.recovery_after_illness",
+   "product_group": "immune"
+  },
+  {
+   "id": "recovery_injury_dental",
+   "name_ru": "После травмы, перелома, лечения зубов, имплантов",
+   "name_uz": "Jarohat, sinish, tish davolash, implantdan keyin",
+   "jev_criterion": "Recovering after an injury, a fracture, dental treatment or implants.",
+   "jev_hints": {
+    "ru": [
+     "перелом",
+     "срастается",
+     "импланты",
+     "после лечения зубов"
+    ],
+    "uz_latn": [
+     "singan",
+     "implant",
+     "tish davolatdim"
+    ],
+    "uz_cyrl": [
+     "синган",
+     "имплант",
+     "тиш даволатдим"
+    ]
+   },
+   "jev_criterion_full": "Recovering after an injury, a fracture, dental treatment or implants. (RU: перелом, срастается, импланты, после лечения зубов; UZ: singan, implant, tish davolatdim / синган, имплант, тиш даволатдим)",
+   "selection_rules_ref": "After injury / dental row; G7",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [
+    "acute_injury"
+   ],
+   "routing": [
+    {
+     "when": {
+      "topic": "dental"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "dentistry",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G7"
+     }
+    },
+    {
+     "when": {},
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "recovery",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G7"
+     }
+    }
+   ],
+   "ack_template": "ack.recovery_injury_dental",
+   "product_group": "bones"
+  },
+  {
+   "id": "child_nervous_recovery",
+   "name_ru": "Нервная система ребёнка после болезни или травмы",
+   "name_uz": "Kasallik yoki jarohatdan keyin bolaning asab tizimi",
+   "jev_criterion": "A child's nervous system needs recovery after an illness, injury or operation (sleep, mood, nerves named).",
+   "jev_hints": {
+    "ru": [
+     "после болезни нервный",
+     "после травмы плохо спит",
+     "после сотрясения"
+    ],
+    "uz_latn": [
+     "kasallikdan keyin asabiy",
+     "jarohatdan keyin"
+    ],
+    "uz_cyrl": [
+     "касалликдан кейин асабий",
+     "жароҳатдан кейин"
+    ]
+   },
+   "jev_criterion_full": "A child's nervous system needs recovery after an illness, injury or operation (sleep, mood, nerves named). (RU: после болезни нервный, после травмы плохо спит, после сотрясения; UZ: kasallikdan keyin asabiy, jarohatdan keyin / касалликдан кейин асабий, жароҳатдан кейин)",
+   "selection_rules_ref": "Child nervous system after illness row; G7",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 18
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "neurocomplex_kids",
+        "indication": "nervous_recovery",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G7; D28 (DN-6: child rows up to 17)"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 18
+     },
+     "then": {
+      "outcome": "reroute",
+      "rule_ref": "D28 (DN-6): an adult goes to recovery after illness",
+      "to": "recovery_after_illness"
+     }
+    }
+   ],
+   "ack_template": "ack.child_nervous_recovery",
+   "product_group": "neuro"
+  },
+  {
+   "id": "fertility_mens_health",
+   "name_ru": "Планирование беременности, фертильность, мужское здоровье",
+   "name_uz": "Homiladorlikni rejalashtirish, fertillik, erkaklar salomatligi",
+   "jev_criterion": "A couple plans a pregnancy, has fertility concerns, or asks about men's health.",
+   "jev_hints": {
+    "ru": [
+     "планируем беременность",
+     "не получается забеременеть",
+     "мужское здоровье",
+     "для мужа"
+    ],
+    "uz_latn": [
+     "homiladorlikni rejalashtiryapmiz",
+     "farzand ko'rolmayapmiz",
+     "erkaklar salomatligi"
+    ],
+    "uz_cyrl": [
+     "ҳомиладорликни режалаштиряпмиз",
+     "эркаклар саломатлиги"
+    ]
+   },
+   "jev_criterion_full": "A couple plans a pregnancy, has fertility concerns, or asks about men's health. (RU: планируем беременность, не получается забеременеть, мужское здоровье, для мужа; UZ: homiladorlikni rejalashtiryapmiz, farzand ko'rolmayapmiz, erkaklar salomatligi / ҳомиладорликни режалаштиряпмиз, эркаклар саломатлиги)",
+   "selection_rules_ref": "Fertility row; G9",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "never",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_lt": 15
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.general",
+      "rule_ref": "G9 (15+)"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 15,
+      "sex": "male"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "mens_womens_health",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G9"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 15
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "zincum_c_d3",
+        "indication": "fertility",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G9"
+     }
+    }
+   ],
+   "ack_template": "ack.fertility_mens_health",
+   "note": "'планируем беременность' must not set the pregnancy slot (safety.json negative context 'планир*').",
+   "product_group": "zincum_c_d3"
+  },
+  {
+   "id": "bones_50plus",
+   "name_ru": "Кости после 50, остеопороз",
+   "name_uz": "50 yoshdan keyin suyaklar, osteoporoz",
+   "jev_criterion": "An older adult (50+) wants to support bones or has osteoporosis.",
+   "jev_hints": {
+    "ru": [
+     "остеопороз",
+     "кости хрупкие",
+     "после 50"
+    ],
+    "uz_latn": [
+     "osteoporoz",
+     "suyaklarim mo'rt"
+    ],
+    "uz_cyrl": [
+     "остеопороз",
+     "суякларим мўрт"
+    ]
+   },
+   "jev_criterion_full": "An older adult (50+) wants to support bones or has osteoporosis. (RU: остеопороз, кости хрупкие, после 50; UZ: osteoporoz, suyaklarim mo'rt / остеопороз, суякларим мўрт)",
+   "selection_rules_ref": "Bones 50+ row; G9",
+   "required_slots": [
+    "age"
+   ],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {
+      "age_ge": 50
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "osteoporosis_50",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "G9"
+     }
+    },
+    {
+     "when": {
+      "age_ge": 18,
+      "topic": "osteoporosis"
+     },
+     "then": {
+      "offer": [
+       {
+        "product": "calciy",
+        "indication": "osteoporosis_50",
+        "dose": "default"
+       }
+      ],
+      "rule_ref": "D28 (DN-8): osteoporosis named → any adult age"
+     }
+    },
+    {
+     "when": {
+      "age_lt": 50
+     },
+     "then": {
+      "outcome": "no_product",
+      "template": "no_product.general",
+      "rule_ref": "G9 (50+); D28 (DN-8)"
+     }
+    }
+   ],
+   "ack_template": "ack.bones_50plus",
+   "product_group": "bones"
+  },
+  {
+   "id": "womens_health_bare",
+   "name_ru": "«Женское здоровье» без уточнения",
+   "name_uz": "Ayollar salomatligi (aniqlanmagan)",
+   "jev_criterion": "Asks for something for 'women's health' with nothing more specific.",
+   "jev_hints": {
+    "ru": [
+     "женское здоровье",
+     "для женщин",
+     "что-то для женщины"
+    ],
+    "uz_latn": [
+     "ayollar salomatligi",
+     "ayollar uchun"
+    ],
+    "uz_cyrl": [
+     "аёллар саломатлиги",
+     "аёллар учун"
+    ]
+   },
+   "jev_criterion_full": "Asks for something for 'women's health' with nothing more specific. (RU: женское здоровье, для женщин, что-то для женщины; UZ: ayollar salomatligi, ayollar uchun / аёллар саломатлиги, аёллар учун)",
+   "selection_rules_ref": "Bare 'женское здоровье' row; D26; review.groups I10",
+   "required_slots": [],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "outcome": "clarify",
+      "rule_ref": "D26",
+      "clarify": "womens_health"
+     }
+    }
+   ],
+   "ack_template": "ack.womens_health_bare",
+   "clarify": {
+    "template": "clarify.womens_health",
+    "options": [
+     {
+      "id": "pms_menopause",
+      "to": "pms_menopause"
+     },
+     {
+      "id": "planning_pregnancy",
+      "to": "fertility_mens_health"
+     },
+     {
+      "id": "frequent_infections",
+      "to": "immunity"
+     },
+     {
+      "id": "pregnancy",
+      "to": "pregnancy_general"
+     }
+    ]
+   },
+   "note": "Option 'frequent_infections' follows the immunity row (IMMUNOCOMPLEX; ZINCUM+C+D3 if pregnant). review.groups I10 proposed ZINCUM+C+D3 for it; the Captain kept D18 (D28 / DN-9).",
+   "product_group": null
+  },
+  {
+   "id": "elderly_bare",
+   "name_ru": "«Для пожилого человека» без уточнения",
+   "name_uz": "Keksa odam uchun (aniqlanmagan)",
+   "jev_criterion": "Asks for something for an elderly person with nothing more specific.",
+   "jev_hints": {
+    "ru": [
+     "для пожилого",
+     "для бабушки",
+     "для дедушки",
+     "пожилым"
+    ],
+    "uz_latn": [
+     "keksa",
+     "buvim uchun",
+     "bobom uchun"
+    ],
+    "uz_cyrl": [
+     "кекса",
+     "бувим учун",
+     "бобом учун"
+    ]
+   },
+   "jev_criterion_full": "Asks for something for an elderly person with nothing more specific. (RU: для пожилого, для бабушки, для дедушки, пожилым; UZ: keksa, buvim uchun, bobom uchun / кекса, бувим учун, бобом учун)",
+   "selection_rules_ref": "Bare 'для пожилого' row; D26; review.groups I10",
+   "required_slots": [],
+   "pregnancy_question": "detect_only",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "outcome": "clarify",
+      "rule_ref": "D26",
+      "clarify": "elderly"
+     }
+    }
+   ],
+   "ack_template": "ack.elderly_bare",
+   "clarify": {
+    "template": "clarify.elderly",
+    "options": [
+     {
+      "id": "bones",
+      "to": "bones_50plus"
+     },
+     {
+      "id": "sleep_stress",
+      "to": "adult_stress_sleep"
+     },
+     {
+      "id": "eyes",
+      "to": "eyes"
+     },
+     {
+      "id": "heart",
+      "to": "see_doctor_soon"
+     }
+    ]
+   },
+   "product_group": null
+  },
+  {
+   "id": "emergency",
+   "name_ru": "Опасный признак — скорая 103",
+   "name_uz": "Xavfli belgi — tez yordam 103",
+   "jev_criterion": "Describes a danger sign that needs an ambulance now: chest pain or pressure, cannot breathe or speak, coughing or vomiting blood, fainting or confusion, blue lips, a rash that does not fade when pressed, a child's seizure with fever, face or throat swelling, self-harm thoughts, or bleeding or severe pain in pregnancy.",
+   "jev_hints": {
+    "ru": [
+     "давит в груди",
+     "задыхается",
+     "без сознания",
+     "судороги с температурой",
+     "отёк горла",
+     "кровотечение беременна"
+    ],
+    "uz_latn": [
+     "ko'kragim siqyapti",
+     "nafas ololmayapti",
+     "hushidan ketdi",
+     "tomog'i shishdi"
+    ],
+    "uz_cyrl": [
+     "кўкрагим сиқяпти",
+     "нафас ололмаяпти",
+     "ҳушидан кетди",
+     "томоғи шишди"
+    ]
+   },
+   "jev_criterion_full": "Describes a danger sign that needs an ambulance now: chest pain or pressure, cannot breathe or speak, coughing or vomiting blood, fainting or confusion, blue lips, a rash that does not fade when pressed, a child's seizure with fever, face or throat swelling, self-harm thoughts, or bleeding or severe pain in pregnancy. (RU: давит в груди, задыхается, без сознания, судороги с температурой, отёк горла, кровотечение беременна; UZ: ko'kragim siqyapti, nafas ololmayapti, hushidan ketdi, tomog'i shishdi / кўкрагим сиқяпти, нафас ололмаяпти, ҳушидан кетди, томоғи шишди)",
+   "selection_rules_ref": "Global rule 2",
+   "required_slots": [],
+   "pregnancy_question": "never",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "outcome": "emergency",
+      "template": "emergency.general",
+      "rule_ref": "global rule 2"
+     }
+    }
+   ],
+   "ack_template": null,
+   "note": "Detected by safety.json first; the Jev class is a second net only. Self-harm uses template emergency.self_harm; pregnancy signs use emergency.pregnancy.",
+   "product_group": null
+  },
+  {
+   "id": "see_doctor_soon",
+   "name_ru": "К врачу в ближайшие дни, без продукта",
+   "name_uz": "Yaqin kunlarda shifokorga",
+   "jev_criterion": "Needs a doctor soon: long fever, cough over 3 weeks, shortness of breath, blood in stool, cystitis, hepatitis, a heart complaint, an injury with strong pain or swelling, eye pain or sudden vision loss.",
+   "jev_hints": {
+    "ru": [
+     "температура неделю",
+     "кашель месяц",
+     "одышка",
+     "цистит",
+     "сердце колет",
+     "кровь в кале"
+    ],
+    "uz_latn": [
+     "bir haftadan beri isitma",
+     "hansirash",
+     "sistit",
+     "yuragim"
+    ],
+    "uz_cyrl": [
+     "бир ҳафтадан бери иситма",
+     "ҳансираш",
+     "цистит",
+     "юрагим"
+    ]
+   },
+   "jev_criterion_full": "Needs a doctor soon: long fever, cough over 3 weeks, shortness of breath, blood in stool, cystitis, hepatitis, a heart complaint, an injury with strong pain or swelling, eye pain or sudden vision loss. (RU: температура неделю, кашель месяц, одышка, цистит, сердце колет, кровь в кале; UZ: bir haftadan beri isitma, hansirash, sistit, yuragim / бир ҳафтадан бери иситма, ҳансираш, цистит, юрагим)",
+   "selection_rules_ref": "Global rule 3; D8; D23; D26",
+   "required_slots": [],
+   "pregnancy_question": "never",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "outcome": "doctor_soon",
+      "template": "doctor.general",
+      "rule_ref": "global rule 3; D8"
+     }
+    }
+   ],
+   "ack_template": null,
+   "product_group": "doctor"
+  },
+  {
+   "id": "other_unhandled",
+   "name_ru": "Жалоба, для которой у Graf нет продукта",
+   "name_uz": "Graf mahsuloti yo'q shikoyat",
+   "jev_criterion": "A health complaint none of the other situations covers (e.g. headache, toothache in an adult, back pain).",
+   "jev_hints": {
+    "ru": [
+     "голова болит",
+     "давление",
+     "спина болит"
+    ],
+    "uz_latn": [
+     "boshim og'riyapti",
+     "belim og'riyapti"
+    ],
+    "uz_cyrl": [
+     "бошим оғрияпти",
+     "белим оғрияпти"
+    ]
+   },
+   "jev_criterion_full": "A health complaint none of the other situations covers (e.g. headache, toothache in an adult, back pain). (RU: голова болит, давление, спина болит; UZ: boshim og'riyapti, belim og'riyapti / бошим оғрияпти, белим оғрияпти)",
+   "selection_rules_ref": "TASK requirement 4; D30",
+   "required_slots": [],
+   "pregnancy_question": "never",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "outcome": "uncovered",
+      "rule_ref": "D30: follows engine.uncovered_mode"
+     }
+    }
+   ],
+   "ack_template": null,
+   "note": "D30: honest no-product answer (engine.uncovered_mode = no_product_template); the phrase is not stored anywhere.",
+   "product_group": "uncovered"
+  },
+  {
+   "id": "unclear",
+   "name_ru": "Нет жалобы: приветствие, вопрос о магазине, бессмыслица",
+   "name_uz": "Shikoyat yo'q: salom, do'kon haqida savol",
+   "jev_criterion": "No health complaint: a greeting, a question about the shop, delivery or price, or meaningless text.",
+   "jev_hints": {
+    "ru": [
+     "привет",
+     "доставка",
+     "цена",
+     "где купить"
+    ],
+    "uz_latn": [
+     "salom",
+     "yetkazib berish",
+     "narxi"
+    ],
+    "uz_cyrl": [
+     "салом",
+     "етказиб бериш",
+     "нархи"
+    ]
+   },
+   "jev_criterion_full": "No health complaint: a greeting, a question about the shop, delivery or price, or meaningless text. (RU: привет, доставка, цена, где купить; UZ: salom, yetkazib berish, narxi / салом, етказиб бериш, нархи)",
+   "selection_rules_ref": "TASK requirement 4",
+   "required_slots": [],
+   "pregnancy_question": "never",
+   "doctor_checks": [],
+   "routing": [
+    {
+     "when": {},
+     "then": {
+      "outcome": "step_aside",
+      "rule_ref": "plan r3 §3.5.2: unclear → step aside to the existing consultant path"
+     }
+    }
+   ],
+   "ack_template": null,
+   "product_group": null
+  }
+ ]
+}

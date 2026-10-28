@@ -1,0 +1,788 @@
+{
+ "version": "graf-data r3 (2026-10-28)",
+ "purpose": "D17 second-complaint threshold, measured once during implementation (plan r3 §3.5.3): run Jev on each phrase, record top and second situation with probabilities; a two-complaint phrase should give a second situation of a different product_group at >= threshold, a control should not.",
+ "note": "Written by the data Engineer in sloppy customer style; none fires the ambulance list (checked). Controls contain one complaint, some with two symptoms of the same situation. uz_uncertain = needs a native check.",
+ "counts": {
+  "two_complaints": 48,
+  "controls": 21
+ },
+ "phrases": [
+  {
+   "text": "часто простываю и волосы выпадают",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "immunity",
+    "skin_hair"
+   ],
+   "groups": [
+    "immune",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "tez-tez shamollayman, sochim ham to'kilyapti",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "immunity",
+    "skin_hair"
+   ],
+   "groups": [
+    "immune",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "тез-тез шамоллайман, сочим ҳам тўкиляпти",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "immunity",
+    "skin_hair"
+   ],
+   "groups": [
+    "immune",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "живот пучит и глаза устают от компа",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "gut_upset",
+    "eyes"
+   ],
+   "groups": [
+    "gut",
+    "eyes"
+   ]
+  },
+  {
+   "text": "qornim dam bo'ladi, ko'zim ham kompyuterdan charchaydi",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "gut_upset",
+    "eyes"
+   ],
+   "groups": [
+    "gut",
+    "eyes"
+   ]
+  },
+  {
+   "text": "қорним дам бўлади, кўзим ҳам компьютердан чарчайди",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "gut_upset",
+    "eyes"
+   ],
+   "groups": [
+    "gut",
+    "eyes"
+   ]
+  },
+  {
+   "text": "плохо сплю и постоянно болею",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "adult_stress_sleep",
+    "immunity"
+   ],
+   "groups": [
+    "magniy",
+    "immune"
+   ]
+  },
+  {
+   "text": "yomon uxlayman va doim kasal bo'laman",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "adult_stress_sleep",
+    "immunity"
+   ],
+   "groups": [
+    "magniy",
+    "immune"
+   ]
+  },
+  {
+   "text": "ёмон ухлайман ва доим касал бўламан",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "adult_stress_sleep",
+    "immunity"
+   ],
+   "groups": [
+    "magniy",
+    "immune"
+   ]
+  },
+  {
+   "text": "колени хрустят и прыщи на лице",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "sport_joints",
+    "skin_hair"
+   ],
+   "groups": [
+    "bones",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "tizzalarim qirsillaydi, yuzimda husnbuzar ham bor",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "sport_joints",
+    "skin_hair"
+   ],
+   "groups": [
+    "bones",
+    "skin_hair_nails"
+   ],
+   "uz_uncertain": true
+  },
+  {
+   "text": "тиззаларим қирсиллайди, юзимда ҳуснбузар ҳам бор",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "sport_joints",
+    "skin_hair"
+   ],
+   "groups": [
+    "bones",
+    "skin_hair_nails"
+   ],
+   "uz_uncertain": true
+  },
+  {
+   "text": "сын невнимательный в школе и запоры у него",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "child_memory_attention",
+    "constipation"
+   ],
+   "groups": [
+    "neuro",
+    "magniy"
+   ]
+  },
+  {
+   "text": "o'g'lim maktabda diqqatsiz, qabziyati ham bor",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "child_memory_attention",
+    "constipation"
+   ],
+   "groups": [
+    "neuro",
+    "magniy"
+   ]
+  },
+  {
+   "text": "ўғлим мактабда диққатсиз, қабзияти ҳам бор",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "child_memory_attention",
+    "constipation"
+   ],
+   "groups": [
+    "neuro",
+    "magniy"
+   ]
+  },
+  {
+   "text": "глаза сохнут и нервы ни к черту",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "eyes",
+    "adult_stress_sleep"
+   ],
+   "groups": [
+    "eyes",
+    "magniy"
+   ]
+  },
+  {
+   "text": "ko'zim quriydi, asabim ham charchagan",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "eyes",
+    "adult_stress_sleep"
+   ],
+   "groups": [
+    "eyes",
+    "magniy"
+   ]
+  },
+  {
+   "text": "кўзим қурийди, асабим ҳам чарчаган",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "eyes",
+    "adult_stress_sleep"
+   ],
+   "groups": [
+    "eyes",
+    "magniy"
+   ]
+  },
+  {
+   "text": "простыла горло болит, и ногти слоятся",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "acute_cold",
+    "nails_only"
+   ],
+   "groups": [
+    "immune",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "shamolladim tomog'im og'riyapti, tirnoqlarim ham sinyapti",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "acute_cold",
+    "nails_only"
+   ],
+   "groups": [
+    "immune",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "шамолладим томоғим оғрияпти, тирноқларим ҳам синяпти",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "acute_cold",
+    "nails_only"
+   ],
+   "groups": [
+    "immune",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "у дочки аллергия и растет плохо",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "general_allergy",
+    "child_growth_slow"
+   ],
+   "groups": [
+    "gut",
+    "growth_weight"
+   ]
+  },
+  {
+   "text": "qizimda allergiya bor, bo'yi ham o'smayapti",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "general_allergy",
+    "child_growth_slow"
+   ],
+   "groups": [
+    "gut",
+    "growth_weight"
+   ]
+  },
+  {
+   "text": "қизимда аллергия бор, бўйи ҳам ўсмаяпти",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "general_allergy",
+    "child_growth_slow"
+   ],
+   "groups": [
+    "gut",
+    "growth_weight"
+   ]
+  },
+  {
+   "text": "пмс жуткий и волосы лезут",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "pms_menopause",
+    "skin_hair"
+   ],
+   "groups": [
+    "magniy",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "hayzdan oldin asabim buziladi, sochim ham to'kiladi",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "pms_menopause",
+    "skin_hair"
+   ],
+   "groups": [
+    "magniy",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "ҳайздан олдин асабим бузилади, сочим ҳам тўкилади",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "pms_menopause",
+    "skin_hair"
+   ],
+   "groups": [
+    "magniy",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "маме 62 остеопороз и зрение падает",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "bones_50plus",
+    "eyes"
+   ],
+   "groups": [
+    "bones",
+    "eyes"
+   ]
+  },
+  {
+   "text": "onam 62 yosh osteoporoz, ko'zi ham xiralashyapti",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "bones_50plus",
+    "eyes"
+   ],
+   "groups": [
+    "bones",
+    "eyes"
+   ]
+  },
+  {
+   "text": "онам 62 ёш остеопороз, кўзи ҳам хиралашяпти",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "bones_50plus",
+    "eyes"
+   ],
+   "groups": [
+    "bones",
+    "eyes"
+   ]
+  },
+  {
+   "text": "мужу для мужского здоровья, и у него живот пучит",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "fertility_mens_health",
+    "gut_upset"
+   ],
+   "groups": [
+    "zincum_c_d3",
+    "gut"
+   ]
+  },
+  {
+   "text": "erimga erkaklar salomatligi uchun, qorni ham dam bo'ladi",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "fertility_mens_health",
+    "gut_upset"
+   ],
+   "groups": [
+    "zincum_c_d3",
+    "gut"
+   ]
+  },
+  {
+   "text": "эримга эркаклар саломатлиги учун, қорни ҳам дам бўлади",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "fertility_mens_health",
+    "gut_upset"
+   ],
+   "groups": [
+    "zincum_c_d3",
+    "gut"
+   ]
+  },
+  {
+   "text": "сын худой вес маленький и плохо запоминает",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "child_low_weight",
+    "child_memory_attention"
+   ],
+   "groups": [
+    "growth_weight",
+    "neuro"
+   ]
+  },
+  {
+   "text": "o'g'lim ozg'in vazni kam, eslab ham qololmaydi",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "child_low_weight",
+    "child_memory_attention"
+   ],
+   "groups": [
+    "growth_weight",
+    "neuro"
+   ]
+  },
+  {
+   "text": "ўғлим озғин вазни кам, эслаб ҳам қололмайди",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "child_low_weight",
+    "child_memory_attention"
+   ],
+   "groups": [
+    "growth_weight",
+    "neuro"
+   ]
+  },
+  {
+   "text": "хожу в зал сил не хватает и сыпь чешется",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "sport_endurance",
+    "skin_allergy"
+   ],
+   "groups": [
+    "zincum_c_d3",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "zalga boraman kuchim yetmaydi, terim ham qichiydi",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "sport_endurance",
+    "skin_allergy"
+   ],
+   "groups": [
+    "zincum_c_d3",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "залга бораман кучим етмайди, терим ҳам қичийди",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "sport_endurance",
+    "skin_allergy"
+   ],
+   "groups": [
+    "zincum_c_d3",
+    "skin_hair_nails"
+   ]
+  },
+  {
+   "text": "ночью сводит икры и часто болею",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "muscle_cramps",
+    "immunity"
+   ],
+   "groups": [
+    "magniy",
+    "immune"
+   ]
+  },
+  {
+   "text": "kechasi oyog'im tortishadi va tez-tez shamollayman",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "muscle_cramps",
+    "immunity"
+   ],
+   "groups": [
+    "magniy",
+    "immune"
+   ]
+  },
+  {
+   "text": "кечаси оёғим тортишади ва тез-тез шамоллайман",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "muscle_cramps",
+    "immunity"
+   ],
+   "groups": [
+    "magniy",
+    "immune"
+   ]
+  },
+  {
+   "text": "у сына глисты и глаза краснеют от телефона",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "helminths",
+    "eyes"
+   ],
+   "groups": [
+    "gut",
+    "eyes"
+   ]
+  },
+  {
+   "text": "o'g'limda gijja bor, ko'zi ham telefondan qizaradi",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "helminths",
+    "eyes"
+   ],
+   "groups": [
+    "gut",
+    "eyes"
+   ]
+  },
+  {
+   "text": "ўғлимда гижжа бор, кўзи ҳам телефондан қизаради",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "helminths",
+    "eyes"
+   ],
+   "groups": [
+    "gut",
+    "eyes"
+   ]
+  },
+  {
+   "text": "сломал руку и сплю плохо от нервов",
+   "lang": "ru",
+   "expect": "step_aside",
+   "complaints": [
+    "recovery_injury_dental",
+    "adult_stress_sleep"
+   ],
+   "groups": [
+    "bones",
+    "magniy"
+   ]
+  },
+  {
+   "text": "qo'lim singan, asabdan yomon uxlayapman",
+   "lang": "uz-latn",
+   "expect": "step_aside",
+   "complaints": [
+    "recovery_injury_dental",
+    "adult_stress_sleep"
+   ],
+   "groups": [
+    "bones",
+    "magniy"
+   ]
+  },
+  {
+   "text": "қўлим синган, асабдан ёмон ухлаяпман",
+   "lang": "uz-cyrl",
+   "expect": "step_aside",
+   "complaints": [
+    "recovery_injury_dental",
+    "adult_stress_sleep"
+   ],
+   "groups": [
+    "bones",
+    "magniy"
+   ]
+  },
+  {
+   "text": "насморк и температура со вчера",
+   "lang": "ru",
+   "expect": "acute_cold",
+   "group": "immune",
+   "control": true
+  },
+  {
+   "text": "tumov va isitma kechadan beri",
+   "lang": "uz-latn",
+   "expect": "acute_cold",
+   "group": "immune",
+   "control": true
+  },
+  {
+   "text": "тумов ва иситма кечадан бери",
+   "lang": "uz-cyrl",
+   "expect": "acute_cold",
+   "group": "immune",
+   "control": true
+  },
+  {
+   "text": "понос и живот крутит",
+   "lang": "ru",
+   "expect": "diarrhea",
+   "group": "gut",
+   "control": true
+  },
+  {
+   "text": "ichim ketyapti, qornim ham buraladi",
+   "lang": "uz-latn",
+   "expect": "diarrhea",
+   "group": "gut",
+   "control": true,
+   "uz_uncertain": true
+  },
+  {
+   "text": "ичим кетяпти, қорним ҳам буралади",
+   "lang": "uz-cyrl",
+   "expect": "diarrhea",
+   "group": "gut",
+   "control": true,
+   "uz_uncertain": true
+  },
+  {
+   "text": "сухая кожа и шелушится",
+   "lang": "ru",
+   "expect": "skin_hair",
+   "group": "skin_hair_nails",
+   "control": true
+  },
+  {
+   "text": "terim quruq va po'st tashlayapti",
+   "lang": "uz-latn",
+   "expect": "skin_hair",
+   "group": "skin_hair_nails",
+   "control": true,
+   "uz_uncertain": true
+  },
+  {
+   "text": "терим қуруқ ва пўст ташлаяпти",
+   "lang": "uz-cyrl",
+   "expect": "skin_hair",
+   "group": "skin_hair_nails",
+   "control": true,
+   "uz_uncertain": true
+  },
+  {
+   "text": "глаза красные и сохнут",
+   "lang": "ru",
+   "expect": "eyes",
+   "group": "eyes",
+   "control": true
+  },
+  {
+   "text": "ko'zim qizarib quriyapti",
+   "lang": "uz-latn",
+   "expect": "eyes",
+   "group": "eyes",
+   "control": true
+  },
+  {
+   "text": "кўзим қизариб қурияпти",
+   "lang": "uz-cyrl",
+   "expect": "eyes",
+   "group": "eyes",
+   "control": true
+  },
+  {
+   "text": "стресс на работе и плохо сплю",
+   "lang": "ru",
+   "expect": "adult_stress_sleep",
+   "group": "magniy",
+   "control": true
+  },
+  {
+   "text": "ishda stress, uyqum yomon",
+   "lang": "uz-latn",
+   "expect": "adult_stress_sleep",
+   "group": "magniy",
+   "control": true
+  },
+  {
+   "text": "ишда стресс, уйқум ёмон",
+   "lang": "uz-cyrl",
+   "expect": "adult_stress_sleep",
+   "group": "magniy",
+   "control": true
+  },
+  {
+   "text": "сын невнимательный и плохо запоминает",
+   "lang": "ru",
+   "expect": "child_memory_attention",
+   "group": "neuro",
+   "control": true
+  },
+  {
+   "text": "o'g'lim diqqatsiz, eslab qololmaydi",
+   "lang": "uz-latn",
+   "expect": "child_memory_attention",
+   "group": "neuro",
+   "control": true
+  },
+  {
+   "text": "ўғлим диққатсиз, эслаб қололмайди",
+   "lang": "uz-cyrl",
+   "expect": "child_memory_attention",
+   "group": "neuro",
+   "control": true
+  },
+  {
+   "text": "часто болею, иммунитет слабый",
+   "lang": "ru",
+   "expect": "immunity",
+   "group": "immune",
+   "control": true
+  },
+  {
+   "text": "tez-tez kasal bo'laman, immunitetim zaif",
+   "lang": "uz-latn",
+   "expect": "immunity",
+   "group": "immune",
+   "control": true
+  },
+  {
+   "text": "тез-тез касал бўламан, иммунитетим заиф",
+   "lang": "uz-cyrl",
+   "expect": "immunity",
+   "group": "immune",
+   "control": true
+  }
+ ]
+}
