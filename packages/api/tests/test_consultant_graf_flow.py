@@ -449,6 +449,31 @@ async def test_age_reply_with_words_moves_to_the_next_step(reply, template):
         assert any(v in answer for v in variants(template))
 
 
+@pytest.mark.parametrize(
+    ("reply", "whom", "age"),
+    [
+        ("жене, ее 33 года", "wife", 33),  # live failure on faddb25, 2026-10-29
+        ("жене, её 33 года", "wife", 33),
+        ("мужу, ему 40 лет", "husband", 40),
+        ("для мамы, ей 65", "mother", 65),
+        ("сыну 7 лет", "son", 7),
+    ],
+)
+async def test_age_reply_for_a_relative_reaches_the_offer(reply, whom, age):
+    first = "что рекомендуешь при сухой кожи"
+    replies = await talk(OpenRouter({first: "skin_hair"}), [first, reply])
+    assert any(v in replies[0].answer for v in variants("ask.whom_age"))
+    answer = replies[1].answer
+    for question in ("ask.whom_age", "ask.age", "ask.age_self", "reask.age"):
+        assert not any(v in answer for v in variants(question))
+    assert replies[1].status == "answer"
+    assert offered(replies[1]) == ["dermacomplex"]
+    assert say("dermacomplex", "default", age) in answer
+    facts = graf.Facts()
+    assert facts.answer(reply, "ask.whom_age", "skin_hair") is True
+    assert (facts.whom, facts.age) == (whom, age)
+
+
 @pytest.mark.parametrize("message", ["boldirim tortib qoladi", "болдирим тортиб қолади"])
 async def test_cramps_without_pregnancy_word_route_to_muscle_cramps(message):
     replies = await talk(OpenRouter({message: "pregnancy_tone_cramps"}), [message, "30"], "uz")
