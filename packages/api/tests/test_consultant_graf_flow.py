@@ -381,6 +381,74 @@ async def test_years_of_illness_are_not_an_age():
     assert any(v in reply.answer for v in variants("ask.whom_age"))
 
 
+# --- AGE1 (2026-10-29): a reply to Graf's own age question with words around the age -------
+# Live replies from the Captain's screenshots and the assignment; the expected ages are the
+# numbers the customer wrote (months / 12, weeks * 7 / 365, as safety.json parsers.age rule).
+
+
+@pytest.mark.parametrize(
+    ("reply", "age"),
+    [
+        ("для себя, мужчина 47 лет.", 47.0),
+        ("для себя, 35 лет", 35.0),
+        ("мужчина 47 лет", 47.0),
+        ("47", 47.0),
+        ("мне 47 лет", 47.0),
+        ("сыну, 5 годиков", 5.0),
+        ("для дочки, 8 месяцев", 0.67),
+        ("для сына, 2 недели", 0.04),
+        ("мужчина 47 лет, кашель 2 недели", 47.0),
+        ("o'zim uchun, 47 yosh", 47.0),
+        ("ўзим учун, 47 ёш", 47.0),
+        ("qizim uchun, 3 oy", 0.25),
+        ("ўғлим учун, 8 ой", 0.67),
+        # duration words keep a number a duration, as in a first message
+        ("для себя, болит 3 года", None),
+        ("уже 2 месяца", None),
+        ("в течение 3 лет", None),
+        ("сын 2 года болеет", None),
+        ("у сына уже 2 года кашель", None),
+        ("3 oydan beri", None),
+        # two different ages: ask again
+        ("47 лет, 3 года", "ask"),
+        # no age unit inside a longer reply, or out of range: not an age
+        ("для себя, 47", None),
+        ("для себя, 150 лет", None),
+    ],
+)
+def test_age_reply_reads_an_age_with_a_unit_inside_the_reply(reply, age):
+    got = graf.parse_age(reply, reply=True)[0]
+    assert got == (pytest.approx(age, abs=0.01) if isinstance(age, float) else age)
+
+
+@pytest.mark.parametrize("message", ["для себя, мужчина 47 лет.", "для себя, 35 лет", "5 годиков"])
+def test_outside_a_reply_an_unanchored_age_stays_unread(message):
+    assert graf.parse_age(message)[0] is None
+
+
+@pytest.mark.parametrize(
+    ("reply", "template"),
+    [
+        ("для себя, мужчина 47 лет.", None),
+        ("для себя, 35 лет", "ask.sex"),
+        ("для себя, женщина 35 лет", "ask.pregnancy"),
+    ],
+)
+async def test_age_reply_with_words_moves_to_the_next_step(reply, template):
+    first = "часто болею"
+    replies = await talk(OpenRouter({first: "immunity"}), [first, reply])
+    assert any(v in replies[0].answer for v in variants("ask.whom_age"))
+    answer = replies[1].answer
+    for question in ("ask.whom_age", "ask.age", "ask.age_self", "reask.age"):
+        assert not any(v in answer for v in variants(question))
+    if template is None:  # 'для себя' and 'мужчина' fill whom and sex: no more questions
+        assert replies[1].status == "answer"
+        assert offered(replies[1]) == ["immunocomplex"]
+        assert say("immunocomplex", "default", 47) in answer
+    else:
+        assert any(v in answer for v in variants(template))
+
+
 @pytest.mark.parametrize("message", ["boldirim tortib qoladi", "болдирим тортиб қолади"])
 async def test_cramps_without_pregnancy_word_route_to_muscle_cramps(message):
     replies = await talk(OpenRouter({message: "pregnancy_tone_cramps"}), [message, "30"], "uz")

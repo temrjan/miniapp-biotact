@@ -274,6 +274,11 @@ TEMPERATURE = [
     re.compile(PARSERS["temperature"]["fever_word_re"]),
 ]
 REPLY_AGE = re.compile(NUM + r"\s*" + AGE["reply_units"] + "?")
+# Inside a longer reply to Graf's age question ('для себя, мужчина 47 лет'): a number with
+# an age unit (reply units plus the Russian year words, which add 'годиков').
+REPLY_UNITS = "(" + AGE["reply_units"] + "|" + DURATION["patterns"]["ru"]["years"] + ")"
+REPLY_AGE_IN = re.compile(LEFT + NUM + r"\s*" + REPLY_UNITS + RIGHT)
+REPLY_GUARD = MARKERS | ADVERBS
 
 
 def number(value: str) -> float:
@@ -323,13 +328,31 @@ def parse_age(text: str, reply: bool = False) -> tuple[float | str | None, list[
             return float(AGE["reply_words"][core]), [(0, len(t))]
         reply_match = REPLY_AGE.fullmatch(core)
         if reply_match and 0 < number(reply_match[1]) <= 110:
-            value, unit = number(reply_match[1]), reply_match[2] or ""
-            if re.match(r"(мес|месяц|oy|ой)", unit):
-                value = round(value / 12, 2)
-            elif unit.startswith("недел"):
-                value = round(value * 7 / 365, 2)
-            return value, [(0, len(t))]
+            return _reply_years(reply_match), [(0, len(t))]
+        # A number with an age unit inside the reply, unless a duration word stands next to
+        # it ('болит 3 года') or an anchored pattern above already dropped it as a duration.
+        dropped = list(spans)
+        for m in REPLY_AGE_IN.finditer(t):
+            if any(m.start() < b and a < m.end() for a, b in dropped):
+                continue
+            if not 0 < number(m[1]) <= 110 or _guarded(t, m.start(), m.end(), REPLY_GUARD):
+                continue
+            found.add(_reply_years(m))
+            spans.append((m.start(), m.end()))
+        if len(found) == 1:
+            return found.pop(), spans
+        if found:
+            return "ask", spans
     return None, spans
+
+
+def _reply_years(m: re.Match[str]) -> float:
+    value, unit = number(m[1]), m[2] or ""
+    if re.match(r"(мес|месяц|oy|ой)", unit):
+        return round(value / 12, 2)
+    if unit.startswith("недел"):
+        return round(value * 7 / 365, 2)
+    return value
 
 
 def parse_duration(text: str, age_spans: Sequence[tuple[int, int]] = ()) -> float | None:
