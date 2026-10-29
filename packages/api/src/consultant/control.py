@@ -10,17 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.consultant.contracts import Fault
 from src.consultant.models import Budget, Control, Rate, Reservation, Run
-from src.consultant.provider import INPUT_TOKENS
 
 
 class Controls:
+    """Per-request registration, cancellation and usage counting; no admission limits."""
+
     def __init__(
         self,
         sessions: async_sessionmaker[AsyncSession],
         key: str,
-        limits: tuple[int, int, int, int],
+        ready: bool,
     ) -> None:
-        self.sessions, self.key, self.limits = sessions, key.encode(), limits
+        # ready: the provider key is configured.
+        self.sessions, self.key, self.ready = sessions, key.encode(), ready
 
     def digest(self, value: str) -> str:
         return hmac.new(self.key, value.encode(), hashlib.sha256).hexdigest()
@@ -32,26 +34,6 @@ class Controls:
         now = await db.scalar(select(func.clock_timestamp()))
         assert isinstance(now, datetime)
         return row, now.astimezone(UTC)
-
-    async def rate(self, network: str, lane: str) -> None:
-        async with self.sessions.begin() as db:
-            _, now = await self.locked(db)
-            key = self.digest("network:" + network)
-            dates = list(
-                (
-                    await db.scalars(
-                        select(Rate.created).where(
-                            Rate.network == key,
-                            Rate.lane == lane,
-                            Rate.created > now - timedelta(hours=1),
-                        )
-                    )
-                ).all()
-            )
-            minute = sum(t > now - timedelta(minutes=1) for t in dates)
-            if minute >= (6 if lane == "turn" else 60) or (lane == "turn" and len(dates) >= 60):
-                raise Fault("rate_limited", 429)
-            db.add(Rate(network=key, lane=lane, created=now))
 
     async def register(self, request: UUID, tab: UUID, cancel: bool = False) -> str:
         async with self.sessions.begin() as db:
@@ -69,20 +51,15 @@ class Controls:
             if old is not None:
                 await db.delete(old)
                 await db.flush()
-            if not cancel:
-                if not control.enabled or not all(n > 0 for n in self.limits) or len(self.key) < 32:
-                    raise Fault("disabled")
-                if control.lease_until is not None and control.lease_until > now:
-                    raise Fault("busy", 429)
+            if not cancel and (not control.enabled or not self.ready or len(self.key) < 32):
+                raise Fault("disabled")
             owner = str(uuid4())
             db.add(Run(id=rid, tab=tid, owner=owner, created=now, cancelled=cancel, done=False))
-            if not cancel:
-                control.lease_owner, control.lease_until = owner, now + timedelta(seconds=75)
             return owner
 
     async def check(self, db: AsyncSession, owner: str, control: Control, now: datetime) -> Run:
         row = await db.scalar(select(Run).where(Run.owner == owner))
-        if row is None or row.cancelled or row.done or control.lease_owner != owner:
+        if row is None or row.cancelled or row.done:
             raise Fault("cancelled", 409)
         if now >= row.created + timedelta(seconds=60):
             raise Fault("timeout", 504)
@@ -96,6 +73,7 @@ class Controls:
             await self.check(db, owner, control, now)
 
     async def reserve(self, owner: str, kind: str) -> str:
+        """Count one provider call. Usage is recorded for visibility and never refuses a call."""
         async with self.sessions.begin() as db:
             control, now = await self.locked(db)
             await self.check(db, owner, control, now)
@@ -110,21 +88,6 @@ class Controls:
                     embedding_tokens=0,
                 )
                 db.add(budget)
-            calls, inputs, outputs, embeddings = self.limits
-            if budget.attempts >= calls:
-                raise Fault("budget_exhausted", 429)
-            if kind == "responses":
-                if (
-                    budget.input_tokens + INPUT_TOKENS > inputs
-                    or budget.output_tokens + 4096 > outputs
-                ):
-                    raise Fault("budget_exhausted", 429)
-                budget.input_tokens += INPUT_TOKENS
-                budget.output_tokens += 4096
-            else:
-                if budget.embedding_tokens + 8000 > embeddings:
-                    raise Fault("budget_exhausted", 429)
-                budget.embedding_tokens += 8000
             budget.attempts += 1
             identity = str(uuid4())
             db.add(
@@ -135,6 +98,7 @@ class Controls:
             return identity
 
     async def reconcile(self, identity: str, owner: str, inputs: int, outputs: int) -> None:
+        """Add the provider-reported usage of one counted call, once."""
         async with self.sessions.begin() as db:
             await self.locked(db)
             reservation = await db.get(Reservation, identity)
@@ -147,25 +111,22 @@ class Controls:
             reservation.received = True
             budget.received += 1
             if reservation.kind == "responses":
-                budget.input_tokens += inputs - INPUT_TOKENS
-                budget.output_tokens += outputs - 4096
+                budget.input_tokens += inputs
+                budget.output_tokens += outputs
             else:
-                budget.embedding_tokens += inputs - 8000
+                budget.embedding_tokens += inputs
 
     async def finish(self, owner: str) -> None:
         async with self.sessions.begin() as db:
-            control, _ = await self.locked(db)
+            await self.locked(db)
             row = await db.scalar(select(Run).where(Run.owner == owner))
             if row is not None:
                 row.done = True
-            if control.lease_owner == owner:
-                control.lease_owner = control.lease_until = None
 
     async def cleanup(self) -> None:
         async with self.sessions.begin() as db:
-            control, now = await self.locked(db)
+            _, now = await self.locked(db)
             cutoff = now - timedelta(hours=23)
+            # Rate rows are no longer written; rows left from earlier versions age out here.
             for model in (Run, Rate, Reservation):
                 await db.execute(delete(model).where(model.created <= cutoff))
-            if control.lease_until is not None and control.lease_until <= now:
-                control.lease_owner = control.lease_until = None

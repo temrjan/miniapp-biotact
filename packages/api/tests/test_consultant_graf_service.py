@@ -110,7 +110,7 @@ async def seed(db):
 
 def bot(db, router=None, on=True):
     sessions = async_sessionmaker(db.bind, expire_on_commit=False)
-    controls = Controls(sessions, KEY, (240, 2880000, 491520, 640000))
+    controls = Controls(sessions, KEY, True)
     engine = None
     if on:
         client = httpx.AsyncClient(transport=httpx.MockTransport((router or OpenRouter()).handler))
@@ -137,7 +137,7 @@ def turn(question, previous=None, history=(), language="ru", page=None):
 
 async def say(consultant, question, previous=None, history=(), page=None):
     request = turn(question, previous, history, page=page)
-    response = await consultant.turn(request, "fixture-network")
+    response = await consultant.turn(request)
     response["tab_id"], response["token"] = request.tab_id, response["context_token"]
     return SimpleNamespace(**response)
 
@@ -297,12 +297,7 @@ async def test_runtime_turns_graf_on_only_with_its_key(test_db, key, on):
         consultant_provider_key=SimpleNamespace(get_secret_value=lambda: "provider"),
         consultant_protection_key=SimpleNamespace(get_secret_value=lambda: KEY),
         consultant_graf_key=SimpleNamespace(get_secret_value=lambda: key),
-        consultant_daily_calls=1,
-        consultant_daily_input_tokens=1,
-        consultant_daily_output_tokens=1,
-        consultant_daily_embedding_tokens=1,
         consultant_origins=[],
-        consultant_trusted_proxy_peers=[],
     )
     app = SimpleNamespace(state=SimpleNamespace())
     sessions = async_sessionmaker(test_db.bind, expire_on_commit=False)
@@ -310,3 +305,25 @@ async def test_runtime_turns_graf_on_only_with_its_key(test_db, key, on):
         assert (app.state.consultant.graf is not None) is on
         if on:
             assert app.state.consultant.graf.jev.key == key
+
+
+@pytest.mark.parametrize("earlier", [0, 20])
+async def test_graf_flow_after_a_long_history_matches_a_fresh_one(test_db, earlier):
+    # Graf assumed the website's 4-pair window; the API now accepts any history length.
+    await seed(test_db)
+    message = "сын часто болеет"
+    router = OpenRouter({message: "immunity"})
+    consultant = bot(test_db, router)
+    tab = uuid4()
+    token, _ = consultant.tokens.issue(tab, "ru", [], "long-history")
+    previous = SimpleNamespace(tab_id=tab, token=token)
+    history = [(f"Вопрос {n} про витамины", f"Ответ {n} про витамины.") for n in range(earlier)]
+    first = await say(consultant, message, previous if history else None, history)
+    assert first.status == "clarification"
+    history.append((message, first.answer))
+    second = await say(consultant, "ему 5", first, history)
+    kids = graf.PRODUCT["immunocomplex_kids"]["shop_id"]
+    assert second.status == "answer"
+    assert [p["id"] for p in second.products] == [kids]
+    assert router.states == [message]
+    assert len(history) == earlier + 1

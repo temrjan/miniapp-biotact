@@ -5,11 +5,9 @@ import json
 import httpx
 import pytest
 from pydantic import ValidationError
-from starlette.requests import Request
 
 from src.consultant.contracts import ContextArgs, Fault, Proposal
-from src.consultant.provider import INPUT_TOKENS, Provider
-from src.consultant.router import network
+from src.consultant.provider import RESPONSE_BYTES, Provider
 
 
 async def test_real_adapter_uses_exact_profile_no_retry_and_bounded_body():
@@ -19,7 +17,7 @@ async def test_real_adapter_uses_exact_profile_no_retry_and_bounded_body():
         received.append(request)
         if len(received) == 1:
             return httpx.Response(500, json={"secret": "upstream-private"})
-        return httpx.Response(200, content=b"x" * 65537)
+        return httpx.Response(200, content=b"x" * (RESPONSE_BYTES + 1))
 
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(transport), follow_redirects=False
@@ -32,15 +30,19 @@ async def test_real_adapter_uses_exact_profile_no_retry_and_bounded_body():
         assert payload["model"] == "gpt-6-luna"
         assert payload["reasoning"] == {"effort": "high"}
         assert payload["store"] is False
-        assert payload["max_output_tokens"] == 4096
+        # No output cap: the model's own maximum applies, so reasoning cannot end it early.
+        assert "max_output_tokens" not in payload
         assert payload["include"] == ["reasoning.encrypted_content"]
         assert payload["prompt_cache_options"] == {"mode": "explicit", "ttl": "30m"}
         assert "metadata" not in payload
         with pytest.raises(Fault, match="invalid_answer"):
             await provider.response([], True)
-        with pytest.raises(Fault, match="context_too_large"):
-            await provider.response([{"role": "user", "content": "x" * INPUT_TOKENS}], False)
-        assert len(received) == 2  # oversized input never reached the HTTP channel
+        # A payload far above the former 32,000-byte bound is sent, not refused locally.
+        long = "x" * 200_000
+        with pytest.raises(Fault, match="invalid_answer"):
+            await provider.response([{"role": "user", "content": long}], False)
+        assert len(received) == 3
+        assert json.loads(received[2].content)["input"][0]["content"] == long
 
 
 async def test_embedding_dimension_and_nonfinite_output_are_rejected():
@@ -51,23 +53,6 @@ async def test_embedding_dimension_and_nonfinite_output_are_rejected():
     ) as client:
         with pytest.raises(Fault, match="invalid_answer"):
             await Provider(client, "fixture-only").embedding("product")
-
-
-def test_forwarded_identity_requires_explicit_trusted_peer():
-    from types import SimpleNamespace
-
-    app = SimpleNamespace(state=SimpleNamespace(consultant_trusted_proxy_peers=[]))
-    scope = {
-        "type": "http",
-        "client": ("192.0.2.1", 321),
-        "headers": [(b"x-real-ip", b"198.51.100.1"), (b"x-forwarded-for", b"203.0.113.1")],
-        "app": app,
-    }
-    assert network(Request(scope)) == "192.0.2.1"
-    app.state.consultant_trusted_proxy_peers = ["192.0.2.0/24"]
-    assert network(Request(scope)) == "198.51.100.1"
-    scope["headers"] = [(b"x-real-ip", b"198.51.100.1, 203.0.113.1")]
-    assert network(Request(scope)) == "unknown"
 
 
 @pytest.mark.parametrize("status", [None, "uncertain", 1])
@@ -87,3 +72,31 @@ def test_final_proposal_requires_explicit_supported_status(status):
 def test_context_tool_requires_both_bounded_fields():
     with pytest.raises(ValidationError):
         ContextArgs.model_validate({"product_ids": []})
+
+
+async def test_large_response_above_the_former_64_kib_is_read():
+    # Long reasoning comes back as encrypted content inside the same response body.
+    reasoning = {"type": "reasoning", "encrypted_content": "e" * 1_000_000}
+    body = {"status": "completed", "output": [reasoning]}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+    ) as client:
+        result = await Provider(client, "fixture-only").response([], False)
+    assert result["output"][0]["encrypted_content"] == reasoning["encrypted_content"]
+
+
+def test_long_answer_is_valid_and_the_model_schema_has_no_length_cap():
+    from src.consultant.provider import FORMAT
+
+    answer = "Состав указан в инструкции. " * 1000  # 28,000 characters
+    proposal = Proposal.model_validate(
+        {
+            "status": "answer",
+            "answer": answer,
+            "source_ids": [],
+            "product_ids": [],
+            "open_product_id": None,
+        }
+    )
+    assert proposal.answer == answer
+    assert "maxLength" not in FORMAT["schema"]["properties"]["answer"]

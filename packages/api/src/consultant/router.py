@@ -5,7 +5,6 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from ipaddress import ip_address, ip_network
 from typing import Any
 from uuid import UUID
 
@@ -24,6 +23,8 @@ from src.consultant.provider import Provider
 from src.consultant.service import Consultant
 
 router = APIRouter(prefix="/consultant")
+# Request body bound: room for a long conversation history; protects memory only.
+REQUEST_BYTES = 1024 * 1024
 
 
 def error(exc: Fault, request_id: str | None = None) -> JSONResponse:
@@ -69,21 +70,9 @@ async def body(request: Request) -> bytes:
     result = bytearray()
     async for chunk in request.stream():
         result.extend(chunk)
-        if len(result) > 65536:
+        if len(result) > REQUEST_BYTES:
             raise Fault("invalid_input", 413)
     return bytes(result)
-
-
-def network(request: Request) -> str:
-    actual = request.client.host if request.client else "unknown"
-    try:
-        address = ip_address(actual)
-        peers = getattr(request.app.state, "consultant_trusted_proxy_peers", [])
-        if any(address in ip_network(peer) for peer in peers):
-            return str(ip_address(request.headers.get("x-real-ip", "")))
-        return str(address)
-    except ValueError:
-        return "unknown"
 
 
 async def dispatch(request: Request, kind: str) -> Response:
@@ -100,16 +89,14 @@ async def dispatch(request: Request, kind: str) -> Response:
         if kind == "turn":
             parsed = Turn.model_validate_json(raw)
             rid = str(parsed.request_id)
-            result = await service.turn(parsed, network(request))
+            result = await service.turn(parsed)
         elif kind == "cancel":
             cancel = Cancel.model_validate_json(raw)
             rid = str(cancel.request_id)
-            await service.controls.rate(network(request), "aux")
             await service.controls.register(cancel.request_id, cancel.tab_id, cancel=True)
             return Response(status_code=204, headers={"Cache-Control": "no-store"})
         else:
             refresh = Refresh.model_validate_json(raw)
-            await service.controls.rate(network(request), "aux")
             evidence = await service.knowledge.snapshot(refresh.language)
             from datetime import UTC, datetime
 
@@ -166,14 +153,7 @@ async def cleaner(controls: Controls) -> None:
 async def runtime(app: Any, config: Any, sessions: Any) -> AsyncIterator[None]:
     provider_key = config.consultant_provider_key.get_secret_value()
     controls = Controls(
-        sessions,
-        config.consultant_protection_key.get_secret_value(),
-        (
-            config.consultant_daily_calls if provider_key else 0,
-            config.consultant_daily_input_tokens,
-            config.consultant_daily_output_tokens,
-            config.consultant_daily_embedding_tokens,
-        ),
+        sessions, config.consultant_protection_key.get_secret_value(), bool(provider_key)
     )
     graf_key = config.consultant_graf_key.get_secret_value()
     async with httpx.AsyncClient(timeout=60, follow_redirects=False, trust_env=False) as client:
@@ -185,7 +165,6 @@ async def runtime(app: Any, config: Any, sessions: Any) -> AsyncIterator[None]:
             Graf(Jev(client, graf_key)) if graf_key else None,
         )
         app.state.consultant_origins = config.consultant_origins
-        app.state.consultant_trusted_proxy_peers = config.consultant_trusted_proxy_peers
         cleanup = asyncio.create_task(cleaner(controls))
         try:
             yield

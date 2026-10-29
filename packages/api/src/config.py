@@ -46,15 +46,10 @@ class Settings(BaseSettings):
     employee_referral_count_readback_enabled: str = "false"
     employee_referral_count_readback_key: SecretStr = SecretStr("")
 
-    # Consultant stays disabled until operator activation and finite limits.
+    # Consultant stays disabled until operator activation; it has no admission limits.
     consultant_provider_key: SecretStr = SecretStr("")
     consultant_protection_key: SecretStr = SecretStr("")
     consultant_origins: list[str] = ["https://biotact.uz"]
-    consultant_trusted_proxy_peers: list[str] = []
-    consultant_daily_calls: int = 0
-    consultant_daily_input_tokens: int = 0
-    consultant_daily_output_tokens: int = 0
-    consultant_daily_embedding_tokens: int = 0
     # Graf (deterministic product offer through Jev); empty means Graf is off.
     consultant_graf_key: SecretStr = SecretStr("")
 

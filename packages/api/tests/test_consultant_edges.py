@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from src.consultant.contracts import Fault
-from src.consultant.models import Control, Source
+from src.consultant.models import Control, Run, Source
 from tests.test_consultant import ProviderStub, request, seed, service
 
 
@@ -69,11 +69,11 @@ async def test_adverse_provider_does_not_execute_an_unapproved_continuation(test
     provider = AdverseProvider(case)
     bot = service(test_db, provider)
     with pytest.raises(Fault, match="invalid_answer") as error:
-        await bot.turn(request(), "adverse-provider")
+        await bot.turn(request())
     assert error.value.status == 502
     assert len(provider.calls) == (2 if case == "duplicate" else 1)
     async with bot.controls.sessions() as db:
-        assert (await db.get(Control, 1)).lease_owner is None
+        assert not (await db.scalars(select(Run).where(Run.done.is_(False)))).all()
         # The public tool channel never owns product/business writes.
         assert len((await db.scalars(select(Source))).all()) == 4
 
@@ -82,7 +82,7 @@ async def test_two_distinct_context_calls_remain_supported(test_db):
     await seed(test_db)
     provider = AdverseProvider("unique-second-call")
     bot = service(test_db, provider)
-    response = await bot.turn(request(), "positive-two-tools")
+    response = await bot.turn(request())
     assert response["status"] == "answer"
     assert [p["id"] for p in response["products"]] == [4]
     assert [call[0] for call in provider.calls] == ["response"] * 3
@@ -97,10 +97,10 @@ async def test_reversed_selection_price_ordinal_and_positive_navigation(test_db)
     await seed(test_db)
     bot = service(test_db)
     first = request("DERMACOMPLEX и ACTIVE цена")
-    reply = await bot.turn(first, "selection")
+    reply = await bot.turn(first)
     assert [p["id"] for p in reply["products"]] == [4, 20]
     followup = request("открой второй", reply["context_token"], first.tab_id)
-    opened = await bot.turn(followup, "selection")
+    opened = await bot.turn(followup)
     assert [p["id"] for p in opened["products"]] == [20]
     assert opened["open_product_id"] == 20
     assert bot.tokens.read(followup.model_copy(update={"context_token": opened["context_token"]}))[
@@ -116,7 +116,7 @@ async def test_midturn_admission_or_switch_loss_suppresses_stale_delivery(test_d
     provider = ProviderStub(delay=gate)
     bot = service(test_db, provider)
     turn = request()
-    pending = asyncio.create_task(bot.turn(turn, "midturn"))
+    pending = asyncio.create_task(bot.turn(turn))
     try:
         await asyncio.wait_for(provider.started.wait(), 5)
         async with bot.controls.sessions.begin() as db:
@@ -151,21 +151,19 @@ async def test_same_subject_source_only_keeps_selection_then_loss_clears_it(test
     await seed(test_db)
     bot = service(test_db)
     first = request("ACTIVE")
-    response = await bot.turn(first, "same-subject")
+    response = await bot.turn(first)
     followup = request("состав", response["context_token"], first.tab_id)
-    result = await bot.turn(followup, "same-subject")
+    result = await bot.turn(followup)
     assert [p["id"] for p in result["products"]] == [20]
     assert bot.tokens.read(followup.model_copy(update={"context_token": result["context_token"]}))[
         0
     ] == [20]
     async with bot.controls.sessions.begin() as db:
         (await db.get(Source, "s20ru")).withdrawn = True
-    missing = await bot.turn(
-        request("ACTIVE", result["context_token"], first.tab_id), "same-subject"
-    )
+    missing = await bot.turn(request("ACTIVE", result["context_token"], first.tab_id))
     assert missing["status"] == "limited"
     assert missing["products"] == []
-    bare = await bot.turn(request("цена", missing["context_token"], first.tab_id), "same-subject")
+    bare = await bot.turn(request("цена", missing["context_token"], first.tab_id))
     assert bare["status"] == "clarification"
     assert bare["products"] == []
     assert len(bot.provider.calls) == 4

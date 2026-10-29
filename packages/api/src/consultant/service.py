@@ -1,4 +1,4 @@
-"""One bounded turn: admission, current subject, read-only evidence, validated delivery."""
+"""One turn: admission, current subject, read-only evidence, validated delivery."""
 
 import asyncio
 import json
@@ -82,8 +82,7 @@ class Consultant:
         if type(inputs) is int and type(outputs) is int:
             await self.controls.reconcile(reservation, owner, inputs, outputs)
 
-    async def turn(self, request: Turn, network: str) -> dict[str, Any]:
-        await self.controls.rate(network, "turn")
+    async def turn(self, request: Turn) -> dict[str, Any]:
         if SENSITIVE.search(request.question) or any(
             SENSITIVE.search(p.question + " " + p.answer) for p in request.history
         ):
@@ -349,15 +348,6 @@ class Consultant:
         proposal: Proposal | None = None
         for step in range(3):
             await self.controls.alive(owner)
-            try:
-                Provider.payload(inputs, step == 2)
-            except Fault:
-                narrow = (
-                    "Уточните вопрос: полный контекст не помещается. Спросите об одном товаре или одном разделе."
-                    if request.language == "ru"
-                    else "Savolni aniqlashtiring: toʻliq kontekst sigʻmaydi. Bitta mahsulot yoki boʻlim haqida soʻrang."
-                )
-                return self.envelope(request, epoch, [], "limited", narrow, [], [], None, [])
             reservation = await self.controls.reserve(owner, "responses")
             result = await self.waiting(owner, self.provider.response(inputs, step == 2))
             await self.usage(reservation, owner, result.get("usage", {}))
