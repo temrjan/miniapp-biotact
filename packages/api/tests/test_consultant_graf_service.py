@@ -110,7 +110,7 @@ async def seed(db):
 
 def bot(db, router=None, on=True):
     sessions = async_sessionmaker(db.bind, expire_on_commit=False)
-    controls = Controls(sessions, KEY, (240, 2880000, 491520, 640000))
+    controls = Controls(sessions, KEY, True)
     engine = None
     if on:
         client = httpx.AsyncClient(transport=httpx.MockTransport((router or OpenRouter()).handler))
@@ -137,7 +137,7 @@ def turn(question, previous=None, history=(), language="ru", page=None):
 
 async def say(consultant, question, previous=None, history=(), page=None):
     request = turn(question, previous, history, page=page)
-    response = await consultant.turn(request, "fixture-network")
+    response = await consultant.turn(request)
     response["tab_id"], response["token"] = request.tab_id, response["context_token"]
     return SimpleNamespace(**response)
 
@@ -297,12 +297,7 @@ async def test_runtime_turns_graf_on_only_with_its_key(test_db, key, on):
         consultant_provider_key=SimpleNamespace(get_secret_value=lambda: "provider"),
         consultant_protection_key=SimpleNamespace(get_secret_value=lambda: KEY),
         consultant_graf_key=SimpleNamespace(get_secret_value=lambda: key),
-        consultant_daily_calls=1,
-        consultant_daily_input_tokens=1,
-        consultant_daily_output_tokens=1,
-        consultant_daily_embedding_tokens=1,
         consultant_origins=[],
-        consultant_trusted_proxy_peers=[],
     )
     app = SimpleNamespace(state=SimpleNamespace())
     sessions = async_sessionmaker(test_db.bind, expire_on_commit=False)

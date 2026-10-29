@@ -15,6 +15,8 @@ class Strict(BaseModel):
 
 
 class Pair(Strict):
+    # Earlier questions keep the former 2,000-character bound, so histories written before
+    # the 1,000-character question cap stay valid.
     question: Annotated[str, Field(min_length=1, max_length=2000)]
     answer: Text
 
@@ -24,16 +26,14 @@ class Turn(Strict):
     tab_id: UUID
     context_revision: Annotated[int, Field(ge=0, le=9007199254740991)]
     language: Language
-    question: Annotated[str, Field(min_length=1, max_length=2000)]
-    history: Annotated[list[Pair], Field(max_length=4)]
+    question: Annotated[str, Field(min_length=1, max_length=1000)]
+    history: list[Pair]
     page_product_id: ProductId | None
     context_token: Annotated[str, Field(max_length=2048)] | None
 
     @model_validator(mode="after")
     def bounds(self) -> "Turn":
         if not self.question.strip() or self.question != self.question.strip():
-            raise ValueError("invalid_input")
-        if sum(len(p.question) + len(p.answer) for p in self.history) > 12000:
             raise ValueError("invalid_input")
         if self.context_token is None and self.history:
             raise ValueError("context_invalid")

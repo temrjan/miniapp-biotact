@@ -23,12 +23,7 @@ async def test_ordinal_danger_text_gets_103_instead_of_the_product_question(test
         consultant_provider_key=secret("provider-key-fixture"),
         consultant_protection_key=secret(KEY),
         consultant_graf_key=secret("graf-key-fixture"),
-        consultant_daily_calls=240,
-        consultant_daily_input_tokens=2880000,
-        consultant_daily_output_tokens=491520,
-        consultant_daily_embedding_tokens=640000,
         consultant_origins=[],
-        consultant_trusted_proxy_peers=[],
     )
     app = SimpleNamespace(state=SimpleNamespace())
     async with runtime(app, config, async_sessionmaker(test_db.bind, expire_on_commit=False)):
@@ -46,7 +41,7 @@ async def test_ordinal_danger_text_gets_103_instead_of_the_product_question(test
                 }
             )
         )
-        reply = await app.state.consultant.turn(request, "fixture-network")
+        reply = await app.state.consultant.turn(request)
     assert "О каком товаре" not in reply["answer"]
     assert "103" in reply["answer"]
     assert reply["status"] == "limited"

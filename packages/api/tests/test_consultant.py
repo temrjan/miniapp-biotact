@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -26,7 +27,8 @@ from src.consultant.models import (
     Section,
     Source,
 )
-from src.consultant.provider import EMBEDDING_PROFILE, INPUT_TOKENS, PROFILE
+from src.consultant.provider import EMBEDDING_PROFILE, PROFILE
+from src.consultant.router import runtime
 from src.consultant.service import Consultant
 from src.main import create_app
 from src.products.models import Product
@@ -228,7 +230,7 @@ async def seed(db):
 
 def service(db, provider=None):
     sessions = async_sessionmaker(db.bind, expire_on_commit=False)
-    controls = Controls(sessions, KEY, (240, 2880000, 491520, 640000))
+    controls = Controls(sessions, KEY, True)
     return Consultant(controls, Knowledge(sessions), provider or ProviderStub(), Tokens(KEY))
 
 
@@ -237,7 +239,7 @@ async def test_explicit_source_only_change_cards_token_and_followup(test_db, lan
     await seed(test_db)
     bot = service(test_db)
     first = request("ACTIVE", language=language)
-    a = await bot.turn(first, "client-a")
+    a = await bot.turn(first)
     assert [p["id"] for p in a["products"]] == [20]
     second = request(
         "Теперь DERMACOMPLEX" if language == "ru" else "Endi DERMACOMPLEX",
@@ -245,14 +247,14 @@ async def test_explicit_source_only_change_cards_token_and_followup(test_db, lan
         first.tab_id,
         language,
     )
-    b = await bot.turn(second, "client-a")
+    b = await bot.turn(second)
     assert [p["id"] for p in b["products"]] == [4]
     assert b["products"][0]["is_in_stock"] is False
     assert b["open_product_id"] is None
     third = request(
         "цена" if language == "ru" else "narxi", b["context_token"], first.tab_id, language
     )
-    c = await bot.turn(third, "client-a")
+    c = await bot.turn(third)
     assert [p["id"] for p in c["products"]] == [4]
     assert "100" in c["answer"]
     assert "200" not in c["answer"]
@@ -264,8 +266,8 @@ async def test_unknown_clears_page_fallback_and_no_reference_has_no_provider(tes
     bot = service(test_db)
     bot.provider.clarify = True
     first = request("Теперь UNKNOWN")
-    a = await bot.turn(first, "a")
-    b = await bot.turn(request("состав", a["context_token"], first.tab_id), "a")
+    a = await bot.turn(first)
+    b = await bot.turn(request("состав", a["context_token"], first.tab_id))
     assert a["products"] == b["products"] == []
     assert b["status"] == "clarification"
     assert len(bot.provider.calls) == 1
@@ -293,15 +295,20 @@ def test_tokens_and_resolver_are_bound_to_current_order():
         )
 
 
-async def test_shared_dedup_cancel_lease_and_23_hour_boundary(test_db):
+async def test_shared_dedup_cancel_parallel_runs_and_23_hour_boundary(test_db):
     await seed(test_db)
     a, b = service(test_db).controls, service(test_db).controls
     rid, tab = uuid4(), uuid4()
     owner = await a.register(rid, tab)
     with pytest.raises(Fault, match="duplicate_request"):
         await b.register(rid, uuid4())
-    with pytest.raises(Fault, match="busy"):
-        await b.register(uuid4(), tab)
+    # No global lease: another request runs beside the first and finishes on its own.
+    parallel = await b.register(uuid4(), tab)
+    assert parallel != owner
+    await a.alive(owner)
+    await b.alive(parallel)
+    await b.finish(parallel)
+    await a.alive(owner)
     await b.register(rid, uuid4(), cancel=True)
     await a.alive(owner)  # wrong tab cannot cancel
     await b.register(rid, tab, cancel=True)
@@ -314,10 +321,8 @@ async def test_shared_dedup_cancel_lease_and_23_hour_boundary(test_db):
     await a.register(tombstone, tombtab, cancel=True)
     with pytest.raises(Fault, match="cancelled"):
         await b.register(tombstone, tombtab)
-    # Lease expiry does not expire the ID registration.
+    # Turn expiry does not expire the ID registration.
     async with a.sessions.begin() as db:
-        control = await db.get(Control, 1)
-        control.lease_until = datetime.now(UTC) - timedelta(seconds=1)
         row = await db.get(Run, a.digest("request:" + str(rid)))
         row.cancelled = False
         row.created = datetime.now(UTC) - timedelta(seconds=76)
@@ -332,11 +337,15 @@ async def test_shared_dedup_cancel_lease_and_23_hour_boundary(test_db):
     await b.alive(newer)  # old owner cannot finish a new registration
 
 
-async def test_unknown_budget_retained_after_disabled_cleanup_and_concurrency(test_db):
+async def test_unreported_usage_counts_the_call_but_no_tokens_after_cleanup(test_db):
     await seed(test_db)
     controls = service(test_db).controls
     owner = await controls.register(uuid4(), uuid4())
     reservation = await controls.reserve(owner, "responses")
+    async with controls.sessions() as db:
+        budget = await db.get(Budget, datetime.now(UTC).date())
+        # Counting only: no tokens are reserved in advance.
+        assert (budget.attempts, budget.input_tokens, budget.output_tokens) == (1, 0, 0)
     async with controls.sessions.begin() as db:
         from src.consultant.models import Reservation
 
@@ -347,44 +356,42 @@ async def test_unknown_budget_retained_after_disabled_cleanup_and_concurrency(te
         control = await db.get(Control, 1)
         control.enabled = False
     await controls.cleanup()
-    controls = service(test_db).controls  # a new worker retains the same uncertain daily total
+    controls = service(test_db).controls  # a new worker cannot add usage for a purged call
     await controls.reconcile(reservation, owner, 1, 1)
     async with controls.sessions() as db:
         budget = await db.get(Budget, datetime.now(UTC).date())
-        assert (budget.input_tokens, budget.output_tokens, budget.received) == (
-            INPUT_TOKENS,
-            4096,
+        assert (budget.attempts, budget.received, budget.input_tokens, budget.output_tokens) == (
+            1,
+            0,
+            0,
             0,
         )
         assert await db.scalar(select(Run).where(Run.owner == owner)) is None
 
 
-@pytest.mark.parametrize(("output_limit", "admitted"), [(4095, 0), (4096, 1)])
-async def test_output_reservation_boundary_is_atomic_across_workers(
-    test_db, output_limit, admitted
-):
+async def test_parallel_workers_count_every_call_and_its_actual_usage(test_db):
     await seed(test_db)
     sessions = service(test_db).controls.sessions
-    a = Controls(sessions, KEY, (240, 2880000, output_limit, 640000))
-    b = Controls(sessions, KEY, a.limits)
+    a, b = Controls(sessions, KEY, True), Controls(sessions, KEY, True)
     owner = await a.register(uuid4(), uuid4())
-    results = await asyncio.gather(
-        a.reserve(owner, "responses"), b.reserve(owner, "responses"), return_exceptions=True
+
+    async def call(controls, kind, inputs, outputs):
+        identity = await controls.reserve(owner, kind)
+        await controls.reconcile(identity, owner, inputs, outputs)
+
+    await asyncio.gather(
+        *(call(a if n % 2 else b, "responses", 100_000, 30_000) for n in range(10)),
+        call(a, "embeddings", 9, 0),
     )
-    assert sum(isinstance(result, str) for result in results) == admitted
-    failures = [result for result in results if isinstance(result, Fault)]
-    assert len(failures) == 2 - admitted
-    assert all(str(result) == "budget_exhausted" for result in failures)
     async with sessions() as db:
         budget = await db.get(Budget, datetime.now(UTC).date())
-        if admitted:
-            assert (budget.attempts, budget.input_tokens, budget.output_tokens) == (
-                1,
-                INPUT_TOKENS,
-                4096,
-            )
-        else:
-            assert budget is None  # failed admission commits neither attempt nor reservation
+        assert (
+            budget.attempts,
+            budget.received,
+            budget.input_tokens,
+            budget.output_tokens,
+            budget.embedding_tokens,
+        ) == (11, 11, 1_000_000, 300_000, 9)
 
 
 async def test_delayed_provider_cancel_releases_connection_and_suppresses_answer(test_db):
@@ -393,7 +400,7 @@ async def test_delayed_provider_cancel_releases_connection_and_suppresses_answer
     provider = ProviderStub(delay=release)
     bot = service(test_db, provider)
     turn = request()
-    task = asyncio.create_task(bot.turn(turn, "a"))
+    task = asyncio.create_task(bot.turn(turn))
     await asyncio.wait_for(provider.started.wait(), 5)
     # A separate DB connection can acquire the shared control row during provider I/O.
     async with bot.controls.sessions.begin() as db:
@@ -593,36 +600,32 @@ async def test_operator_preparation_is_exact_resumable_and_does_not_activate(
         await operator.prepare(path, identity, "fixture-approval", provider, False)
 
 
-async def test_shared_rate_budget_offswitch_and_unknown_hidden_subject(test_db):
+async def test_usage_offswitch_and_unknown_hidden_subject(test_db):
     await seed(test_db)
     bot = service(test_db)
-    for _ in range(6):
-        await bot.controls.rate("same-network", "turn")
-    with pytest.raises(Fault, match="rate_limited"):
-        await service(test_db).controls.rate("same-network", "turn")
     async with bot.controls.sessions.begin() as db:
         product = await db.get(Product, 4)
         product.is_active = False
-    reply = await bot.turn(request("DERMACOMPLEX"), "different")
+    reply = await bot.turn(request("DERMACOMPLEX"))
     assert reply["status"] == "limited"
     assert reply["products"] == []
     assert bot.provider.calls == []
     owner = await bot.controls.register(uuid4(), uuid4())
-    constrained = Controls(bot.controls.sessions, KEY, (1, INPUT_TOKENS, 4096, 8000))
-    reservation = await constrained.reserve(owner, "responses")
-    with pytest.raises(Fault, match="budget_exhausted"):
-        await constrained.reserve(owner, "responses")
-    await constrained.reconcile(reservation, owner, 100, 2851)
-    await constrained.reconcile(reservation, owner, 1, 1)
-    async with constrained.sessions.begin() as db:
+    controls = bot.controls
+    reservation = await controls.reserve(owner, "responses")
+    await controls.reserve(owner, "responses")
+    await controls.reconcile(reservation, owner, 100, 2851)
+    await controls.reconcile(reservation, owner, 1, 1)  # usage is added once per call
+    async with controls.sessions.begin() as db:
         budget = await db.get(Budget, datetime.now(UTC).date())
+        assert budget.attempts == 2
         assert budget.received == 1
         assert budget.input_tokens == 100
         assert budget.output_tokens == 2851
         control = await db.get(Control, 1)
         control.enabled = False
     with pytest.raises(Fault, match="disabled"):
-        await constrained.alive(owner)
+        await controls.alive(owner)
 
 
 async def test_exact_non_sliding_boundary_and_cancel_race(test_db, monkeypatch):
@@ -671,24 +674,175 @@ async def test_exact_non_sliding_boundary_and_cancel_race(test_db, monkeypatch):
         assert await db.get(Run, a.digest("request:" + str(rid))) is None
 
 
-async def test_embedding_cannot_bypass_global_attempt_ceiling(test_db):
+async def test_past_daily_totals_never_refuse_another_call(test_db):
     await seed(test_db)
     controls = service(test_db).controls
     async with controls.sessions.begin() as db:
         db.add(
             Budget(
                 day=datetime.now(UTC).date(),
-                attempts=239,
-                received=0,
-                input_tokens=0,
-                output_tokens=0,
-                embedding_tokens=0,
+                attempts=1_000_000,
+                received=1_000_000,
+                input_tokens=2_000_000_000,
+                output_tokens=2_000_000_000,
+                embedding_tokens=2_000_000_000,
             )
         )
     owner = await controls.register(uuid4(), uuid4())
     await controls.reserve(owner, "responses")
-    with pytest.raises(Fault, match="budget_exhausted"):
-        await controls.reserve(owner, "embedding")
+    await controls.reserve(owner, "embeddings")
     async with controls.sessions() as db:
         budget = await db.get(Budget, datetime.now(UTC).date())
-        assert (budget.attempts, budget.output_tokens, budget.embedding_tokens) == (240, 4096, 0)
+        assert budget.attempts == 1_000_002
+
+
+class ParallelProvider(ProviderStub):
+    """Holds every response until all expected turns are inside the provider at once."""
+
+    def __init__(self, expected):
+        super().__init__()
+        self.expected, self.inflight, self.peak = expected, 0, 0
+        self.together = asyncio.Event()
+
+    async def response(self, inputs, last):
+        self.inflight += 1
+        self.peak = max(self.peak, self.inflight)
+        if self.inflight == self.expected:
+            self.together.set()
+        try:
+            await asyncio.wait_for(self.together.wait(), 10)
+            return await super().response(inputs, last)
+        finally:
+            self.inflight -= 1
+
+
+@pytest.mark.parametrize("visitors", [2, 10])
+async def test_concurrent_visitors_are_answered_in_parallel(test_db, visitors):
+    await seed(test_db)
+    provider = ParallelProvider(visitors)
+    bot = service(test_db, provider)
+    replies = await asyncio.gather(*(bot.turn(request()) for _ in range(visitors)))
+    assert provider.peak == visitors
+    assert [r["status"] for r in replies] == ["answer"] * visitors
+    assert all([p["id"] for p in r["products"]] == [4] for r in replies)
+    async with bot.controls.sessions() as db:
+        assert not (await db.scalars(select(Run).where(Run.done.is_(False)))).all()
+
+
+async def test_many_requests_from_one_network_are_all_served(test_db):
+    await seed(test_db)
+    app = create_app()
+    bot = service(test_db)
+    app.state.consultant = bot
+    app.state.consultant_origins = ["https://shop.test"]
+    # More than the former 6/minute and 60/hour turn and 60/minute auxiliary allowances.
+    async with AsyncClient(
+        transport=ASGITransport(app=app, client=("198.51.100.7", 4000)),
+        base_url="https://shop.test",
+    ) as client:
+        for _ in range(61):
+            turn = json.loads(request().model_dump_json())
+            response = await client.post("/api/v1/consultant/turns", json=turn)
+            assert response.status_code == 200, response.text
+            response = await client.post(
+                "/api/v1/consultant/cancel",
+                json={"request_id": turn["request_id"], "tab_id": turn["tab_id"]},
+            )
+            assert response.status_code == 204
+            response = await client.post(
+                "/api/v1/consultant/products/refresh",
+                json={"product_ids": [20], "language": "ru"},
+            )
+            assert response.status_code == 200
+
+
+def secret(value):
+    return SimpleNamespace(get_secret_value=lambda: value)
+
+
+@pytest.mark.parametrize("provider_key", ["provider-key-fixture", ""])
+async def test_runtime_without_budget_settings_serves_turns(test_db, provider_key):
+    """No daily settings exist; only a missing provider key still keeps the consultant off."""
+    await seed(test_db)
+    config = SimpleNamespace(
+        consultant_provider_key=secret(provider_key),
+        consultant_protection_key=secret(KEY),
+        consultant_graf_key=secret(""),
+        consultant_origins=[],
+    )
+    app = SimpleNamespace(state=SimpleNamespace())
+    async with runtime(app, config, async_sessionmaker(test_db.bind, expire_on_commit=False)):
+        consultant = app.state.consultant
+        consultant.provider = ProviderStub()  # no outbound network
+        if provider_key:
+            reply = await consultant.turn(request())
+            assert reply["status"] == "answer"
+            assert len(consultant.provider.calls) == 2
+        else:
+            with pytest.raises(Fault, match="disabled"):
+                await consultant.turn(request())
+
+
+def test_settings_ignore_former_daily_limit_lines(tmp_path):
+    from src.config import Settings
+
+    env = tmp_path / ".env"
+    env.write_text(
+        "DATABASE_URL=postgresql+asyncpg://fixture:fixture@127.0.0.1:1/fixture\n"
+        "SECRET_KEY=fixture-only\n"
+        "CONSULTANT_DAILY_CALLS=240\n"
+        "CONSULTANT_DAILY_INPUT_TOKENS=2880000\n"
+        "CONSULTANT_DAILY_OUTPUT_TOKENS=491520\n"
+        "CONSULTANT_DAILY_EMBEDDING_TOKENS=0\n"
+        "CONSULTANT_TRUSTED_PROXY_PEERS=[]\n"
+    )
+    loaded = Settings(_env_file=env)
+    assert not hasattr(loaded, "consultant_daily_calls")
+    assert not hasattr(loaded, "consultant_trusted_proxy_peers")
+
+
+async def test_long_history_reaches_the_provider_whole(test_db):
+    await seed(test_db)
+    bot = service(test_db)
+    first = request("ACTIVE")
+    shown = await bot.turn(first)
+    # Above the former 4-pair and 12,000-character history bounds and the 32,000-byte payload
+    # bound. Earlier questions up to 2,000 characters remain valid history.
+    question = ("Что написано в инструкции ACTIVE о составе? " * 30)[:1000].strip()
+    history = [
+        {"question": f"Вопрос {n}: " + "состав и применение " * 99, "answer": "Ответ. " * 1000}
+        for n in range(10)
+    ]
+    raw = json.loads(request(question, shown["context_token"], first.tab_id).model_dump_json())
+    raw["history"] = history
+    turn = Turn.model_validate_json(json.dumps(raw))
+    assert max(len(p.question) for p in turn.history) > 1000
+    reply = await bot.turn(turn)
+    assert reply["status"] == "answer"
+    sent = bot.provider.calls[-2][1]
+    wire = json.loads(sent[0]["content"])
+    assert wire["question"] == turn.question
+    assert len(wire["history"]) == 10
+    assert len(json.dumps(sent, ensure_ascii=False).encode()) > 32000
+
+
+@pytest.mark.parametrize(("length", "status"), [(1000, 200), (1001, 422)])
+async def test_question_is_capped_at_1000_characters(test_db, length, status):
+    await seed(test_db)
+    app = create_app()
+    bot = service(test_db)
+    app.state.consultant = bot
+    app.state.consultant_origins = ["https://shop.test"]
+    question = ("ACTIVE " + "я" * length)[:length]  # Cyrillic: characters, not bytes
+    raw = json.loads(request().model_dump_json())
+    raw["question"] = question
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://shop.test"
+    ) as client:
+        response = await client.post("/api/v1/consultant/turns", json=raw)
+    assert response.status_code == status
+    if status == 422:
+        assert response.json()["code"] == "invalid_input"
+        assert bot.provider.calls == []
+        with pytest.raises(ValidationError):
+            Turn.model_validate_json(json.dumps(raw))

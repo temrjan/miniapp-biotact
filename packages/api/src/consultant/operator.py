@@ -351,7 +351,7 @@ async def main() -> None:
     elif args.action == "withdraw":
         await withdraw(args.identity)
     elif args.action == "cleanup":
-        await Controls(async_session_maker, "", (0, 0, 0, 0)).cleanup()
+        await Controls(async_session_maker, "", False).cleanup()
     elif args.action in {"enable", "disable"}:
         async with async_session_maker.begin() as db:
             control = await db.get(Control, 1, with_for_update=True)
@@ -361,15 +361,6 @@ async def main() -> None:
                 if (
                     len(settings.consultant_protection_key.get_secret_value()) < 32
                     or not settings.consultant_provider_key.get_secret_value()
-                    or not all(
-                        v > 0
-                        for v in (
-                            settings.consultant_daily_calls,
-                            settings.consultant_daily_input_tokens,
-                            settings.consultant_daily_output_tokens,
-                            settings.consultant_daily_embedding_tokens,
-                        )
-                    )
                 ):
                     raise Fault("configuration_unavailable")
                 release = await db.get(Release, control.active) if control.active else None
