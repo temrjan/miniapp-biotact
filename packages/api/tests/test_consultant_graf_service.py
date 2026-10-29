@@ -305,3 +305,25 @@ async def test_runtime_turns_graf_on_only_with_its_key(test_db, key, on):
         assert (app.state.consultant.graf is not None) is on
         if on:
             assert app.state.consultant.graf.jev.key == key
+
+
+@pytest.mark.parametrize("earlier", [0, 20])
+async def test_graf_flow_after_a_long_history_matches_a_fresh_one(test_db, earlier):
+    # Graf assumed the website's 4-pair window; the API now accepts any history length.
+    await seed(test_db)
+    message = "сын часто болеет"
+    router = OpenRouter({message: "immunity"})
+    consultant = bot(test_db, router)
+    tab = uuid4()
+    token, _ = consultant.tokens.issue(tab, "ru", [], "long-history")
+    previous = SimpleNamespace(tab_id=tab, token=token)
+    history = [(f"Вопрос {n} про витамины", f"Ответ {n} про витамины.") for n in range(earlier)]
+    first = await say(consultant, message, previous if history else None, history)
+    assert first.status == "clarification"
+    history.append((message, first.answer))
+    second = await say(consultant, "ему 5", first, history)
+    kids = graf.PRODUCT["immunocomplex_kids"]["shop_id"]
+    assert second.status == "answer"
+    assert [p["id"] for p in second.products] == [kids]
+    assert router.states == [message]
+    assert len(history) == earlier + 1

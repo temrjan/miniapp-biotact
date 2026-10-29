@@ -23,6 +23,8 @@ from src.consultant.provider import Provider
 from src.consultant.service import Consultant
 
 router = APIRouter(prefix="/consultant")
+# Request body bound: room for a long conversation history; protects memory only.
+REQUEST_BYTES = 1024 * 1024
 
 
 def error(exc: Fault, request_id: str | None = None) -> JSONResponse:
@@ -68,7 +70,7 @@ async def body(request: Request) -> bytes:
     result = bytearray()
     async for chunk in request.stream():
         result.extend(chunk)
-        if len(result) > 65536:
+        if len(result) > REQUEST_BYTES:
             raise Fault("invalid_input", 413)
     return bytes(result)
 

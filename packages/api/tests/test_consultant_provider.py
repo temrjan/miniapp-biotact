@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.consultant.contracts import ContextArgs, Fault, Proposal
-from src.consultant.provider import Provider
+from src.consultant.provider import RESPONSE_BYTES, Provider
 
 
 async def test_real_adapter_uses_exact_profile_no_retry_and_bounded_body():
@@ -17,7 +17,7 @@ async def test_real_adapter_uses_exact_profile_no_retry_and_bounded_body():
         received.append(request)
         if len(received) == 1:
             return httpx.Response(500, json={"secret": "upstream-private"})
-        return httpx.Response(200, content=b"x" * 65537)
+        return httpx.Response(200, content=b"x" * (RESPONSE_BYTES + 1))
 
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(transport), follow_redirects=False
@@ -72,3 +72,31 @@ def test_final_proposal_requires_explicit_supported_status(status):
 def test_context_tool_requires_both_bounded_fields():
     with pytest.raises(ValidationError):
         ContextArgs.model_validate({"product_ids": []})
+
+
+async def test_large_response_above_the_former_64_kib_is_read():
+    # Long reasoning comes back as encrypted content inside the same response body.
+    reasoning = {"type": "reasoning", "encrypted_content": "e" * 1_000_000}
+    body = {"status": "completed", "output": [reasoning]}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+    ) as client:
+        result = await Provider(client, "fixture-only").response([], False)
+    assert result["output"][0]["encrypted_content"] == reasoning["encrypted_content"]
+
+
+def test_long_answer_is_valid_and_the_model_schema_has_no_length_cap():
+    from src.consultant.provider import FORMAT
+
+    answer = "Состав указан в инструкции. " * 1000  # 28,000 characters
+    proposal = Proposal.model_validate(
+        {
+            "status": "answer",
+            "answer": answer,
+            "source_ids": [],
+            "product_ids": [],
+            "open_product_id": None,
+        }
+    )
+    assert proposal.answer == answer
+    assert "maxLength" not in FORMAT["schema"]["properties"]["answer"]

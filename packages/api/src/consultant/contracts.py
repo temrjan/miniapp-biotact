@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Language = Literal["ru", "uz"]
 ProductId = Annotated[int, Field(strict=True, gt=0, le=9007199254740991)]
-Text = Annotated[str, Field(min_length=1, max_length=8000)]
+Text = Annotated[str, Field(min_length=1)]
 
 
 class Strict(BaseModel):

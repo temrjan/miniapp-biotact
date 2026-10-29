@@ -28,7 +28,7 @@ from src.consultant.models import (
     Source,
 )
 from src.consultant.provider import EMBEDDING_PROFILE, PROFILE
-from src.consultant.router import runtime
+from src.consultant.router import REQUEST_BYTES, runtime
 from src.consultant.service import Consultant
 from src.main import create_app
 from src.products.models import Product
@@ -454,7 +454,7 @@ async def test_http_privacy_origin_hidden_products_and_schema(test_db, caplog):
         assert "sentinel" not in response.text
         response = await client.post(
             "/api/v1/consultant/turns",
-            content=b"x" * 65537,
+            content=b"x" * (REQUEST_BYTES + 1),
             headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 413
@@ -824,6 +824,36 @@ async def test_long_history_reaches_the_provider_whole(test_db):
     assert wire["question"] == turn.question
     assert len(wire["history"]) == 10
     assert len(json.dumps(sent, ensure_ascii=False).encode()) > 32000
+
+
+async def test_long_history_request_above_the_former_64_kib_is_served(test_db):
+    await seed(test_db)
+    app = create_app()
+    bot = service(test_db)
+    app.state.consultant = bot
+    app.state.consultant_origins = ["https://shop.test"]
+    first = request("ACTIVE")
+    shown = await bot.turn(first)
+    raw = json.loads(request("состав", shown["context_token"], first.tab_id).model_dump_json())
+    # Answers above the former 8,000 characters; the body is far above 64 KiB.
+    raw["history"] = [
+        {"question": f"Вопрос {n} про ACTIVE", "answer": "Ответ про состав. " * 1000}
+        for n in range(20)
+    ]
+    content = json.dumps(raw, ensure_ascii=False).encode()
+    assert 65536 < len(content) < REQUEST_BYTES
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://shop.test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/consultant/turns",
+            content=content,
+            headers={"Content-Type": "application/json"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "answer"
+    wire = json.loads(bot.provider.calls[-2][1][0]["content"])
+    assert len(wire["history"]) == 20
 
 
 @pytest.mark.parametrize(("length", "status"), [(1000, 200), (1001, 422)])
