@@ -279,6 +279,9 @@ REPLY_AGE = re.compile(NUM + r"\s*" + AGE["reply_units"] + "?")
 REPLY_UNITS = "(" + AGE["reply_units"] + "|" + DURATION["patterns"]["ru"]["years"] + ")"
 REPLY_AGE_IN = re.compile(LEFT + NUM + r"\s*" + REPLY_UNITS + RIGHT)
 REPLY_GUARD = MARKERS | ADVERBS
+# Words set aside, together with the whom vocabulary, before a reply to Graf's age question
+# is read as one bare number ('для себя, 47').
+REPLY_FILLER = frozenset({"для", "у", "мне", "uchun", "учун"})
 
 
 def number(value: str) -> float:
@@ -343,7 +346,35 @@ def parse_age(text: str, reply: bool = False) -> tuple[float | str | None, list[
             return found.pop(), spans
         if found:
             return "ask", spans
+        bare = _bare_reply_age(t)
+        if bare is not None:
+            years, span = bare
+            return years, [*spans, span]
     return None, spans
+
+
+def _bare_reply_age(t: str) -> tuple[float, tuple[int, int]] | None:
+    """A reply that is one bare number once the whom phrases, the REPLY_FILLER words and
+    clause punctuation are set aside ('для себя, 47'): (years, span of the reply), else
+    None. Nothing else is set aside, so a temperature, weight or dose word, a sign or a
+    second number ('38,5') keeps the reply unread."""
+    words = Words.of(t)
+    # CLAUSE characters are never inside a TOKEN, so these spans line up with words.toks.
+    located = [(m.start(), m.end()) for m in TOKEN.finditer(t) if m[0].strip("'")]
+    aside = {i for i, tok in enumerate(words.toks) if tok in REPLY_FILLER}
+    for item in VOCAB:
+        if item["slot"] == "whom":
+            for term in item["terms"]:
+                for span in positions(words, term, item["match"]):
+                    aside.update(span)
+    rest = list(t)
+    for i in aside:
+        a, b = located[i]
+        rest[a:b] = " " * (b - a)
+    core = CLAUSE.sub(" ", "".join(rest)).strip()
+    if not re.fullmatch(NUM, core) or not 0 < number(core) <= 110:
+        return None
+    return number(core), (0, len(t))
 
 
 def _reply_years(m: re.Match[str]) -> float:
@@ -476,13 +507,16 @@ class Facts:
     def slots(self) -> dict[str, bool]:
         return {"child": self.child, "pregnant": self.preg()}
 
-    def absorb(self, text: str) -> None:
-        """General extraction: fills what is still unknown, accumulates words."""
+    def absorb(self, text: str, reply_spans: Sequence[tuple[int, int]] = ()) -> None:
+        """General extraction: fills what is still unknown, accumulates words. reply_spans
+        are the spans parse_age(reply=True) read or dropped as an age in a reply to Graf's
+        age question; they are not read again as a duration ('8 месяцев' there is an age,
+        not 240 days of illness)."""
         self.texts.append(text)
         age, spans = parse_age(text)
         if self.age is None and isinstance(age, float):
             self.age = age
-        duration = parse_duration(text, spans)
+        duration = parse_duration(text, [*spans, *reply_spans])
         if duration is not None:
             self.duration = max(duration, self.duration or 0.0)
         temperature = parse_temperature(text)
@@ -504,8 +538,9 @@ class Facts:
         question returns the chosen option's target situation."""
         slot = QUESTION_SLOT[template]
         parsed: str | bool = False
+        reply_spans: list[tuple[int, int]] = []
         if slot == "age":
-            age, _ = parse_age(text, reply=True)
+            age, reply_spans = parse_age(text, reply=True)
             if isinstance(age, float):
                 self.age, parsed = age, True
         elif slot == "duration":
@@ -527,7 +562,7 @@ class Facts:
                 self.pregnant, parsed = reply, True
         else:
             parsed = self._option(text, template, situation)
-        self.absorb(text)
+        self.absorb(text, reply_spans)
         return parsed
 
     def _option(self, text: str, template: str, situation: str) -> str | bool:

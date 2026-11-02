@@ -411,8 +411,9 @@ async def test_years_of_illness_are_not_an_age():
         ("3 oydan beri", None),
         # two different ages: ask again
         ("47 лет, 3 года", "ask"),
-        # no age unit inside a longer reply, or out of range: not an age
-        ("для себя, 47", None),
+        # whom words around a bare number: the number is the age
+        ("для себя, 47", 47.0),
+        # out of range: not an age
         ("для себя, 150 лет", None),
     ],
 )
@@ -421,9 +422,89 @@ def test_age_reply_reads_an_age_with_a_unit_inside_the_reply(reply, age):
     assert got == (pytest.approx(age, abs=0.01) if isinstance(age, float) else age)
 
 
-@pytest.mark.parametrize("message", ["для себя, мужчина 47 лет.", "для себя, 35 лет", "5 годиков"])
+# A reply to Graf's age question that is one number once the whom words ('для себя',
+# 'для мамы', "o'zim uchun") and 'для', 'у', 'мне', 'uchun', 'учун' are set aside is the age
+# (0 < n <= 110). Any other word left over (temperature, weight, dose, a pronoun, a second
+# number) keeps the number unread; two anchored ages still ask again.
+@pytest.mark.parametrize(
+    ("reply", "age"),
+    [
+        ("для себя, 47", 47.0),
+        ("для себя 47", 47.0),
+        ("для мамы, 70", 70.0),
+        ("o'zim uchun, 47", 47.0),
+        ("ўзим учун, 47", 47.0),
+        ("для мамы, 110", 110.0),
+        ("для мамы, 111", None),
+        ("для себя, 0", None),
+        ("для себя, -47", None),
+        ("температура 38", None),
+        ("у него 39", None),
+        ("вес 12", None),
+        ("доза 2", None),
+        ("38,5", None),
+        ("для сына 12 кг", None),
+        ("для себя, 47, температура 38", None),
+        ("ребёнку 5, мне 35", "ask"),
+        ("мне 35, ему 5", "ask"),
+    ],
+)
+def test_age_reply_reads_a_bare_number_next_to_whom_words(reply, age):
+    got = graf.parse_age(reply, reply=True)[0]
+    assert got == (pytest.approx(age, abs=0.01) if isinstance(age, float) else age)
+
+
+@pytest.mark.parametrize(
+    "message", ["для себя, мужчина 47 лет.", "для себя, 35 лет", "5 годиков", "для себя, 47"]
+)
 def test_outside_a_reply_an_unanchored_age_stays_unread(message):
     assert graf.parse_age(message)[0] is None
+
+
+# The age written in a reply to Graf's age question is not read again as the illness
+# duration ('8 месяцев' is the child's age, not a cough of 240 days); a duration written next
+# to the age, and a reply to the duration question, stay durations.
+@pytest.mark.parametrize(
+    ("reply", "template", "age", "duration"),
+    [
+        ("8 месяцев", "ask.age", 0.67, None),
+        ("6 месяцев", "ask.age", 0.5, None),
+        ("ему 8 месяцев", "ask.age", 0.67, None),
+        ("2 недели", "ask.age", 0.04, None),
+        ("для себя, 47", "ask.age", 47.0, None),
+        ("5 лет, кашель 30 дней", "ask.age", 5.0, 30.0),
+        ("5 дней", "ask.age", None, 5.0),
+        ("8 месяцев", "ask.duration", None, 240.0),
+        ("2 недели", "ask.duration", None, 14.0),
+    ],
+)
+def test_age_reply_is_not_read_as_a_duration(reply, template, age, duration):
+    facts = graf.Facts()
+    facts.answer(reply, template, "acute_cold")
+    assert facts.age == (None if age is None else pytest.approx(age, abs=0.01))
+    assert facts.duration == duration
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        ("8 месяцев", "ask.duration"),
+        ("6 месяцев", "ask.duration"),
+        ("ему 8 месяцев", "ask.duration"),
+        ("5 лет, кашель 30 дней", "doctor.cough_long"),
+    ],
+)
+async def test_child_cough_age_reply_in_months_asks_the_duration(reply, expected):
+    first = "кашель у ребенка"
+    replies = await talk(OpenRouter({first: "acute_cold"}), [first, reply])
+    assert graf.decode(replies[0].answer).template == "ask.age"
+    if expected.startswith("doctor."):
+        assert replies[1].answer in variants(expected)
+        return
+    assert replies[1].status == "clarification"
+    asked = graf.decode(replies[1].answer)
+    assert asked is not None
+    assert asked.template == expected
 
 
 @pytest.mark.parametrize(
@@ -432,6 +513,8 @@ def test_outside_a_reply_an_unanchored_age_stays_unread(message):
         ("для себя, мужчина 47 лет.", None),
         ("для себя, 35 лет", "ask.sex"),
         ("для себя, женщина 35 лет", "ask.pregnancy"),
+        ("для себя, 47", "ask.sex"),
+        ("для себя 47", "ask.sex"),
     ],
 )
 async def test_age_reply_with_words_moves_to_the_next_step(reply, template):
