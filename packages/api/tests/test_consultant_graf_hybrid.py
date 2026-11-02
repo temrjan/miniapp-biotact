@@ -1147,11 +1147,12 @@ async def test_a_cut_check_reply_quote_never_dismisses_the_check():
     assert reply["status"] == "limited"
 
 
-async def test_a_cut_number_age_quote_is_ignored():
-    # spec r3 §12 item 3 (V-02): "мне 4" does not match "мне 47"; the parser's 47 stays.
+@pytest.mark.parametrize("quote", ["4", "мне 4"])
+async def test_a_cut_number_age_quote_is_ignored(quote):
+    # spec r3 §12 item 3 (V-02): "4" does not match "мне 47"; the parser's 47 stays.
     message = "часто болею, мне 47"
     chat = Recorded(OpenRouter({message: "immunity"}))
-    chat.script(answer(facts=age(4, "мне 4")))
+    chat.script(answer(facts=age(4, quote)))
     await chat.say(message)
     record = chat.records[-1]
     assert record.facts["age"] == [47.0, "parser"]
