@@ -142,7 +142,7 @@ async def test_the_request_body_is_the_lc02_body():
     payload = chat.luna.luna[0]
     assert {k: v for k, v in payload.items() if k not in {"input", "text"}} == {
         "model": "gpt-6-luna",
-        "reasoning": {"effort": "low"},
+        "reasoning": {"effort": "medium"},
         "store": False,
         "stream": False,
         "background": False,
@@ -1393,7 +1393,7 @@ async def test_the_recorder_runs_once_per_turn_with_nulls_where_the_turn_stopped
     assert record.jev["choice"] == "immunity"
     assert record.versions["knowledge"] == "fixture-release"
     assert record.luna["model"] == "gpt-6-luna"
-    assert record.luna["effort"] == "low"
+    assert record.luna["effort"] == "medium"
     assert record.facts["age"] == [5.0, "parser"]
     assert record.question == "сын часто болеет, ему 5"
     chat.bot.hybrid = False

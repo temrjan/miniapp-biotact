@@ -12,8 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from src.consultant.graf import COMPLAINTS, SITUATION, SITUATIONS
 
 MODEL = "gpt-6-luna"
-# Reasoning effort (LC-02). Initial value; changed only from development check DC-01 data.
-EFFORT = "low"
+# Reasoning effort (LC-02). The owner set `medium` on 2026-11-02 in place of the initial `low`.
+EFFORT = "medium"
 # Per-call timeout and the minimum time left before a second call (LC-04, HR-08).
 TIMEOUT = 16.0
 SECOND_CALL_MINIMUM = 16.0
