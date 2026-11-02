@@ -110,10 +110,13 @@ async def talk(router, messages, language="ru", stock=None, request_id=None, bri
             context_token="fixture" if history else None,
         )
         context = Context([], "fixture", 1) if history else Context.fresh()
-        safety = bot.safety(turn, context)
-        reply, brief = safety.reply, None
-        if reply is None:
-            turn, skipped = safety.request, int(safety.request is not turn)
+        stage = bot.stage(turn, context)
+        reply, brief = None, None
+        if stage.outcome is not None:
+            reply = bot.reply(graf.Writer(turn), stage.outcome, None)
+        else:
+            skipped = int(stage.checked is not None)
+            turn = stage.checked or turn
             owned, flow = bot.adopt(turn)
             if not owned:
                 brief = await bot.first(turn, direct, skipped)

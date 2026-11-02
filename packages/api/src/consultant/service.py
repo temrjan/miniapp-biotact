@@ -2,15 +2,17 @@
 
 import asyncio
 import json
+import logging
 import re
 from collections.abc import Coroutine
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
+from src.consultant.checks import RUSSIAN_PROSE
 from src.consultant.context import (
     SENSITIVE,
     Check,
@@ -23,11 +25,17 @@ from src.consultant.context import (
 )
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
-from src.consultant.graf import Brief, Graf, Reply
+from src.consultant.graf import Graf, Stage
+from src.consultant.hybrid import Failure, HybridTurn, route
 from src.consultant.knowledge import ADVICE, Evidence, Knowledge
-from src.consultant.provider import Provider
+from src.consultant.provider import PROFILE, Provider
+from src.consultant.record import GRAF_DATA, Counters, Recorder, TurnRecord, noop
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+# The turn deadline in seconds (spec r2 §10).
+DEADLINE = 60
 CLARIFY = {
     "ru": "О каком товаре вы спрашиваете? Назовите его или откройте карточку товара.",
     "uz": "Qaysi mahsulot haqida soʻrayapsiz? Nomini yozing yoki mahsulot kartasini oching.",
@@ -42,13 +50,6 @@ REFUSED = {
 }
 PERSONAL = re.compile(
     r"(?:лечи|вылеч|назначь|диагноз|davolab|tashxis|davolash buyur)|(?:скрой|убери|yashir).{0,30}(?:предупрежд|противопоказ|ogohlantir)",
-    re.I,
-)
-# Cyrillic is also used for Uzbek. Reject clear Russian prose conservatively;
-# shared script, product names or a single borrowed/quoted word are insufficient.
-RUSSIAN_PROSE = re.compile(
-    r"\b(?:это|для|или|при|также|можно|нельзя|следует|состав|указан[аоы]?|"
-    r"содержит|детей|взрослых|инструкци[яию]|индивидуальная|непереносимость)\b",
     re.I,
 )
 
@@ -73,6 +74,7 @@ class Consultant:
         provider: Provider,
         tokens: Tokens,
         graf: Graf | None = None,
+        hybrid: bool = True,
     ) -> None:
         self.controls, self.knowledge, self.provider, self.tokens = (
             controls,
@@ -82,6 +84,11 @@ class Consultant:
         )
         # Graf is on only when its key is configured (plan r4 section 2).
         self.graf = graf
+        # spec r2 OP-01: off makes every hybrid turn end with the failure response.
+        self.hybrid = hybrid
+        self.counters = Counters()
+        # spec r2 OP-03: called once per turn after the SENSITIVE filter (PR-5 replaces it).
+        self.recorder: Recorder = noop
 
     async def waiting(self, owner: str, work: Coroutine[Any, Any, T]) -> T:
         task = asyncio.create_task(work)
@@ -108,162 +115,216 @@ class Consultant:
             SENSITIVE.search(p.question + " " + p.answer) for p in request.history
         ):
             raise Fault("sensitive_input", 422)
+        record = TurnRecord.start(request)
+        try:
+            response = await self.answer(request, record)
+        except Fault as fault:
+            record.fail(fault)
+            raise
+        except Exception:
+            # The router answers every other exception with knowledge_unavailable.
+            record.fail(Fault("knowledge_unavailable"))
+            raise
+        else:
+            record.deliver(response)
+            return response
+        finally:
+            self.counters.add("turns." + record.path)
+            try:
+                self.recorder(record)
+            except Exception:
+                logger.warning("consultant recorder failed")
+
+    def failure(self, record: TurnRecord, trigger: str, check: str | None = None) -> Fault:
+        """The failure response (spec r2 FR-02): 503 answer_unavailable, no text, no token."""
+        record.path = "failure"
+        if record.luna is not None:
+            record.luna["failure_trigger"] = trigger
+        self.counters.add("failure." + trigger)
+        if check is not None:
+            self.counters.add("failure.check." + check)
+        return Fault("answer_unavailable", 503)
+
+    async def answer(self, request: Turn, record: TurnRecord) -> dict[str, Any]:
+        """spec r2 HR-01: token, ambulance stage, register, snapshot, then the route."""
         context = self.tokens.read(request) if request.context_token else Context.fresh()
+        record.token_epoch = context.epoch
+        record.versions = {"knowledge": None, "profile": PROFILE, "graf_data": GRAF_DATA}
         selection = context.ids
         # Every issued token carries the pregnancy flag and the cleared digests; only a Graf
         # question or a safety response carries a flow state.
         carry = Carry(context.epoch, context.pg, context.cleared)
-        owned, flow, skipped = context.flow is not None, context.flow, 0
+        owned, flow = context.flow is not None, context.flow
+        stage = Stage("none")
         if self.graf is not None:
             if context.version == 1:
                 owned, flow = self.graf.adopt(request)
-            # Plan r4 step 2: the ambulance list runs before register and snapshot. A "no"
-            # to the check question continues with the checked message instead.
-            safety = self.graf.safety(request, context)
-            carry = replace(carry, cleared=tuple(dict.fromkeys((*carry.cleared, *safety.cleared))))
-            if safety.reply is not None:
-                # A safety outcome keeps the incoming flow and selection (TK-10).
-                held = replace(carry, flow=flow, check=safety.check)
-                early = safety.reply
-                return self.envelope(
-                    request, held, selection, early.status, early.answer, [], [], None, []
-                )
-            if safety.request is not request:
-                request, skipped = safety.request, 1
-                if context.version == 1:
-                    owned, flow = self.graf.adopt(request)
-        owner = await self.controls.register(request.request_id, request.tab_id)
-        deadline = asyncio.get_running_loop().time() + 60
+            # Step 3: the ambulance list runs before register and snapshot (SF-02).
+            stage = self.graf.stage(request, context)
+        # SF-07: register or snapshot failing on an emergency or check turn ends the turn
+        # with the failure response; a continued checked message keeps today's faults.
+        strict = stage.safety and stage.outcome is not None
+        if stage.safety:
+            record.path = "safety"
+            if not self.hybrid:
+                raise self.failure(record, "switch_off")
+        try:
+            owner = await self.controls.register(request.request_id, request.tab_id)
+        except Fault:
+            if strict:
+                raise self.failure(record, "register") from None
+            raise
+        deadline = asyncio.get_running_loop().time() + DEADLINE
+        work: HybridTurn | None = None
         try:
             async with asyncio.timeout_at(deadline):
-                evidence = await self.knowledge.snapshot(request.language)
-
-                def jev(work: Coroutine[Any, Any, T]) -> Coroutine[Any, Any, T]:
-                    return self.waiting(owner, work)
-
-                brief: Brief | None = None
-                if self.graf is not None and owned:
-                    if flow is None:
-                        # Version 1 only: the flow's start left the history (today's rule).
-                        self.graf.log(None, "step_aside")
-                    else:
-                        brief = await self.graf.continuation(request, flow, jev, skipped)
+                try:
+                    evidence = await self.knowledge.snapshot(request.language)
+                except Fault:
+                    if strict:
+                        raise self.failure(record, "snapshot") from None
+                    raise
+                record.versions["knowledge"] = evidence.release
                 if any(i not in evidence.products for i in selection):
                     selection = []
-                subject = resolve(
-                    request.question,
-                    evidence.aliases,
-                    selection,
-                    request.page_product_id
-                    if request.page_product_id in evidence.products
-                    else None,
-                    request.context_token is None,
-                )
-                if self.graf is not None and not owned and not subject.explicit and not selection:
-                    brief = await self.graf.first(request, jev, skipped)
-                if self.graf is not None and brief is not None:
-                    reply = self.graf.render(request, brief, evidence)
-                    if reply is None:
-                        # A situation-level question has no approved text; until Luna writes
-                        # it, the turn ends with the error response instead of retrieval.
-                        raise Fault("answer_unavailable", 503)
-                    response = self.grafted(request, carry, reply, brief)
-                elif subject.clarify:
-                    response = self.envelope(
-                        request,
-                        carry,
-                        [],
-                        "clarification",
-                        CLARIFY[request.language],
-                        [],
-                        [],
-                        None,
-                        [],
+                if self.graf is None:
+                    record.path = "product"
+                    subject = resolve(
+                        request.question,
+                        evidence.aliases,
+                        selection,
+                        request.page_product_id
+                        if request.page_product_id in evidence.products
+                        else None,
+                        request.context_token is None,
                     )
-                elif any(i not in evidence.products for i in subject.ids):
-                    response = self.envelope(
-                        request, carry, [], "limited", LIMITED[request.language], [], [], None, []
-                    )
-                elif PERSONAL.search(request.question):
-                    response = self.envelope(
-                        request,
-                        carry,
-                        [],
-                        "refused",
-                        REFUSED[request.language],
-                        [],
-                        [],
-                        None,
-                        [],
-                    )
-                elif (
-                    subject.open_intent
-                    and len(subject.ids) == 1
-                    and pure_open(request.question, evidence.aliases[subject.ids[0]])
-                ):
-                    fresh = await self.knowledge.snapshot(request.language)
-                    if fresh.release != evidence.release or any(
-                        i not in fresh.products for i in subject.ids
-                    ):
-                        response = self.envelope(
-                            request,
-                            carry,
-                            [],
-                            "limited",
-                            LIMITED[request.language],
-                            [],
-                            [],
-                            None,
-                            [],
-                        )
-                    else:
-                        products = [fresh.products[i] for i in subject.ids]
-                        labels = fresh.labels(subject.ids, request.language)
-                        if labels is None:
-                            response = self.envelope(
-                                request,
-                                carry,
-                                [],
-                                "clarification",
-                                CLARIFY[request.language],
-                                [],
-                                [],
-                                None,
-                                [],
-                            )
-                        else:
-                            response = self.native(request, carry, subject, products, labels)
-                else:
-                    response = await self.generate(
+                    response = await self.product(
                         request, owner, carry, selection, subject, evidence
                     )
+                else:
+                    work = HybridTurn(
+                        self,
+                        request,
+                        context,
+                        record,
+                        owner,
+                        deadline,
+                        evidence,
+                        carry,
+                        selection,
+                        flow,
+                    )
+                    response = await self.routed(work, stage, owned, flow)
                 await self.controls.alive(owner)
                 return response
+        except Failure as failure:
+            raise self.failure(record, failure.trigger, failure.check) from None
         except TimeoutError:
+            # FR-01: the deadline on a hybrid turn is the failure response; the product path
+            # keeps its 504 (PO-05).
+            if self.hybrid_turn(work, stage, record):
+                raise self.failure(record, "deadline") from None
             raise Fault("timeout", 504) from None
+        except Fault as fault:
+            # The same 60 s deadline seen by the control layer.
+            if fault.code == "timeout" and self.hybrid_turn(work, stage, record):
+                raise self.failure(record, "deadline") from None
+            raise
         finally:
+            if work is not None:
+                work.finish()
             with suppress(TimeoutError):
                 async with asyncio.timeout_at(deadline):
                     await self.controls.finish(owner)
 
-    def grafted(self, request: Turn, carry: Carry, reply: Reply, brief: Brief) -> dict[str, Any]:
-        facts = brief.facts
-        # The flag becomes true when a reply to the pregnancy question confirmed it (TK-05;
-        # "luna" is the origin of a reading by the model, PR-3b).
-        pg = carry.pg or (
-            facts.pregnant is True and facts.origin.get("pregnant") in {"confirmed", "luna"}
-        )
-        return self.envelope(
-            request,
-            replace(carry, pg=pg, flow=brief.flow),
-            reply.ids,
-            reply.status,
-            reply.answer,
-            reply.sources,
-            reply.products,
-            None,
-            reply.cautions,
-        )
+    @staticmethod
+    def hybrid_turn(work: HybridTurn | None, stage: Stage, record: TurnRecord) -> bool:
+        """The turn has not left for the product path after a follow-up."""
+        if work is None:
+            return stage.safety
+        return work.hybrid and record.path != "product"
+
+    async def routed(
+        self, work: HybridTurn, stage: Stage, owned: bool, flow: FlowState | None
+    ) -> dict[str, Any]:
+        assert self.graf is not None
+        request, record = work.request, work.record
+        if stage.safety:
+            normal = request if stage.level == "weak" else stage.checked
+            target = None
+            if normal is not None:
+                if normal is not request and work.context.version == 1:
+                    owned, flow = self.graf.adopt(normal)
+                target = route(normal, work.selection, work.evidence, owned, flow)
+            return await work.safety(stage, normal, target)
+        target = route(request, work.selection, work.evidence, owned, flow)
+        if not target.hybrid:
+            # Step 5 (and a version 1 flow whose start left the window): the product path.
+            record.path, work.hybrid = "product", False
+            if target.kind == "aside":
+                self.graf.log(None, "step_aside")
+            return await self.product(
+                request, work.owner, work.carry, work.selection, target.subject, work.evidence
+            )
+        if target.kind == "post_offer":
+            record.path = "post_offer"
+        else:
+            record.path = "page_product" if target.page is not None else "hybrid"
+        if not self.hybrid:
+            raise Failure("switch_off")
+        return await work.normal(target)
+
+    async def product(
+        self,
+        request: Turn,
+        owner: str,
+        carry: Carry,
+        selection: list[int],
+        subject: Subject,
+        evidence: Evidence,
+    ) -> dict[str, Any]:
+        """The named-product path, unchanged: clarification, limited, refused, open, or
+        the model answer over the candidates."""
+        if subject.clarify:
+            return self.envelope(
+                request, carry, [], "clarification", CLARIFY[request.language], [], [], None, []
+            )
+        if any(i not in evidence.products for i in subject.ids):
+            return self.envelope(
+                request, carry, [], "limited", LIMITED[request.language], [], [], None, []
+            )
+        if PERSONAL.search(request.question):
+            return self.envelope(
+                request, carry, [], "refused", REFUSED[request.language], [], [], None, []
+            )
+        if (
+            subject.open_intent
+            and len(subject.ids) == 1
+            and pure_open(request.question, evidence.aliases[subject.ids[0]])
+        ):
+            fresh = await self.knowledge.snapshot(request.language)
+            if fresh.release != evidence.release or any(
+                i not in fresh.products for i in subject.ids
+            ):
+                return self.envelope(
+                    request, carry, [], "limited", LIMITED[request.language], [], [], None, []
+                )
+            products = [fresh.products[i] for i in subject.ids]
+            labels = fresh.labels(subject.ids, request.language)
+            if labels is None:
+                return self.envelope(
+                    request,
+                    carry,
+                    [],
+                    "clarification",
+                    CLARIFY[request.language],
+                    [],
+                    [],
+                    None,
+                    [],
+                )
+            return self.native(request, carry, subject, products, labels)
+        return await self.generate(request, owner, carry, selection, subject, evidence)
 
     def native(
         self,

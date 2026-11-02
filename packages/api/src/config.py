@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     consultant_origins: list[str] = ["https://biotact.uz"]
     # Graf (deterministic product offer through Jev); empty means Graf is off.
     consultant_graf_key: SecretStr = SecretStr("")
+    # Luna-first hybrid while Graf is on; false answers hybrid turns with the failure
+    # response (named-product questions still work).
+    consultant_hybrid: bool = True
 
     # Database
     database_url: str

@@ -769,6 +769,7 @@ async def test_runtime_without_budget_settings_serves_turns(test_db, provider_ke
         consultant_protection_key=secret(KEY),
         consultant_graf_key=secret(""),
         consultant_origins=[],
+        consultant_hybrid=True,
     )
     app = SimpleNamespace(state=SimpleNamespace())
     async with runtime(app, config, async_sessionmaker(test_db.bind, expire_on_commit=False)):

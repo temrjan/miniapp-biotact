@@ -22,7 +22,8 @@ from src.consultant.provider import EMBEDDING_PROFILE, PROFILE
 from src.consultant.router import runtime
 from src.consultant.service import REFUSED, Consultant
 from src.products.models import Product
-from tests.test_consultant import KEY, ProviderStub
+from tests.test_consultant import KEY
+from tests.test_consultant_graf_fakes import LunaStub, answer
 from tests.test_consultant_graf_flow import OpenRouter, variants
 
 # Shop cards named exactly as products.json (shop_name, shop_id, form).
@@ -115,7 +116,7 @@ def bot(db, router=None, on=True):
     if on:
         client = httpx.AsyncClient(transport=httpx.MockTransport((router or OpenRouter()).handler))
         engine = graf.Graf(graf.Jev(client, "fixture-key"))
-    return Consultant(controls, Knowledge(sessions), ProviderStub(), Tokens(KEY), engine)
+    return Consultant(controls, Knowledge(sessions), LunaStub(), Tokens(KEY), engine)
 
 
 def turn(question, previous=None, history=(), language="ru", page=None):
@@ -156,10 +157,10 @@ async def runs(consultant):
         "Открой IMMUNOCOMPLEX®, ребенок не может дышать",
     ],
 )
-async def test_danger_bypass_branches_reach_103_before_register(test_db, message):
+async def test_danger_bypass_branches_reach_103_through_luna(test_db, message):
+    # The ambulance tier is computed before register (SF-02); the strong turn is then
+    # registered and Luna writes its 103 text (HR-03). No product path, no Jev.
     await seed(test_db)
-    # The control turn below needs a covered situation: an unclear complaint no longer
-    # steps aside to the product path (it is a situation-level question).
     router = OpenRouter({"часто болею": "immunity"})
     consultant = bot(test_db, router)
     reply = await say(consultant, message)
@@ -167,16 +168,15 @@ async def test_danger_bypass_branches_reach_103_before_register(test_db, message
     assert (reply.status, reply.products, reply.sources) == ("limited", [], [])
     assert consultant.provider.calls == []
     assert router.calls == []
-    assert await runs(consultant) == 0
-    # The Run channel does record a registered turn: an ordinary Graf turn shows up in it.
-    await say(consultant, "часто болею")
+    assert len(consultant.provider.luna) == 1
+    assert consultant.provider.briefs[0]["safety"]["primary"] == "emergency"
     assert await runs(consultant) == 1
 
 
 @pytest.mark.parametrize(
     "danger", ["не может дышать", "губы синеют", "nafas ololmayapman", "нафас ололмаяпти"]
 )
-async def test_danger_in_a_reply_to_a_graf_question_reaches_103_before_register(test_db, danger):
+async def test_danger_in_a_reply_to_a_graf_question_reaches_103_through_luna(test_db, danger):
     # Review r1 TST-01: the ambulance list also runs on a Graf-owned continuation turn.
     await seed(test_db)
     message = "сын часто болеет"
@@ -191,16 +191,21 @@ async def test_danger_in_a_reply_to_a_graf_question_reaches_103_before_register(
     assert (reply.status, reply.products, reply.sources) == ("limited", [], [])
     assert router.states == [message]
     assert consultant.provider.calls == []
-    assert await runs(consultant) == 1  # only the first turn was registered
+    assert len(consultant.provider.luna) == 2
+    assert await runs(consultant) == 2
 
 
-async def test_ambulance_layer_works_while_knowledge_is_unavailable(test_db):
+async def test_snapshot_failure_on_a_safety_turn_is_the_failure_response(test_db):
+    # SF-07: an emergency or check turn without a knowledge snapshot ends with the failure
+    # response and no Luna call; a non-safety turn keeps knowledge_unavailable (FR-03).
     await seed(test_db)
     consultant = bot(test_db)
     async with consultant.controls.sessions.begin() as db:
         (await db.get(Control, 1)).active = None
-    reply = await say(consultant, "давит в груди")
-    assert reply.answer in variants("emergency.general")
+    with pytest.raises(Fault) as fault:
+        await say(consultant, "давит в груди")
+    assert (fault.value.code, fault.value.status) == ("answer_unavailable", 503)
+    assert consultant.provider.luna == []
     with pytest.raises(Fault, match="knowledge_unavailable"):
         await say(consultant, "часто болею")
 
@@ -232,8 +237,11 @@ async def test_offer_envelope_and_follow_up_on_the_existing_path(test_db):
     assert set(first.cautions) <= {s["source_id"] for s in first.sources}
     assert first.cautions == [f"g{kids}ru:2"]
     assert Tokens(KEY).read(turn("x", first))[0] == [kids]
+    consultant.provider.script = [answer(intent=("follow_up", "high"))]
     follow = await say(consultant, "как принимать?", first, [(message, first.answer)])
-    assert len(router.calls) == 1  # a displayed selection keeps follow-ups on the existing path
+    # A displayed selection makes a post-offer turn: Graf's brief, then Luna's follow-up
+    # reading sends it to the existing path (PO-03).
+    assert router.states == [message, "как принимать?"]
     assert consultant.provider.calls
     assert follow.status in {"answer", "clarification", "limited", "refused"}
 
@@ -300,6 +308,7 @@ async def test_runtime_turns_graf_on_only_with_its_key(test_db, key, on):
         consultant_protection_key=SimpleNamespace(get_secret_value=lambda: KEY),
         consultant_graf_key=SimpleNamespace(get_secret_value=lambda: key),
         consultant_origins=[],
+        consultant_hybrid=True,
     )
     app = SimpleNamespace(state=SimpleNamespace())
     sessions = async_sessionmaker(test_db.bind, expire_on_commit=False)

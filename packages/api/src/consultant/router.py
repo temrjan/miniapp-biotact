@@ -20,6 +20,7 @@ from src.consultant.control import Controls
 from src.consultant.graf import Graf, Jev
 from src.consultant.knowledge import Knowledge
 from src.consultant.provider import Provider
+from src.consultant.record import report
 from src.consultant.service import Consultant
 
 router = APIRouter(prefix="/consultant")
@@ -163,11 +164,15 @@ async def runtime(app: Any, config: Any, sessions: Any) -> AsyncIterator[None]:
             Provider(client, provider_key),
             Tokens(config.consultant_protection_key.get_secret_value()),
             Graf(Jev(client, graf_key)) if graf_key else None,
+            config.consultant_hybrid,
         )
         app.state.consultant_origins = config.consultant_origins
         cleanup = asyncio.create_task(cleaner(controls))
+        # spec r2 OP-02: the counters line every 300 s, outside any request context.
+        counters = asyncio.create_task(report(app.state.consultant.counters))
         try:
             yield
         finally:
             cleanup.cancel()
-            await asyncio.gather(cleanup, return_exceptions=True)
+            counters.cancel()
+            await asyncio.gather(cleanup, counters, return_exceptions=True)

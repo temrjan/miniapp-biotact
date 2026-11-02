@@ -3,7 +3,8 @@
 Every word list, parser, route and customer-visible string comes from graf_data/*.json.
 Graf stores nothing: the flow state travels in the signed context token (version 2) or, for
 a version 1 token, is rebuilt from the history on each turn. Log lines carry only a
-situation id, an outcome class or a served model id.
+situation id, an outcome class or a served model id. Graf's texts are never delivered to the
+customer: they are Luna's material and the reference of the text checks (spec r2, LO1).
 """
 
 import asyncio
@@ -12,6 +13,7 @@ import json
 import logging
 import math
 import re
+import time
 from collections.abc import Awaitable, Callable, Coroutine, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -74,6 +76,8 @@ META = frozenset({"unclear", "other_unhandled", "see_doctor_soon", "emergency"})
 COMPLAINTS = frozenset(SITUATION) - META
 # Situation-level questions: no hypothesis, one hypothesis, two options.
 QUESTION_KINDS = ("clarify", "confirm", "choose")
+# Every decision that asks a situation-level question: also the post-offer question.
+SITUATION_LEVEL = (*QUESTION_KINDS, "post_offer")
 
 # --- text --------------------------------------------------------------------------------
 
@@ -214,6 +218,17 @@ def scan(
         if result:
             found.append((entry["id"], result))
     return found
+
+
+def active(
+    text: str, found: list[tuple[str, str]], inactive: Sequence[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """The hits of one message that no accepted objection made inactive (spec r2 BO-04,
+    BO-08): an inactive hit is a (source id, message digest) pair."""
+    if not inactive:
+        return found
+    message = digest(text)
+    return [(i, r) for i, r in found if (i, message) not in inactive]
 
 
 AMBULANCE = [e for e in ENTRIES if e["class"] == "ambulance"]
@@ -473,6 +488,9 @@ RELATION_SEX = {
 }
 CHILD_RELATIONS = {"son", "daughter", "child"}
 TOPICS = sorted({v["slot"] for v in VOCAB if v["slot"].startswith("topic_")})
+PREGNANCY_IDS = frozenset(e["id"] for e in PREGNANCY_WORDS)
+INTOLERANCE_IDS = frozenset(e["id"] for e in INTOLERANCE)
+DIARRHEA_IDS = frozenset(e["id"] for e in DIARRHEA)
 AGE_SLOT_TEMPLATES = {"ask.whom_age", "ask.age", "ask.age_self", "reask.age"}
 
 
@@ -491,9 +509,11 @@ class Facts:
     intolerance: bool = False
     topics: set[str] = field(default_factory=set)
     texts: list[str] = field(default_factory=list)
-    # Origin of each FACT_TYPES value: "parser" (read from words) or "confirmed" (a parsed
-    # reply to Graf's question for that slot).
+    # Origin of each FACT_TYPES value: "parser" (read from words), "confirmed" (a parsed
+    # reply to Graf's question for that slot) or "luna" (Luna's sure reading).
     origin: dict[str, str] = field(default_factory=dict)
+    # Hits made inactive by accepted objections: (entry id or topic slot, message digest).
+    inactive: tuple[tuple[str, str], ...] = ()
 
     @property
     def child(self) -> bool:
@@ -539,11 +559,34 @@ class Facts:
             self.assign("sex", one(vocab(text, "sex")), "parser")
         self.child_word = self.child_word or bool(vocab(text, "child"))
         self.form_stick = self.form_stick or bool(vocab(text, "form_pref"))
-        if any(r == "hit" for _, r in scan(text, PREGNANCY_WORDS)):
+        if self.hit(text, PREGNANCY_WORDS):
             self.assign("pregnant", True, "parser")
         self.disease = self.disease or any(r == "hit" for _, r in scan(text, DISEASE))
-        self.intolerance = self.intolerance or any(r == "hit" for _, r in scan(text, INTOLERANCE))
-        self.topics |= {t for t in TOPICS if vocab(text, t)}
+        self.intolerance = self.intolerance or self.hit(text, INTOLERANCE)
+        self.topics |= {t for t in TOPICS if self.topic(text, t)}
+
+    def hit(self, text: str, entries: Iterable[dict[str, Any]]) -> bool:
+        return any(r == "hit" for _, r in active(text, scan(text, entries), self.inactive))
+
+    def topic(self, text: str, slot: str) -> bool:
+        return bool(vocab(text, slot)) and (slot, digest(text)) not in self.inactive
+
+    def refresh(self, sources: Iterable[str]) -> None:
+        """Word facts read again from the texts after objections to their hits (B-1): a
+        fact stays set while any of its hits stays active."""
+        named = set(sources)
+        if (
+            named & PREGNANCY_IDS
+            and self.origin.get("pregnant") == "parser"
+            and not any(self.hit(t, PREGNANCY_WORDS) for t in self.texts)
+        ):
+            self.pregnant = None
+            del self.origin["pregnant"]
+        if named & INTOLERANCE_IDS:
+            self.intolerance = any(self.hit(t, INTOLERANCE) for t in self.texts)
+        for slot in named & set(TOPICS):
+            if not any(self.topic(t, slot) for t in self.texts):
+                self.topics.discard(slot)
 
     def assign(self, name: str, value: float | str | bool | None, origin: str) -> None:
         """Set a FACT_TYPES fact; its origin changes only when its value changes."""
@@ -672,11 +715,34 @@ def _probability(value: object) -> float | None:
     return number if math.isfinite(number) and 0 <= number <= 1 else None
 
 
+@dataclass(frozen=True)
+class Attempt:
+    """One Jev request: the classified text, the choice (None on an error), the error class
+    and the latency in seconds."""
+
+    text: str
+    choice: Choice | None
+    error: str | None
+    latency: float
+
+    @property
+    def status(self) -> str:
+        """The brief's Jev status: ok, error or mismatch (served model not pinned)."""
+        if self.choice is None:
+            return "error"
+        return "ok" if self.choice.pinned else "mismatch"
+
+
 class Jev:
     """One Choice over all situations. Errors return None; no text is logged."""
 
     def __init__(self, client: httpx.AsyncClient, key: str) -> None:
         self.client, self.key = client, key
+
+    async def attempt(self, text: str) -> Attempt:
+        started = time.monotonic()
+        choice, error = await self._classify(text)
+        return Attempt(text, choice, error, time.monotonic() - started)
 
     @staticmethod
     def payload(text: str) -> dict[str, Any]:
@@ -693,8 +759,12 @@ class Jev:
         }
 
     async def classify(self, text: str) -> Choice | None:
+        return (await self._classify(text))[0]
+
+    async def _classify(self, text: str) -> tuple[Choice | None, str | None]:
+        """(choice, None) or (None, error class)."""
         if not self.key:
-            return None
+            return None, "no_key"
         try:
             async with asyncio.timeout(JEV_TIMEOUT):
                 async with self.client.stream(
@@ -708,15 +778,20 @@ class Jev:
                     timeout=JEV_TIMEOUT,
                 ) as response:
                     if response.status_code != 200:
-                        return None
+                        return None, "status"
                     body = bytearray()
                     async for chunk in response.aiter_bytes():
                         body.extend(chunk)
                         if len(body) > 65536:
-                            return None
-            return self.read(json.loads(body))
-        except (TimeoutError, httpx.HTTPError, ValueError):
-            return None
+                            return None, "size"
+            choice = self.read(json.loads(body))
+            return choice, None if choice is not None else "invalid"
+        except (TimeoutError, httpx.TimeoutException):
+            return None, "timeout"
+        except httpx.HTTPError:
+            return None, "transport"
+        except ValueError:
+            return None, "invalid"
 
     @staticmethod
     def read(value: object) -> Choice | None:
@@ -747,6 +822,10 @@ class Jev:
 
 STATUS = {
     "question": "clarification",
+    "clarify": "clarification",
+    "confirm": "clarification",
+    "choose": "clarification",
+    "post_offer": "clarification",
     "check": "clarification",
     "offer": "answer",
     "emergency": "limited",
@@ -761,7 +840,7 @@ STATUS = {
 @dataclass(frozen=True)
 class Outcome:
     # question | offer | emergency | check | doctor | no_product | intolerance | uncovered,
-    # or a situation-level question: clarify | confirm | choose
+    # or a situation-level question: clarify | confirm | choose | post_offer
     kind: str
     situation: str | None = None
     template: str | None = None
@@ -774,6 +853,25 @@ class Outcome:
 
 
 @dataclass(frozen=True)
+class Part:
+    """One part of an approved text as the Writer rendered it: a template key with its
+    placeholder values, or a products.json string (template None). Spec r2 §9 builds the
+    template family of a decision from its parts."""
+
+    template: str | None
+    values: tuple[tuple[str, str], ...]
+    text: str
+
+    def variants(self, language: str) -> tuple[str, ...]:
+        """Every variant of the template in the language, filled with the same values."""
+        if self.template is None:
+            return (self.text,)
+        return tuple(
+            Writer.fill(variant, dict(self.values)) for variant in TEXT[self.template][language]
+        )
+
+
+@dataclass(frozen=True)
 class Reply:
     status: str
     answer: str
@@ -783,9 +881,10 @@ class Reply:
     cautions: list[str]
     outcome: str
     situation: str | None
+    parts: tuple[Part, ...] = ()
 
 
-Runner = Callable[[Coroutine[Any, Any, Choice | None]], Awaitable[Choice | None]]
+Runner = Callable[[Coroutine[Any, Any, Attempt]], Awaitable[Attempt]]
 
 
 def _cap(value: str) -> str:
@@ -800,6 +899,7 @@ class Writer:
         self.language = request.language
         self.seed = request.request_id.int
         self.previous = request.history[-1].answer if request.history else ""
+        self.parts: list[Part] = []
 
     def pick(self, template: str, values: dict[str, str] | None = None) -> str:
         variants: list[str] = TEXT[template][self.language]
@@ -808,7 +908,14 @@ class Writer:
         start = (self.seed + offset) % len(texts)
         ordered = texts[start:] + texts[:start]
         fresh = [t for t in ordered if t not in self.previous]
-        return (fresh or ordered)[0]
+        chosen = (fresh or ordered)[0]
+        self.parts.append(Part(template, tuple(sorted((values or {}).items())), chosen))
+        return chosen
+
+    def data(self, text: str) -> str:
+        """A products.json string used as it is."""
+        self.parts.append(Part(None, (), text))
+        return text
 
     @staticmethod
     def fill(text: str, values: dict[str, str]) -> str:
@@ -892,7 +999,12 @@ def doctor(facts: Facts, situation: str | None, words_only: bool = False) -> str
     """Doctor lists and doctor_rules_with_slots on every Graf-owned message (5.4, I5).
     words_only runs only the word-list rows (the rows with 'entries')."""
     slots = facts.slots()
-    hit = {i for text in facts.texts for i, r in scan(text, DOCTOR, slots) if r == "hit"}
+    hit = {
+        i
+        for text in facts.texts
+        for i, r in active(text, scan(text, DOCTOR, slots), facts.inactive)
+        if r == "hit"
+    }
     age, duration, temperature, topics = facts.age, facts.duration, facts.temperature, facts.topics
     for rule in SAFETY["doctor_rules_with_slots"]:
         if words_only and "entries" not in rule:
@@ -955,14 +1067,10 @@ def decide(situation: str, facts: Facts, origin: str | None = None) -> Outcome:
     template = doctor(facts, situation)
     if template:
         return Outcome("doctor", situation, template)
-    if facts.intolerance or any(
-        r == "hit" for text in facts.texts for _, r in scan(text, INTOLERANCE)
-    ):
+    if facts.intolerance or any(facts.hit(text, INTOLERANCE) for text in facts.texts):
         return Outcome("intolerance", situation, "intolerance.answer_no_name")
     magniy = False
-    if situation != "diarrhea" and any(
-        r == "hit" for text in facts.texts for _, r in scan(text, DIARRHEA)
-    ):
+    if situation != "diarrhea" and any(facts.hit(text, DIARRHEA) for text in facts.texts):
         magniy = GROUP.get(origin or situation) == "magniy"
         situation = "diarrhea"
     for _ in range(len(SITUATION)):
@@ -1198,7 +1306,7 @@ def restore(flow: FlowState, texts: list[str]) -> Facts:
         or values.get("sex", ("male", ""))[0] not in SEXES
     ):
         raise Fault("context_invalid", 400)
-    facts = Facts(texts=list(texts), topics=set(flow.topics))
+    facts = Facts(texts=list(texts), topics=set(flow.topics), inactive=flow.overruled)
     for name, (value, origin) in values.items():
         setattr(facts, name, value)
         facts.origin[name] = origin
@@ -1225,36 +1333,202 @@ def repeats(asked: Sequence[str], item: str) -> int:
 
 
 @dataclass(frozen=True)
-class Brief:
-    """Graf's result for a turn: the decision, the facts it rests on and, when the decision
-    is a question, the flow state the response token carries."""
-
-    outcome: Outcome
-    facts: Facts
-    flow: FlowState | None
-
-
-@dataclass(frozen=True)
-class Safety:
-    """The ambulance stage: an emergency or check reply, or the request to continue with
-    (the checked message after a 'no'), the check to record and the digests cleared."""
-
-    reply: Reply | None
-    request: Turn
-    check: Check | None = None
-    cleared: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
 class Origin:
     """Where a brief's flow starts: the first message's index among the received customer
-    messages, the asked items and overruled hits before this turn, and how many received
-    messages follow the processed one (1 after a 'no' to a danger check)."""
+    messages, the asked items before this turn, and how many received messages follow the
+    processed one (1 after a 'no' to a danger check)."""
 
     start: int
     asked: tuple[str, ...] = ()
     overruled: tuple[tuple[str, str], ...] = ()
     skipped: int = 0
+
+
+@dataclass(frozen=True)
+class Brief:
+    """Graf's result for a turn: the decision, the facts it rests on and, when the decision
+    is a question, the flow state the response token carries; `origin` lets the hybrid
+    turn build the state of another decision on the same facts."""
+
+    outcome: Outcome
+    facts: Facts
+    flow: FlowState | None
+    origin: Origin | None = None
+
+
+@dataclass(frozen=True)
+class Stage:
+    """The ambulance stage of one message (spec r2 HR-01 step 3, SF-01): its level
+    ('strong', 'weak', 'reply' to a pending check, or 'none'), the primary outcome
+    (emergency or check; None when a reply continues the checked message), the ambulance
+    hits of the current message, the checked message to continue (a reply whose previous
+    message is the checked one), the digests a 'no' clears, and the check a weak tier
+    records."""
+
+    level: str
+    outcome: Outcome | None = None
+    hits: tuple[tuple[str, str], ...] = ()
+    checked: Turn | None = None
+    cleared: tuple[str, ...] = ()
+    check: Check | None = None
+
+    @property
+    def safety(self) -> bool:
+        return self.level != "none"
+
+
+@dataclass
+class Lens:
+    """Luna's validated reading as Graf's re-decision uses it (spec r2 §7). The default lens
+    changes nothing, so a brief computed with it is Graf's own brief. Graf writes back the
+    merge results the turn record needs (spec.opyt r2 TR-02, TR-04).
+
+    `values` maps a fact to Luna's value (None removes a parser value); `situation` is
+    Luna's sure situation in C; `inactive` holds the hits made inactive on this turn;
+    `memo` keeps Jev's attempts by text, so a re-decision never asks Jev twice."""
+
+    values: dict[str, float | str | None] = field(default_factory=dict)
+    pregnant: bool = False
+    intolerance: bool = False
+    situation: str | None = None
+    topic_change: bool = False
+    inactive: tuple[tuple[str, str], ...] = ()
+    read: bool = False
+    memo: dict[str, Attempt] = field(default_factory=dict)
+    agreement: str | None = None
+    resolution: tuple[str, str] | None = None
+    repeat: bool = False
+
+    def apply(self, facts: Facts) -> None:
+        """Merge Luna's values into the facts (MR-03, MR-07)."""
+        for name, value in self.values.items():
+            if value is None:
+                if facts.origin.get(name) == "parser":
+                    setattr(facts, name, None)
+                    del facts.origin[name]
+            else:
+                setattr(facts, name, value)
+                facts.origin[name] = "luna"
+        if self.pregnant and facts.pregnant is not True:
+            facts.pregnant, facts.origin["pregnant"] = True, "luna"
+        if self.intolerance:
+            facts.intolerance = True
+
+    def fresh(self) -> Facts:
+        """Facts of a new flow: no earlier objections except this turn's."""
+        return Facts(inactive=self.inactive)
+
+    def extend(self, facts: Facts) -> None:
+        """Add this turn's accepted objections to a flow's inactive hits."""
+        new = tuple(p for p in self.inactive if p not in facts.inactive)
+        if new:
+            facts.inactive = (*facts.inactive, *new)
+            facts.refresh(source for source, _ in new)
+
+    @staticmethod
+    def filled(facts: Facts, slot: str) -> bool:
+        """Luna's sure value fills the slot of a question (HR-05)."""
+        name = "pregnant" if slot == "pregnant_or_lactating" else slot
+        return (
+            name in FACT_TYPES
+            and getattr(facts, name) is not None
+            and facts.origin.get(name) == "luna"
+        )
+
+
+def signature(outcome: Outcome, situation: bool = True) -> tuple[Any, ...]:
+    """What makes two decisions the same: kind, (situation,) template, products, notes,
+    options."""
+    products = tuple(item["product"] for item in outcome.offer)
+    head = (outcome.situation,) if situation else ()
+    return (
+        outcome.kind,
+        *head,
+        outcome.template,
+        products,
+        outcome.notes,
+        outcome.dropped,
+        outcome.options,
+    )
+
+
+# --- hits (spec r2 §2, HR-09, BO-02) ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Hit:
+    """One (source, message) occurrence of a word list: a doctor entry (K2), an ambulance
+    entry (K3) or a word fact (W). Its id is '<entry id or topic slot>@<message index>'."""
+
+    source: str
+    kind: str
+    sign: str
+    result: str
+    index: int
+
+    @property
+    def id(self) -> str:
+        return f"{self.source}@{self.index}"
+
+
+W_KINDS = (
+    (PREGNANCY_WORDS, "W-pregnancy", "pregnant"),
+    (INTOLERANCE, "W-intolerance", "intolerance"),
+    (DIARRHEA, "W-diarrhea", "diarrhea"),
+)
+
+
+def listing(
+    texts: Sequence[tuple[int, str]],
+    facts: Facts,
+    ambulance: Sequence[tuple[str, str]] = (),
+    current: int | None = None,
+    reply: int | None = None,
+) -> list[Hit]:
+    """The active K2 and W hits of the flow texts (index, text) and the ambulance hits of
+    the current message. A reply to Graf's pregnancy question (message index `reply`) holds
+    no pregnancy word fact (BO-08)."""
+    found: list[Hit] = []
+    slots = facts.slots()
+    for index, text in texts:
+        for i, r in active(text, scan(text, DOCTOR, slots), facts.inactive):
+            if r == "hit":
+                found.append(Hit(i, "K2", ENTRY[i]["sign"], r, index))
+        for entries, kind, sign in W_KINDS:
+            if kind == "W-pregnancy" and index == reply:
+                continue
+            for i, r in active(text, scan(text, entries), facts.inactive):
+                if r == "hit":
+                    found.append(Hit(i, kind, sign, r, index))
+        for slot in TOPICS:
+            if facts.topic(text, slot):
+                found.append(Hit(slot, "W-topic", slot, "hit", index))
+    if current is not None:
+        for i, r in ambulance:
+            found.append(Hit(i, "K3-" + TIER[i], ENTRY[i]["sign"], r, current))
+    unique: dict[str, Hit] = {}
+    for hit in found:
+        unique.setdefault(hit.id, hit)
+    return list(unique.values())
+
+
+def hit_words(source: str, quote: str) -> bool:
+    """BO-02: the quote holds the hit's own words: an entry's terms (or its near groups
+    within its window) with its match mode and not_prefix, or a term of the topic's
+    vocabulary. requires_any, requires_slot, unless_any and negation are not evaluated."""
+    words = Words.of(quote)
+    entry = ENTRY.get(source)
+    if entry is not None:
+        if "near" in entry:
+            return bool(_near(words, entry))
+        nap = entry.get("not_prefix", [])
+        return any(positions(words, t, entry["match"], nap) for t in entry["terms"])
+    return any(
+        positions(words, term, item["match"])
+        for item in VOCAB
+        if item["slot"] == source
+        for term in item["terms"]
+    )
 
 
 class Graf:
@@ -1263,12 +1537,12 @@ class Graf:
     def __init__(self, jev: Jev) -> None:
         self.jev = jev
 
-    def safety(self, request: Turn, context: Context) -> Safety:
-        """Step 2: ambulance list on every message, before register and snapshot. A pending
-        check is the token's check (version 2) or a check text as the last answer
+    def stage(self, request: Turn, context: Context) -> Stage:
+        """Step 2: the ambulance list on every message, before register and snapshot. A
+        pending check is the token's check (version 2) or a check text as the last answer
         (version 1)."""
         level, hits = tier(request.question, {"pregnant": pregnancy_slot(request, context)})
-        writer = Writer(request)
+        found = tuple(hits)
         if level == "strong":
             templates = {
                 ENTRY[i]["template"] for i, r in hits if r == "hit" and TIER[i] == "strong"
@@ -1278,33 +1552,30 @@ class Graf:
                 for t in ("emergency.self_harm", "emergency.pregnancy", "emergency.general")
                 if t in templates
             )
-            return Safety(self.reply(writer, Outcome("emergency", None, template), None), request)
+            return Stage("strong", Outcome("emergency", None, template), found)
         if level == "weak":
             checked = digest(request.question)
-            reply = self.reply(writer, Outcome("check", None, "emergency.check"), None)
-            return Safety(reply, request, Check(checked, (checked,)))
+            check = Check(checked, (checked,))
+            return Stage("weak", Outcome("check", None, "emergency.check"), found, check=check)
         previous = request.history[-1] if request.history else None
+        general = Outcome("emergency", None, "emergency.general")
         if context.version == 1:
             if previous is None or previous.answer not in CHECKS:
-                return Safety(None, request)
+                return Stage("none")
             cleared: tuple[str, ...] = (digest(previous.question),)
         elif context.check is None:
-            return Safety(None, request)
+            return Stage("none")
         elif previous is None or digest(previous.question) != context.check.checked:
             # The message before this reply is not the checked one: an unclear reply.
-            outcome = Outcome("emergency", None, "emergency.general")
-            return Safety(self.reply(writer, outcome, None), request)
+            return Stage("reply", general)
         else:
             cleared = tuple(dict.fromkeys((context.check.checked, *context.check.quotes)))
-        if parse_yes_no(request.question) is not False:
-            outcome = Outcome("emergency", None, "emergency.general")
-            return Safety(self.reply(writer, outcome, None), request)
-        assert previous is not None
-        # 'No': the checked message continues from step 3, its ambulance hits ignored.
-        rewritten = request.model_copy(
+        # The checked message continues from step 3 with its ambulance hits ignored.
+        checked_request = request.model_copy(
             update={"question": previous.question, "history": request.history[:-1]}
         )
-        return Safety(None, rewritten, cleared=cleared)
+        outcome = None if parse_yes_no(request.question) is False else general
+        return Stage("reply", outcome, checked=checked_request, cleared=cleared)
 
     @staticmethod
     def owns(request: Turn) -> bool:
@@ -1328,25 +1599,50 @@ class Graf:
         state = self.state(outcome, flow.facts, tuple(flow.templates[:-1]), first, received - start)
         return True, state
 
+    async def observe(self, text: str, run: Runner, lens: Lens) -> Choice | None:
+        """Jev on a text, once per lens memo; a served model that is not pinned is logged
+        and treated as unavailable by the callers."""
+        if text not in lens.memo:
+            attempt = await run(self.jev.attempt(text))
+            lens.memo[text] = attempt
+            if attempt.choice is not None and not attempt.choice.pinned:
+                self.mismatch(attempt.choice)
+        return lens.memo[text].choice
+
     async def continuation(
-        self, request: Turn, flow: FlowState, run: Runner, skipped: int = 0
+        self,
+        request: Turn,
+        flow: FlowState,
+        run: Runner,
+        skipped: int = 0,
+        lens: Lens | None = None,
     ) -> Brief:
         """Step 3: a reply to the flow's pending question."""
+        lens = lens or Lens()
         start, texts = flow_texts(request, flow)
         facts = restore(flow, texts[:-1])
+        lens.extend(facts)
         origin = Origin(start, flow.asked, flow.overruled, skipped)
         if flow.pending != "slot":
-            return await self.answered(request, flow, facts, origin, run)
+            return await self.answered(request, flow, facts, origin, run, lens)
         assert flow.situation is not None
         assert flow.template is not None
         parsed = facts.answer(request.question, flow.template, flow.situation)
+        lens.apply(facts)
+        if lens.topic_change:
+            return await self.changed(request, flow, parsed is False, run, lens, skipped)
         situation = parsed if isinstance(parsed, str) else flow.situation
         template = doctor(facts, situation)
         if template:
             return self.brief(request, Outcome("doctor", situation, template), facts, origin)
         if parsed is False:
             count = repeats(flow.asked, flow.template)
-            choice = await run(self.jev.classify(request.question))
+            choice = await self.observe(request.question, run, lens)
+            if lens.filled(facts, slot_name(flow.template)):
+                # Luna's sure value fills the slot the parser missed: no re-ask (HR-05).
+                return self.brief(
+                    request, self.settle(decide(situation, facts), facts), facts, origin
+                )
             if (
                 choice is not None
                 and choice.pinned
@@ -1354,9 +1650,8 @@ class Graf:
                 and choice.situation not in {flow.situation, "unclear"}
             ):
                 # A new complaint: a new flow from this message.
-                return self.opening(request, choice, Origin(len(request.history), skipped=skipped))
-            if choice is not None and not choice.pinned:
-                self.mismatch(choice)
+                new = Origin(len(request.history), skipped=skipped)
+                return self.opening(request, choice, new, lens)
             if count >= 2:
                 outcome = Outcome("no_product", flow.situation, "no_product.general")
                 return self.brief(request, outcome, facts, origin)
@@ -1364,65 +1659,149 @@ class Graf:
             return self.brief(request, outcome, facts, origin)
         return self.brief(request, self.settle(decide(situation, facts), facts), facts, origin)
 
-    async def answered(
-        self, request: Turn, flow: FlowState, facts: Facts, origin: Origin, run: Runner
+    async def changed(
+        self,
+        request: Turn,
+        flow: FlowState,
+        missed: bool,
+        run: Runner,
+        lens: Lens,
+        skipped: int,
     ) -> Brief:
-        """A reply to a pending situation-level question (spec r2 GO-03)."""
+        """A topic change inside a flow that Luna read with a valid quote (spec r2 HR-06).
+        Jev runs only when the parser missed the reply (HR-05)."""
+        choice = await self.observe(request.question, run, lens) if missed else None
+        new = Origin(len(request.history), skipped=skipped)
+        ok = choice is not None and choice.pinned
+        if (
+            choice is not None
+            and ok
+            and choice.confidence >= THRESHOLD
+            and choice.situation not in {flow.situation, "unclear"}
+        ):
+            return self.opening(request, choice, new, lens)
+        hypothesis = None
+        if lens.situation is not None and lens.situation != flow.situation:
+            hypothesis = lens.situation
+        elif choice is not None and ok and choice.situation in COMPLAINTS - {flow.situation}:
+            hypothesis = choice.situation
+        facts = lens.fresh()
         facts.absorb(request.question)
+        lens.apply(facts)
+        outcome = (
+            self.ask("confirm", (hypothesis,), facts)
+            if hypothesis
+            else self.ask("clarify", (), facts)
+        )
+        return self.brief(request, outcome, facts, new)
+
+    async def answered(
+        self,
+        request: Turn,
+        flow: FlowState,
+        facts: Facts,
+        origin: Origin,
+        run: Runner,
+        lens: Lens,
+    ) -> Brief:
+        """A reply to a pending situation-level question (spec r2 GO-03 with MR-09)."""
+        facts.absorb(request.question)
+        lens.apply(facts)
         template = doctor(facts, None, words_only=True)
         if template:
             return self.brief(request, Outcome("doctor", None, template), facts, origin)
-        if flow.pending == "confirm" and parse_yes_no(request.question) is True:
+        yes = parse_yes_no(request.question) is True
+        if flow.pending == "confirm" and (yes or lens.situation == flow.options[0]):
             situation = flow.options[0]
+            lens.resolution = ("confirm", situation)
             outcome = self.settle(decide(situation, facts, situation), facts)
             return self.brief(request, outcome, facts, origin)
-        choice = await run(self.jev.classify(request.question))
-        if choice is not None and not choice.pinned:
-            self.mismatch(choice)
-        if choice is not None and choice.pinned and choice.confidence >= THRESHOLD:
-            top = choice.situation
-            if flow.pending == "choose" and top in flow.options:
-                outcome = self.settle(decide(top, facts, top), facts)
-                return self.brief(request, outcome, facts, origin)
-            if top != "unclear" and top not in flow.options:
-                return self.brief(request, self.decision(choice, facts), facts, origin)
+        choice = await self.observe(request.question, run, lens)
+        sure = choice is not None and choice.pinned and choice.confidence >= THRESHOLD
+        picked = None
+        if flow.pending == "choose":
+            if choice is not None and sure and choice.situation in flow.options:
+                picked = choice.situation
+            elif lens.situation in flow.options:
+                picked = lens.situation
+        if picked is not None:
+            lens.resolution = ("choose", picked)
+            outcome = self.settle(decide(picked, facts, picked), facts)
+            return self.brief(request, outcome, facts, origin)
+        new = (
+            choice is not None
+            and sure
+            and choice.situation != "unclear"
+            and choice.situation not in flow.options
+        ) or (lens.situation is not None and lens.situation not in flow.options)
+        if new:
+            return self.brief(request, self.decision(choice, facts, lens), facts, origin)
         if repeats(flow.asked, flow.pending) >= 2:
             outcome = Outcome("no_product", None, "no_product.general")
             return self.brief(request, outcome, facts, origin)
         if flow.pending == "choose":
+            lens.repeat = True
             return self.brief(request, self.ask("choose", flow.options, facts), facts, origin)
         return self.brief(request, self.ask("clarify", (), facts), facts, origin)
 
-    async def first(self, request: Turn, run: Runner, skipped: int = 0) -> Brief:
+    async def first(
+        self, request: Turn, run: Runner, skipped: int = 0, lens: Lens | None = None
+    ) -> Brief:
         """Step 5: a first Graf turn. It never steps aside (spec r2 GO-01)."""
-        choice = await run(self.jev.classify(request.question))
-        if choice is not None and not choice.pinned:
-            self.mismatch(choice)
-        return self.opening(request, choice, Origin(len(request.history), skipped=skipped))
+        lens = lens or Lens()
+        choice = await self.observe(request.question, run, lens)
+        return self.opening(request, choice, Origin(len(request.history), skipped=skipped), lens)
 
-    def opening(self, request: Turn, choice: Choice | None, origin: Origin) -> Brief:
-        facts = Facts()
+    def opening(
+        self, request: Turn, choice: Choice | None, origin: Origin, lens: Lens | None = None
+    ) -> Brief:
+        lens = lens or Lens()
+        facts = lens.fresh()
         facts.absorb(request.question)
-        return self.brief(request, self.decision(choice, facts), facts, origin)
+        lens.apply(facts)
+        return self.brief(request, self.decision(choice, facts, lens), facts, origin)
 
-    def decision(self, choice: Choice | None, facts: Facts) -> Outcome:
-        """A first-message decision on Jev's choice; a situation-level question where Graf
-        stepped aside before (spec r2 GO-01)."""
-        if choice is None or not choice.pinned:
+    def decision(self, choice: Choice | None, facts: Facts, lens: Lens | None = None) -> Outcome:
+        """A first-message decision: Jev's choice merged with Luna's sure situation (spec r2
+        MR-08 rows M1 to M6; without Luna these are the GO-01 decisions)."""
+        lens = lens or Lens()
+        luna = lens.situation
+        if choice is None or not choice.pinned:  # M6
+            if luna is not None:
+                return self.ask("confirm", (luna,), facts)
             return self.ask("clarify", (), facts)
         top = choice.situation
-        if choice.confidence < THRESHOLD or top == "unclear":
+        if choice.confidence < THRESHOLD or top == "unclear":  # M5
+            if luna is not None:
+                return self.ask("confirm", (luna,), facts)
             if top in COMPLAINTS:
                 return self.ask("confirm", (top,), facts)
             return self.ask("clarify", (), facts)
-        if top == "other_unhandled":
+        if top == "other_unhandled":  # M4
+            if luna is not None:
+                return self.ask("confirm", (luna,), facts)
             return Outcome("uncovered", top, "no_product.general")
         second = choice.second()
         if top in COMPLAINTS and second and second[1] >= SECOND and second[0] in COMPLAINTS:
             ours, theirs = GROUP.get(top), GROUP.get(second[0])
-            if ours and theirs and ours != theirs:
+            if ours and theirs and ours != theirs:  # M2
                 return self.ask("choose", (top, second[0]), facts)
-        return self.settle(decide(top, facts, top), facts)
+        outcome = self.settle(decide(top, facts, top), facts)
+        if top not in COMPLAINTS:  # M3
+            return outcome
+        # M1: Luna agrees, abstains, or reads another situation with another decision.
+        if luna is None:
+            lens.agreement = "abstain" if lens.read else None
+            return outcome
+        if luna == top:
+            lens.agreement = "agree"
+            return outcome
+        theirs_outcome = self.settle(decide(luna, facts, luna), facts)
+        if signature(theirs_outcome, situation=False) == signature(outcome, situation=False):
+            lens.agreement = "same_decision"
+            return outcome
+        lens.agreement = "disagree"
+        return self.ask("choose", (top, luna), facts)
 
     def settle(self, outcome: Outcome, facts: Facts) -> Outcome:
         return self.ask("clarify", (), facts) if outcome.kind == "step_aside" else outcome
@@ -1440,9 +1819,9 @@ class Graf:
         received = [p.question for p in request.history] + [request.question]
         counter = len(received) + origin.skipped - origin.start
         state = self.state(
-            outcome, facts, origin.asked, received[origin.start], counter, origin.overruled
+            outcome, facts, origin.asked, received[origin.start], counter, facts.inactive
         )
-        return Brief(outcome, facts, state)
+        return Brief(outcome, facts, state, origin)
 
     @staticmethod
     def state(
@@ -1483,7 +1862,7 @@ class Graf:
     def render(self, request: Turn, brief: Brief, evidence: Evidence) -> Reply | None:
         """Graf's approved text for the brief's decision; None for a situation-level
         question, which has no approved text."""
-        if brief.outcome.kind in QUESTION_KINDS:
+        if brief.outcome.kind in SITUATION_LEVEL:
             self.log(None, brief.outcome.kind)
             return None
         return self.reply(Writer(request), brief.outcome, evidence, brief.facts)
@@ -1494,8 +1873,10 @@ class Graf:
         outcome: Outcome,
         evidence: Evidence | None,
         facts: Facts | None = None,
+        log: bool = True,
     ) -> Reply | None:
-        self.log(outcome.situation, outcome.kind)
+        if log:
+            self.log(outcome.situation, outcome.kind)
         if outcome.kind == "step_aside":
             return None
         if facts is None:
@@ -1505,7 +1886,10 @@ class Graf:
             assert outcome.template
             values = writer.relation(facts.whom)
             text = join(writer.ack(outcome.situation), writer.pick(outcome.template, values))
-            return Reply("clarification", text, [], [], [], [], "question", outcome.situation)
+            parts = tuple(writer.parts)
+            return Reply(
+                "clarification", text, [], [], [], [], "question", outcome.situation, parts
+            )
         if outcome.kind == "offer":
             assert evidence is not None
             return self.offer(writer, outcome, evidence, facts)
@@ -1519,7 +1903,10 @@ class Graf:
                 "age_min": str(int(age_min)) if float(age_min).is_integer() else str(age_min),
             }
         text = writer.pick(outcome.template, values)
-        return Reply(STATUS[outcome.kind], text, [], [], [], [], outcome.kind, outcome.situation)
+        parts = tuple(writer.parts)
+        return Reply(
+            STATUS[outcome.kind], text, [], [], [], [], outcome.kind, outcome.situation, parts
+        )
 
     def offer(self, writer: Writer, outcome: Outcome, evidence: Evidence, facts: Facts) -> Reply:
         assert outcome.situation is not None
@@ -1537,7 +1924,8 @@ class Graf:
         if not chosen:
             self.log(outcome.situation, "unavailable")
             text = writer.pick("no_product.unavailable")
-            return Reply("limited", text, [], [], [], [], "unavailable", outcome.situation)
+            parts = tuple(writer.parts)
+            return Reply("limited", text, [], [], [], [], "unavailable", outcome.situation, parts)
         language = writer.language
         blocks: list[tuple[str, str, str]] = []
         for item, _ in chosen:
@@ -1552,7 +1940,7 @@ class Graf:
                 )
             else:
                 line = writer.pick("dose.line_no_course", {"dose": dose["say_" + language]})
-            blocks.append((spec["shop_name"], reason["reason_" + language], line))
+            blocks.append((spec["shop_name"], writer.data(reason["reason_" + language]), line))
         relation = writer.relation(facts.whom)
         notes = list(outcome.notes)
         if len(chosen) == 2 and "note_pregnancy" in notes:
@@ -1605,7 +1993,10 @@ class Graf:
             sources = sources[:12]
             cautions = [c for c in cautions if c in {s["source_id"] for s in sources}]
         products = [evidence.products[pid] for pid in ids]
-        return Reply("answer", text, ids, products, sources, cautions, "offer", outcome.situation)
+        parts = tuple(writer.parts)
+        return Reply(
+            "answer", text, ids, products, sources, cautions, "offer", outcome.situation, parts
+        )
 
     @staticmethod
     def mismatch(choice: Choice) -> None:
@@ -1617,4 +2008,4 @@ class Graf:
         logger.info("graf turn situation=%s outcome=%s", situation or "-", outcome)
 
 
-__all__ = ["Brief", "Choice", "Graf", "Jev", "Reply", "Safety", "replace"]
+__all__ = ["Attempt", "Brief", "Choice", "Graf", "Jev", "Lens", "Part", "Reply", "Stage", "replace"]
