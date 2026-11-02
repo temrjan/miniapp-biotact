@@ -1,8 +1,9 @@
 """Graf: deterministic product offer for complaints that name no product (plan r4).
 
 Every word list, parser, route and customer-visible string comes from graf_data/*.json.
-Graf stores nothing: the conversation state is rebuilt from the bounded history on each
-turn, and log lines carry only a situation id, an outcome class or a served model id.
+Graf stores nothing: the flow state travels in the signed context token (version 2) or, for
+a version 1 token, is rebuilt from the history on each turn. Log lines carry only a
+situation id, an outcome class or a served model id.
 """
 
 import asyncio
@@ -18,7 +19,8 @@ from typing import Any
 
 import httpx
 
-from src.consultant.contracts import Turn
+from src.consultant.context import FACT_TYPES, FLAGS, Check, Context, FlowState, digest
+from src.consultant.contracts import Fault, Turn
 from src.consultant.knowledge import Evidence
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,11 @@ JEV_INSTRUCTIONS = (
 )
 THRESHOLD = 0.7
 SECOND = float(ENGINE["second_complaint"]["threshold"])
+# Complaint situations: every situation except the four meta situations.
+META = frozenset({"unclear", "other_unhandled", "see_doctor_soon", "emergency"})
+COMPLAINTS = frozenset(SITUATION) - META
+# Situation-level questions: no hypothesis, one hypothesis, two options.
+QUESTION_KINDS = ("clarify", "confirm", "choose")
 
 # --- text --------------------------------------------------------------------------------
 
@@ -481,8 +488,12 @@ class Facts:
     form_stick: bool = False
     disease: bool = False
     after_clarify: bool = False
+    intolerance: bool = False
     topics: set[str] = field(default_factory=set)
     texts: list[str] = field(default_factory=list)
+    # Origin of each FACT_TYPES value: "parser" (read from words) or "confirmed" (a parsed
+    # reply to Graf's question for that slot).
+    origin: dict[str, str] = field(default_factory=dict)
 
     @property
     def child(self) -> bool:
@@ -515,23 +526,30 @@ class Facts:
         self.texts.append(text)
         age, spans = parse_age(text)
         if self.age is None and isinstance(age, float):
-            self.age = age
+            self.assign("age", age, "parser")
         duration = parse_duration(text, [*spans, *reply_spans])
         if duration is not None:
-            self.duration = max(duration, self.duration or 0.0)
+            self.assign("duration", max(duration, self.duration or 0.0), "parser")
         temperature = parse_temperature(text)
         if temperature is not None:
-            self.temperature = max(temperature, self.temperature or 0.0)
+            self.assign("temperature", max(temperature, self.temperature or 0.0), "parser")
         if self.whom is None:
-            self.whom = parse_whom(text)
+            self.assign("whom", parse_whom(text), "parser")
         if self.sex is None:
-            self.sex = one(vocab(text, "sex"))
+            self.assign("sex", one(vocab(text, "sex")), "parser")
         self.child_word = self.child_word or bool(vocab(text, "child"))
         self.form_stick = self.form_stick or bool(vocab(text, "form_pref"))
         if any(r == "hit" for _, r in scan(text, PREGNANCY_WORDS)):
-            self.pregnant = True
+            self.assign("pregnant", True, "parser")
         self.disease = self.disease or any(r == "hit" for _, r in scan(text, DISEASE))
+        self.intolerance = self.intolerance or any(r == "hit" for _, r in scan(text, INTOLERANCE))
         self.topics |= {t for t in TOPICS if vocab(text, t)}
+
+    def assign(self, name: str, value: float | str | bool | None, origin: str) -> None:
+        """Set a FACT_TYPES fact; its origin changes only when its value changes."""
+        if value is not None and value != getattr(self, name):
+            setattr(self, name, value)
+            self.origin[name] = origin
 
     def answer(self, text: str, template: str, situation: str) -> str | bool:
         """Parse a reply to a Graf question. Returns False when unparsed; for a clarifying
@@ -542,24 +560,25 @@ class Facts:
         if slot == "age":
             age, reply_spans = parse_age(text, reply=True)
             if isinstance(age, float):
-                self.age, parsed = age, True
+                self.age, self.origin["age"], parsed = age, "confirmed", True
         elif slot == "duration":
             age, spans = parse_age(text)
             duration = parse_duration(text, spans)
             if duration is not None:
-                self.duration, parsed = duration, True
+                self.duration, self.origin["duration"], parsed = duration, "confirmed", True
         elif slot == "temperature":
             temperature = parse_temperature(text)
             if temperature is not None:
-                self.temperature, parsed = temperature, True
+                self.temperature, self.origin["temperature"] = temperature, "confirmed"
+                parsed = True
         elif slot == "sex":
             sex = one(vocab(text, "sex"))
             if sex:
-                self.sex, parsed = sex, True
+                self.sex, self.origin["sex"], parsed = sex, "confirmed", True
         elif slot == "pregnant_or_lactating":
             reply = parse_pregnancy_reply(text)
             if reply is not None:
-                self.pregnant, parsed = reply, True
+                self.pregnant, self.origin["pregnant"], parsed = reply, "confirmed", True
         else:
             parsed = self._option(text, template, situation)
         self.absorb(text, reply_spans)
@@ -741,13 +760,17 @@ STATUS = {
 
 @dataclass(frozen=True)
 class Outcome:
-    kind: str  # question | offer | emergency | doctor | no_product | intolerance | uncovered
+    # question | offer | emergency | check | doctor | no_product | intolerance | uncovered,
+    # or a situation-level question: clarify | confirm | choose
+    kind: str
     situation: str | None = None
     template: str | None = None
     offer: tuple[dict[str, Any], ...] = ()
     notes: tuple[str, ...] = ()
     magniy_note: bool = False
     dropped: str | None = None
+    # A situation-level question (kind in QUESTION_KINDS): its hypothesis or two options.
+    options: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -865,12 +888,15 @@ def when_ok(when: dict[str, Any], facts: Facts) -> bool:
     return True
 
 
-def doctor(facts: Facts, situation: str | None) -> str | None:
-    """Doctor lists and doctor_rules_with_slots on every Graf-owned message (5.4, I5)."""
+def doctor(facts: Facts, situation: str | None, words_only: bool = False) -> str | None:
+    """Doctor lists and doctor_rules_with_slots on every Graf-owned message (5.4, I5).
+    words_only runs only the word-list rows (the rows with 'entries')."""
     slots = facts.slots()
     hit = {i for text in facts.texts for i, r in scan(text, DOCTOR, slots) if r == "hit"}
     age, duration, temperature, topics = facts.age, facts.duration, facts.temperature, facts.topics
     for rule in SAFETY["doctor_rules_with_slots"]:
+        if words_only and "entries" not in rule:
+            continue
         if "entries" in rule:
             prefix = rule["entries"].rstrip("*")
             for entry in DOCTOR:
@@ -929,7 +955,9 @@ def decide(situation: str, facts: Facts, origin: str | None = None) -> Outcome:
     template = doctor(facts, situation)
     if template:
         return Outcome("doctor", situation, template)
-    if any(r == "hit" for text in facts.texts for _, r in scan(text, INTOLERANCE)):
+    if facts.intolerance or any(
+        r == "hit" for text in facts.texts for _, r in scan(text, INTOLERANCE)
+    ):
         return Outcome("intolerance", situation, "intolerance.answer_no_name")
     magniy = False
     if situation != "diarrhea" and any(
@@ -1125,15 +1153,121 @@ def pregnancy_context(request: Turn) -> bool:
     return False
 
 
+def pregnancy_slot(request: Turn, context: Context) -> bool:
+    """The ambulance slot 'pregnant': the token's pregnancy flag, a non-negated pregnancy word
+    in any received customer message, or, for a version 1 token, a reply read from history
+    as a yes to Graf's pregnancy question."""
+    if context.pg:
+        return True
+    if context.version == 1:
+        return pregnancy_context(request)
+    messages = [p.question for p in request.history] + [request.question]
+    return any(r == "hit" for text in messages for _, r in scan(text, PREGNANCY_WORDS))
+
+
+def flow_texts(request: Turn, flow: FlowState) -> tuple[int, list[str]]:
+    """(index of the flow's first message, the received customer messages from it through
+    the current message). The first message is the one at len(history) - counter when its
+    digest matches, else the latest earlier message with that digest, else the oldest."""
+    received = [p.question for p in request.history] + [request.question]
+    start = len(request.history) - flow.counter
+    if not (0 <= start < len(request.history) and digest(received[start]) == flow.first):
+        found = [i for i in range(len(request.history)) if digest(received[i]) == flow.first]
+        start = found[-1] if found else 0
+    return start, received[start:]
+
+
+WHOM = frozenset(item["value"] for item in VOCAB if item["slot"] == "whom")
+SEXES = frozenset(item["value"] for item in VOCAB if item["slot"] == "sex")
+OPTIONS = {"slot": 0, "clarify": 0, "confirm": 1, "choose": 2}
+
+
+def restore(flow: FlowState, texts: list[str]) -> Facts:
+    """Facts of a token flow state; ids unknown to the data make the token invalid."""
+    values = dict(flow.facts)
+    if (
+        (flow.situation is not None and flow.situation not in SITUATION)
+        or (flow.pending == "slot" and flow.template not in QUESTION_SLOT)
+        or (flow.pending == "slot") is (flow.situation is None)
+        or len(flow.options) != OPTIONS[flow.pending]
+        or not set(flow.options) <= COMPLAINTS
+        or len(set(flow.options)) != len(flow.options)
+        or any(a not in QUESTION_SLOT and a not in QUESTION_KINDS for a in flow.asked)
+        or not set(flow.topics) <= set(TOPICS)
+        or values.get("whom", ("self", ""))[0] not in WHOM
+        or values.get("sex", ("male", ""))[0] not in SEXES
+    ):
+        raise Fault("context_invalid", 400)
+    facts = Facts(texts=list(texts), topics=set(flow.topics))
+    for name, (value, origin) in values.items():
+        setattr(facts, name, value)
+        facts.origin[name] = origin
+    for flag in flow.flags:
+        setattr(facts, flag, True)
+    return facts
+
+
+def slot_of(item: str) -> str:
+    """The repeat class of an asked item: a template's slot, or one class for every
+    situation-level question."""
+    return "situation" if item in QUESTION_KINDS else slot_name(item)
+
+
+def repeats(asked: Sequence[str], item: str) -> int:
+    """How many of the last asked items ask the same as `item` (graf.py today: the trailing
+    run of templates with the asked slot)."""
+    count = 0
+    for previous in reversed(asked):
+        if slot_of(previous) != slot_of(item):
+            break
+        count += 1
+    return count
+
+
+@dataclass(frozen=True)
+class Brief:
+    """Graf's result for a turn: the decision, the facts it rests on and, when the decision
+    is a question, the flow state the response token carries."""
+
+    outcome: Outcome
+    facts: Facts
+    flow: FlowState | None
+
+
+@dataclass(frozen=True)
+class Safety:
+    """The ambulance stage: an emergency or check reply, or the request to continue with
+    (the checked message after a 'no'), the check to record and the digests cleared."""
+
+    reply: Reply | None
+    request: Turn
+    check: Check | None = None
+    cleared: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Origin:
+    """Where a brief's flow starts: the first message's index among the received customer
+    messages, the asked items and overruled hits before this turn, and how many received
+    messages follow the processed one (1 after a 'no' to a danger check)."""
+
+    start: int
+    asked: tuple[str, ...] = ()
+    overruled: tuple[tuple[str, str], ...] = ()
+    skipped: int = 0
+
+
 class Graf:
     """Steps 2, 3 and 5 to 7 of plan r4 section 3; service.py runs steps 1 and 4."""
 
     def __init__(self, jev: Jev) -> None:
         self.jev = jev
 
-    def safety(self, request: Turn) -> tuple[Reply | None, Turn]:
-        """Step 2: ambulance list on every message, before register and snapshot."""
-        level, hits = tier(request.question, {"pregnant": pregnancy_context(request)})
+    def safety(self, request: Turn, context: Context) -> Safety:
+        """Step 2: ambulance list on every message, before register and snapshot. A pending
+        check is the token's check (version 2) or a check text as the last answer
+        (version 1)."""
+        level, hits = tier(request.question, {"pregnant": pregnancy_slot(request, context)})
         writer = Writer(request)
         if level == "strong":
             templates = {
@@ -1144,91 +1278,215 @@ class Graf:
                 for t in ("emergency.self_harm", "emergency.pregnancy", "emergency.general")
                 if t in templates
             )
-            return self.reply(writer, Outcome("emergency", None, template), None), request
+            return Safety(self.reply(writer, Outcome("emergency", None, template), None), request)
         if level == "weak":
-            return self.reply(writer, Outcome("check", None, "emergency.check"), None), request
-        if request.history and request.history[-1].answer in CHECKS:
-            if parse_yes_no(request.question) is not False:
-                outcome = Outcome("emergency", None, "emergency.general")
-                return self.reply(writer, outcome, None), request
-            previous = request.history[-1]
-            # 'No': the checked message continues from step 3, its ambulance hits ignored.
-            return None, request.model_copy(
-                update={"question": previous.question, "history": request.history[:-1]}
-            )
-        return None, request
+            checked = digest(request.question)
+            reply = self.reply(writer, Outcome("check", None, "emergency.check"), None)
+            return Safety(reply, request, Check(checked, (checked,)))
+        previous = request.history[-1] if request.history else None
+        if context.version == 1:
+            if previous is None or previous.answer not in CHECKS:
+                return Safety(None, request)
+            cleared: tuple[str, ...] = (digest(previous.question),)
+        elif context.check is None:
+            return Safety(None, request)
+        elif previous is None or digest(previous.question) != context.check.checked:
+            # The message before this reply is not the checked one: an unclear reply.
+            outcome = Outcome("emergency", None, "emergency.general")
+            return Safety(self.reply(writer, outcome, None), request)
+        else:
+            cleared = tuple(dict.fromkeys((context.check.checked, *context.check.quotes)))
+        if parse_yes_no(request.question) is not False:
+            outcome = Outcome("emergency", None, "emergency.general")
+            return Safety(self.reply(writer, outcome, None), request)
+        assert previous is not None
+        # 'No': the checked message continues from step 3, its ambulance hits ignored.
+        rewritten = request.model_copy(
+            update={"question": previous.question, "history": request.history[:-1]}
+        )
+        return Safety(None, rewritten, cleared=cleared)
 
     @staticmethod
     def owns(request: Turn) -> bool:
-        """Step 3 condition: the last answer is a Graf question (ack + question pattern)."""
+        """Step 3 condition (version 1): the last answer is a Graf question."""
         return bool(request.history) and decode(request.history[-1].answer) is not None
 
-    async def continuation(self, request: Turn, evidence: Evidence, run: Runner) -> Reply | None:
-        """Step 3 for an owned turn. None means step aside to the existing path."""
+    def adopt(self, request: Turn) -> tuple[bool, FlowState | None]:
+        """The flow state of a version 1 conversation, rebuilt from its history: (owned,
+        state). Owned with no state is today's step aside (the start left the window)."""
         if not self.owns(request):
-            return None
+            return False, None
         flow = rebuild(request.history)
-        writer = Writer(request)
         if flow is None:
-            self.log(None, "step_aside")
-            return None
-        facts, asked = flow.facts, flow.asked
-        parsed = facts.answer(request.question, asked.template, asked.situation)
-        situation = parsed if isinstance(parsed, str) else asked.situation
+            return True, None
+        first = flow.facts.texts[0]
+        start = max(i for i, p in enumerate(request.history) if p.question == first)
+        outcome = Outcome("question", flow.asked.situation, flow.asked.template)
+        received = len(request.history)
+        # The state as the previous response would have issued it: counter up to the
+        # message before the current one.
+        state = self.state(outcome, flow.facts, tuple(flow.templates[:-1]), first, received - start)
+        return True, state
+
+    async def continuation(
+        self, request: Turn, flow: FlowState, run: Runner, skipped: int = 0
+    ) -> Brief:
+        """Step 3: a reply to the flow's pending question."""
+        start, texts = flow_texts(request, flow)
+        facts = restore(flow, texts[:-1])
+        origin = Origin(start, flow.asked, flow.overruled, skipped)
+        if flow.pending != "slot":
+            return await self.answered(request, flow, facts, origin, run)
+        assert flow.situation is not None
+        assert flow.template is not None
+        parsed = facts.answer(request.question, flow.template, flow.situation)
+        situation = parsed if isinstance(parsed, str) else flow.situation
         template = doctor(facts, situation)
         if template:
-            return self.reply(writer, Outcome("doctor", situation, template), evidence, facts)
+            return self.brief(request, Outcome("doctor", situation, template), facts, origin)
         if parsed is False:
-            repeats = 0
-            for t in reversed(flow.templates):
-                if QUESTION_SLOT[t] != asked.slot:
-                    break
-                repeats += 1
+            count = repeats(flow.asked, flow.template)
             choice = await run(self.jev.classify(request.question))
             if (
                 choice is not None
                 and choice.pinned
                 and choice.confidence >= THRESHOLD
-                and choice.situation not in {asked.situation, "unclear"}
+                and choice.situation not in {flow.situation, "unclear"}
             ):
-                return self.start(request, evidence, choice)
+                # A new complaint: a new flow from this message.
+                return self.opening(request, choice, Origin(len(request.history), skipped=skipped))
             if choice is not None and not choice.pinned:
                 self.mismatch(choice)
-            if repeats >= 2:
-                outcome = Outcome("no_product", asked.situation, "no_product.general")
-                return self.reply(writer, outcome, evidence, facts)
-            outcome = Outcome("question", asked.situation, REASK[asked.slot])
-            return self.reply(writer, outcome, evidence, facts)
-        return self.reply(writer, decide(situation, facts), evidence, facts)
+            if count >= 2:
+                outcome = Outcome("no_product", flow.situation, "no_product.general")
+                return self.brief(request, outcome, facts, origin)
+            outcome = Outcome("question", flow.situation, REASK[slot_name(flow.template)])
+            return self.brief(request, outcome, facts, origin)
+        return self.brief(request, self.settle(decide(situation, facts), facts), facts, origin)
 
-    async def first(self, request: Turn, evidence: Evidence, run: Runner) -> Reply | None:
-        """Step 5: a first Graf turn."""
+    async def answered(
+        self, request: Turn, flow: FlowState, facts: Facts, origin: Origin, run: Runner
+    ) -> Brief:
+        """A reply to a pending situation-level question (spec r2 GO-03)."""
+        facts.absorb(request.question)
+        template = doctor(facts, None, words_only=True)
+        if template:
+            return self.brief(request, Outcome("doctor", None, template), facts, origin)
+        if flow.pending == "confirm" and parse_yes_no(request.question) is True:
+            situation = flow.options[0]
+            outcome = self.settle(decide(situation, facts, situation), facts)
+            return self.brief(request, outcome, facts, origin)
         choice = await run(self.jev.classify(request.question))
-        if choice is None:
-            self.log(None, "step_aside")
-            return None
-        if not choice.pinned:
+        if choice is not None and not choice.pinned:
             self.mismatch(choice)
-            return None
-        return self.start(request, evidence, choice)
+        if choice is not None and choice.pinned and choice.confidence >= THRESHOLD:
+            top = choice.situation
+            if flow.pending == "choose" and top in flow.options:
+                outcome = self.settle(decide(top, facts, top), facts)
+                return self.brief(request, outcome, facts, origin)
+            if top != "unclear" and top not in flow.options:
+                return self.brief(request, self.decision(choice, facts), facts, origin)
+        if repeats(flow.asked, flow.pending) >= 2:
+            outcome = Outcome("no_product", None, "no_product.general")
+            return self.brief(request, outcome, facts, origin)
+        if flow.pending == "choose":
+            return self.brief(request, self.ask("choose", flow.options, facts), facts, origin)
+        return self.brief(request, self.ask("clarify", (), facts), facts, origin)
 
-    def start(self, request: Turn, evidence: Evidence, choice: Choice) -> Reply | None:
-        writer = Writer(request)
-        top = choice.situation
-        if choice.confidence < THRESHOLD or top == "unclear":
-            self.log(top, "step_aside")
-            return None
-        if top == "other_unhandled":
-            return self.reply(writer, Outcome("uncovered", top, "no_product.general"), evidence)
-        second = choice.second()
-        if second and second[1] >= SECOND:
-            ours, theirs = GROUP.get(top), GROUP.get(second[0])
-            if ours and theirs and ours != theirs:
-                self.log(top, "step_aside")
-                return None
+    async def first(self, request: Turn, run: Runner, skipped: int = 0) -> Brief:
+        """Step 5: a first Graf turn. It never steps aside (spec r2 GO-01)."""
+        choice = await run(self.jev.classify(request.question))
+        if choice is not None and not choice.pinned:
+            self.mismatch(choice)
+        return self.opening(request, choice, Origin(len(request.history), skipped=skipped))
+
+    def opening(self, request: Turn, choice: Choice | None, origin: Origin) -> Brief:
         facts = Facts()
         facts.absorb(request.question)
-        return self.reply(writer, decide(top, facts, top), evidence, facts)
+        return self.brief(request, self.decision(choice, facts), facts, origin)
+
+    def decision(self, choice: Choice | None, facts: Facts) -> Outcome:
+        """A first-message decision on Jev's choice; a situation-level question where Graf
+        stepped aside before (spec r2 GO-01)."""
+        if choice is None or not choice.pinned:
+            return self.ask("clarify", (), facts)
+        top = choice.situation
+        if choice.confidence < THRESHOLD or top == "unclear":
+            if top in COMPLAINTS:
+                return self.ask("confirm", (top,), facts)
+            return self.ask("clarify", (), facts)
+        if top == "other_unhandled":
+            return Outcome("uncovered", top, "no_product.general")
+        second = choice.second()
+        if top in COMPLAINTS and second and second[1] >= SECOND and second[0] in COMPLAINTS:
+            ours, theirs = GROUP.get(top), GROUP.get(second[0])
+            if ours and theirs and ours != theirs:
+                return self.ask("choose", (top, second[0]), facts)
+        return self.settle(decide(top, facts, top), facts)
+
+    def settle(self, outcome: Outcome, facts: Facts) -> Outcome:
+        return self.ask("clarify", (), facts) if outcome.kind == "step_aside" else outcome
+
+    @staticmethod
+    def ask(kind: str, options: tuple[str, ...], facts: Facts) -> Outcome:
+        """A situation-level question, unless a doctor word-list row hits the flow texts
+        first (spec r2 GO-02)."""
+        template = doctor(facts, None, words_only=True)
+        if template:
+            return Outcome("doctor", None, template)
+        return Outcome(kind, None, None, options=options)
+
+    def brief(self, request: Turn, outcome: Outcome, facts: Facts, origin: Origin) -> Brief:
+        received = [p.question for p in request.history] + [request.question]
+        counter = len(received) + origin.skipped - origin.start
+        state = self.state(
+            outcome, facts, origin.asked, received[origin.start], counter, origin.overruled
+        )
+        return Brief(outcome, facts, state)
+
+    @staticmethod
+    def state(
+        outcome: Outcome,
+        facts: Facts,
+        asked: tuple[str, ...],
+        first: str,
+        counter: int,
+        overruled: tuple[tuple[str, str], ...] = (),
+    ) -> FlowState | None:
+        """The flow state after a question; None after a final outcome (the flow ends)."""
+        if outcome.kind == "question":
+            assert outcome.template is not None
+            pending, item = "slot", outcome.template
+        elif outcome.kind in QUESTION_KINDS:
+            pending = item = outcome.kind
+        else:
+            return None
+        values = {
+            name: (value, facts.origin.get(name, "parser"))
+            for name in FACT_TYPES
+            if (value := getattr(facts, name)) is not None
+        }
+        return FlowState(
+            outcome.situation,
+            pending,
+            outcome.template,
+            (*asked, item),
+            outcome.options,
+            digest(first),
+            counter,
+            values,
+            frozenset(flag for flag in FLAGS if getattr(facts, flag)),
+            tuple(sorted(facts.topics)),
+            overruled,
+        )
+
+    def render(self, request: Turn, brief: Brief, evidence: Evidence) -> Reply | None:
+        """Graf's approved text for the brief's decision; None for a situation-level
+        question, which has no approved text."""
+        if brief.outcome.kind in QUESTION_KINDS:
+            self.log(None, brief.outcome.kind)
+            return None
+        return self.reply(Writer(request), brief.outcome, evidence, brief.facts)
 
     def reply(
         self,
@@ -1359,4 +1617,4 @@ class Graf:
         logger.info("graf turn situation=%s outcome=%s", situation or "-", outcome)
 
 
-__all__ = ["Choice", "Graf", "Jev", "Reply", "replace"]
+__all__ = ["Brief", "Choice", "Graf", "Jev", "Reply", "Safety", "replace"]

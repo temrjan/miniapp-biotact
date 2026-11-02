@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 from src.consultant import graf
+from src.consultant.context import Context
 from src.consultant.contracts import Pair, Turn
 from src.consultant.knowledge import Evidence
 
@@ -92,8 +93,10 @@ def make(router: OpenRouter) -> graf.Graf:
     return graf.Graf(graf.Jev(client, "fixture-key"))
 
 
-async def talk(router, messages, language="ru", stock=None, request_id=None):
-    """Run each message as one turn, as service.py does (step 4 is out of scope here)."""
+async def talk(router, messages, language="ru", stock=None, request_id=None, briefs=None):
+    """Run each message as one turn, as service.py does for a version 1 token: the flow is
+    rebuilt from the 4-pair history (step 4 is out of scope here). A None reply is a step
+    aside or a situation-level question; `briefs` collects Graf's brief of each turn."""
     bot, history, replies = make(router), [], []
     for message in messages:
         turn = Turn(
@@ -106,12 +109,20 @@ async def talk(router, messages, language="ru", stock=None, request_id=None):
             page_product_id=None,
             context_token="fixture" if history else None,
         )
-        early, turn = bot.safety(turn)
-        reply = early
-        if reply is None and bot.owns(turn):
-            reply = await bot.continuation(turn, stock or evidence(), direct)
-        elif reply is None:
-            reply = await bot.first(turn, stock or evidence(), direct)
+        context = Context([], "fixture", 1) if history else Context.fresh()
+        safety = bot.safety(turn, context)
+        reply, brief = safety.reply, None
+        if reply is None:
+            turn, skipped = safety.request, int(safety.request is not turn)
+            owned, flow = bot.adopt(turn)
+            if not owned:
+                brief = await bot.first(turn, direct, skipped)
+            elif flow is not None:
+                brief = await bot.continuation(turn, flow, direct, skipped)
+            if brief is not None:
+                reply = bot.render(turn, brief, stock or evidence())
+        if briefs is not None:
+            briefs.append(brief)
         replies.append(reply)
         if reply is None:
             break
@@ -648,31 +659,53 @@ async def test_treat_words_open_the_offer_with_not_treat():
     assert offered(replies[1]) == ["immunocomplex_kids"]
 
 
-async def test_second_complaint_steps_aside_with_measured_probabilities():
-    # Probabilities recorded by the two-complaint measurement run (PR description).
+async def test_second_complaint_is_a_choose_question_with_measured_probabilities():
+    # Probabilities recorded by the two-complaint measurement run (PR description). Graf no
+    # longer steps aside: two complaints of different groups give `choose` (spec r2 GO-01).
     message = "часто простываю и волосы выпадают"
     router = OpenRouter({message: ("immunity", 0.71, {"immunity": 0.71, "skin_hair": 0.27})})
-    assert await talk(router, [message]) == [None]
+    briefs = []
+    assert await talk(router, [message], briefs=briefs) == [None]
+    assert (briefs[0].outcome.kind, briefs[0].outcome.options) == (
+        "choose",
+        ("immunity", "skin_hair"),
+    )
     same_group = OpenRouter({message: ("immunity", 0.71, {"immunity": 0.71, "acute_cold": 0.27})})
     (reply,) = await talk(same_group, [message])
     assert reply is not None
 
 
 @pytest.mark.parametrize(
-    ("router", "logged"),
+    ("router", "logged", "kind", "options"),
     [
-        (OpenRouter({"часто болею": ("immunity", 0.69)}), None),
-        (OpenRouter({"часто болею": "unclear"}), None),
-        (OpenRouter(status=500), None),
-        (OpenRouter(fail=httpx.ReadTimeout("fixture")), None),
-        (OpenRouter(fail=httpx.ConnectError("fixture")), None),
-        (OpenRouter({"часто болею": "immunity"}, model="typesafe/jev-1.15-20261201"), "1.15"),
-        (OpenRouter({"часто болею": "immunity"}, model="typesafe/jev-1.140"), "1.140"),
+        (OpenRouter({"часто болею": ("immunity", 0.69)}), None, "confirm", ("immunity",)),
+        (OpenRouter({"часто болею": "unclear"}), None, "clarify", ()),
+        (OpenRouter(status=500), None, "clarify", ()),
+        (OpenRouter(fail=httpx.ReadTimeout("fixture")), None, "clarify", ()),
+        (OpenRouter(fail=httpx.ConnectError("fixture")), None, "clarify", ()),
+        (
+            OpenRouter({"часто болею": "immunity"}, model="typesafe/jev-1.15-20261201"),
+            "1.15",
+            "clarify",
+            (),
+        ),
+        (
+            OpenRouter({"часто болею": "immunity"}, model="typesafe/jev-1.140"),
+            "1.140",
+            "clarify",
+            (),
+        ),
     ],
 )
-async def test_jev_failures_step_aside(router, logged, caplog):
+async def test_jev_failures_give_a_situation_level_question(router, logged, kind, options, caplog):
+    # Where Graf stepped aside before, the brief decision is a situation-level question,
+    # which has no approved text (spec r2 GO-01).
     caplog.set_level(logging.INFO, logger="src.consultant.graf")
-    assert await talk(router, ["часто болею"]) == [None]
+    briefs = []
+    assert await talk(router, ["часто болею"], briefs=briefs) == [None]
+    assert (briefs[0].outcome.kind, briefs[0].outcome.options) == (kind, options)
+    assert briefs[0].flow is not None
+    assert briefs[0].flow.pending == kind
     mismatch = [r.getMessage() for r in caplog.records if "mismatch" in r.getMessage()]
     assert bool(mismatch) is bool(logged)
     if logged:
