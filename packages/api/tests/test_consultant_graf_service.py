@@ -158,7 +158,9 @@ async def runs(consultant):
 )
 async def test_danger_bypass_branches_reach_103_before_register(test_db, message):
     await seed(test_db)
-    router = OpenRouter()
+    # The control turn below needs a covered situation: an unclear complaint no longer
+    # steps aside to the product path (it is a situation-level question).
+    router = OpenRouter({"часто болею": "immunity"})
     consultant = bot(test_db, router)
     reply = await say(consultant, message)
     assert reply.answer in variants("emergency.general")

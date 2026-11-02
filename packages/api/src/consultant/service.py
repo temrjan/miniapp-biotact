@@ -5,16 +5,25 @@ import json
 import re
 from collections.abc import Coroutine
 from contextlib import suppress
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, TypeVar
-from uuid import uuid4
 
 from pydantic import ValidationError
 
-from src.consultant.context import SENSITIVE, Subject, Tokens, pure_open, resolve
+from src.consultant.context import (
+    SENSITIVE,
+    Check,
+    Context,
+    FlowState,
+    Subject,
+    Tokens,
+    pure_open,
+    resolve,
+)
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
-from src.consultant.graf import Graf, Reply
+from src.consultant.graf import Brief, Graf, Reply
 from src.consultant.knowledge import ADVICE, Evidence, Knowledge
 from src.consultant.provider import Provider
 
@@ -42,6 +51,18 @@ RUSSIAN_PROSE = re.compile(
     r"содержит|детей|взрослых|инструкци[яию]|индивидуальная|непереносимость)\b",
     re.I,
 )
+
+
+@dataclass(frozen=True)
+class Carry:
+    """What the response token carries besides the selection (spec r2 TK-10): the epoch, the
+    pregnancy flag, the cleared-message digests, the flow state and a pending check."""
+
+    epoch: str
+    pg: bool = False
+    cleared: tuple[str, ...] = ()
+    flow: FlowState | None = None
+    check: Check | None = None
 
 
 class Consultant:
@@ -87,15 +108,30 @@ class Consultant:
             SENSITIVE.search(p.question + " " + p.answer) for p in request.history
         ):
             raise Fault("sensitive_input", 422)
-        selection, epoch = (
-            self.tokens.read(request) if request.context_token else ([], str(uuid4()))
-        )
+        context = self.tokens.read(request) if request.context_token else Context.fresh()
+        selection = context.ids
+        # Every issued token carries the pregnancy flag and the cleared digests; only a Graf
+        # question or a safety response carries a flow state.
+        carry = Carry(context.epoch, context.pg, context.cleared)
+        owned, flow, skipped = context.flow is not None, context.flow, 0
         if self.graf is not None:
+            if context.version == 1:
+                owned, flow = self.graf.adopt(request)
             # Plan r4 step 2: the ambulance list runs before register and snapshot. A "no"
             # to the check question continues with the checked message instead.
-            early, request = self.graf.safety(request)
-            if early is not None:
-                return self.grafted(request, epoch, early)
+            safety = self.graf.safety(request, context)
+            carry = replace(carry, cleared=tuple(dict.fromkeys((*carry.cleared, *safety.cleared))))
+            if safety.reply is not None:
+                # A safety outcome keeps the incoming flow and selection (TK-10).
+                held = replace(carry, flow=flow, check=safety.check)
+                early = safety.reply
+                return self.envelope(
+                    request, held, selection, early.status, early.answer, [], [], None, []
+                )
+            if safety.request is not request:
+                request, skipped = safety.request, 1
+                if context.version == 1:
+                    owned, flow = self.graf.adopt(request)
         owner = await self.controls.register(request.request_id, request.tab_id)
         deadline = asyncio.get_running_loop().time() + 60
         try:
@@ -105,12 +141,13 @@ class Consultant:
                 def jev(work: Coroutine[Any, Any, T]) -> Coroutine[Any, Any, T]:
                     return self.waiting(owner, work)
 
-                owned = self.graf is not None and self.graf.owns(request)
-                reply = (
-                    await self.graf.continuation(request, evidence, jev)
-                    if self.graf is not None and owned
-                    else None
-                )
+                brief: Brief | None = None
+                if self.graf is not None and owned:
+                    if flow is None:
+                        # Version 1 only: the flow's start left the history (today's rule).
+                        self.graf.log(None, "step_aside")
+                    else:
+                        brief = await self.graf.continuation(request, flow, jev, skipped)
                 if any(i not in evidence.products for i in selection):
                     selection = []
                 subject = resolve(
@@ -123,13 +160,18 @@ class Consultant:
                     request.context_token is None,
                 )
                 if self.graf is not None and not owned and not subject.explicit and not selection:
-                    reply = await self.graf.first(request, evidence, jev)
-                if reply is not None:
-                    response = self.grafted(request, epoch, reply)
+                    brief = await self.graf.first(request, jev, skipped)
+                if self.graf is not None and brief is not None:
+                    reply = self.graf.render(request, brief, evidence)
+                    if reply is None:
+                        # A situation-level question has no approved text; until Luna writes
+                        # it, the turn ends with the error response instead of retrieval.
+                        raise Fault("answer_unavailable", 503)
+                    response = self.grafted(request, carry, reply, brief)
                 elif subject.clarify:
                     response = self.envelope(
                         request,
-                        epoch,
+                        carry,
                         [],
                         "clarification",
                         CLARIFY[request.language],
@@ -140,12 +182,12 @@ class Consultant:
                     )
                 elif any(i not in evidence.products for i in subject.ids):
                     response = self.envelope(
-                        request, epoch, [], "limited", LIMITED[request.language], [], [], None, []
+                        request, carry, [], "limited", LIMITED[request.language], [], [], None, []
                     )
                 elif PERSONAL.search(request.question):
                     response = self.envelope(
                         request,
-                        epoch,
+                        carry,
                         [],
                         "refused",
                         REFUSED[request.language],
@@ -165,7 +207,7 @@ class Consultant:
                     ):
                         response = self.envelope(
                             request,
-                            epoch,
+                            carry,
                             [],
                             "limited",
                             LIMITED[request.language],
@@ -180,7 +222,7 @@ class Consultant:
                         if labels is None:
                             response = self.envelope(
                                 request,
-                                epoch,
+                                carry,
                                 [],
                                 "clarification",
                                 CLARIFY[request.language],
@@ -190,10 +232,10 @@ class Consultant:
                                 [],
                             )
                         else:
-                            response = self.native(request, epoch, subject, products, labels)
+                            response = self.native(request, carry, subject, products, labels)
                 else:
                     response = await self.generate(
-                        request, owner, epoch, selection, subject, evidence
+                        request, owner, carry, selection, subject, evidence
                     )
                 await self.controls.alive(owner)
                 return response
@@ -204,10 +246,16 @@ class Consultant:
                 async with asyncio.timeout_at(deadline):
                     await self.controls.finish(owner)
 
-    def grafted(self, request: Turn, epoch: str, reply: Reply) -> dict[str, Any]:
+    def grafted(self, request: Turn, carry: Carry, reply: Reply, brief: Brief) -> dict[str, Any]:
+        facts = brief.facts
+        # The flag becomes true when a reply to the pregnancy question confirmed it (TK-05;
+        # "luna" is the origin of a reading by the model, PR-3b).
+        pg = carry.pg or (
+            facts.pregnant is True and facts.origin.get("pregnant") in {"confirmed", "luna"}
+        )
         return self.envelope(
             request,
-            epoch,
+            replace(carry, pg=pg, flow=brief.flow),
             reply.ids,
             reply.status,
             reply.answer,
@@ -220,7 +268,7 @@ class Consultant:
     def native(
         self,
         request: Turn,
-        epoch: str,
+        carry: Carry,
         subject: Subject,
         products: list[dict[str, Any]],
         labels: list[str],
@@ -228,7 +276,7 @@ class Consultant:
         answer = ("Открываю " if request.language == "ru" else "Ochilmoqda: ") + labels[0] + "."
         return self.envelope(
             request,
-            epoch,
+            carry,
             subject.ids,
             "answer",
             answer,
@@ -270,7 +318,7 @@ class Consultant:
     def envelope(
         self,
         request: Turn,
-        epoch: str,
+        carry: Carry,
         selection: list[int],
         status: str,
         answer: str,
@@ -279,7 +327,16 @@ class Consultant:
         opened: int | None,
         cautions: list[str],
     ) -> dict[str, Any]:
-        token, expires = self.tokens.issue(request.tab_id, request.language, selection, epoch)
+        token, expires = self.tokens.issue(
+            request.tab_id,
+            request.language,
+            selection,
+            carry.epoch,
+            pg=carry.pg,
+            check=carry.check,
+            cleared=carry.cleared,
+            flow=carry.flow,
+        )
         public = [
             {k: v for k, v in source.items() if k not in {"product_id", "caution", "ordinal"}}
             for source in sources
@@ -303,7 +360,7 @@ class Consultant:
         self,
         request: Turn,
         owner: str,
-        epoch: str,
+        carry: Carry,
         selection: list[int],
         subject: Subject,
         evidence: Evidence,
@@ -318,7 +375,7 @@ class Consultant:
             origin = "retrieval"
         if not candidates:
             return self.envelope(
-                request, epoch, [], "limited", LIMITED[request.language], [], [], None, []
+                request, carry, [], "limited", LIMITED[request.language], [], [], None, []
             )
         preliminary = evidence.context(candidates, request.question)
         inputs: list[dict[str, Any]] = [
@@ -387,7 +444,7 @@ class Consultant:
                     i not in current.products for i in ids
                 ):
                     return self.envelope(
-                        request, epoch, [], "limited", LIMITED[request.language], [], [], None, []
+                        request, carry, [], "limited", LIMITED[request.language], [], [], None, []
                     )
                 context = current.context(ids, request.question, list(args.sections))
                 if set(args.sections) & {"use", "effects"}:
@@ -437,7 +494,7 @@ class Consultant:
             )
         ):
             return self.envelope(
-                request, epoch, [], "limited", LIMITED[request.language], [], [], None, []
+                request, carry, [], "limited", LIMITED[request.language], [], [], None, []
             )
         relevant = [supplied[s] for s in proposal.source_ids]
         source_products = {s["product_id"] for s in relevant}
@@ -446,7 +503,7 @@ class Consultant:
             ids = [i for i in candidates if i in source_products]
         if source_products - set(ids) and proposal.status in {"answer", "limited"}:
             return self.envelope(
-                request, epoch, [], "clarification", LIMITED[request.language], [], [], None, []
+                request, carry, [], "clarification", LIMITED[request.language], [], [], None, []
             )
         opened = (
             proposal.open_product_id
@@ -461,11 +518,11 @@ class Consultant:
             # None of the discarded generated prose is delivered or admitted as evidence.
             # This includes spaced prices and injected medical/link text.
             if self.commercial_changed(evidence, fresh, hydrated):
-                return self.changed(request, epoch)
+                return self.changed(request, carry)
             labels = fresh.labels(ids, request.language)
             if labels is None:
                 return self.envelope(
-                    request, epoch, [], "clarification", CLARIFY[request.language], [], [], None, []
+                    request, carry, [], "clarification", CLARIFY[request.language], [], [], None, []
                 )
             answer = (
                 self.prices(request, [fresh.products[i] for i in ids], labels)
@@ -476,7 +533,7 @@ class Consultant:
             )
             return self.envelope(
                 request,
-                epoch,
+                carry,
                 ids,
                 "answer",
                 answer,
@@ -499,10 +556,10 @@ class Consultant:
                 answer = proposal.answer
             except Fault:
                 answer = fallback[request.language]
-            return self.envelope(request, epoch, [], proposal.status, answer, [], [], None, [])
+            return self.envelope(request, carry, [], proposal.status, answer, [], [], None, [])
         # The model may use any supplied Shop fact for its subset, regardless of wording.
         if self.commercial_changed(evidence, fresh, hydrated):
-            return self.changed(request, epoch)
+            return self.changed(request, carry)
         cautions: list[str] = []
         if ADVICE.search(proposal.answer):
             caution_products.update(source_products | set(ids))
@@ -523,7 +580,7 @@ class Consultant:
         answer = proposal.answer
         return self.envelope(
             request,
-            epoch,
+            carry,
             ids,
             proposal.status,
             answer,
@@ -573,10 +630,10 @@ class Consultant:
             )
         )
 
-    def changed(self, request: Turn, epoch: str) -> dict[str, Any]:
+    def changed(self, request: Turn, carry: Carry) -> dict[str, Any]:
         answer = (
             "Цены или наличие изменились. Уточните запрос."
             if request.language == "ru"
             else "Narx yoki mavjudlik oʻzgardi. Soʻrovni aniqlashtiring."
         )
-        return self.envelope(request, epoch, [], "clarification", answer, [], [], None, [])
+        return self.envelope(request, carry, [], "clarification", answer, [], [], None, [])
