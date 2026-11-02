@@ -29,6 +29,23 @@ FORMAT = {
     "strict": True,
     "schema": Proposal.model_json_schema(),
 }
+# Every module of this package except __init__.py (spec r2 OP-04).
+IMPLEMENTATION = (
+    "provider.py",
+    "context.py",
+    "contracts.py",
+    "service.py",
+    "knowledge.py",
+    "control.py",
+    "router.py",
+    "models.py",
+    "operator.py",
+    "graf.py",
+    "luna.py",
+    "checks.py",
+    "hybrid.py",
+    "record.py",
+)
 PROFILE = hashlib.sha256(
     json.dumps(
         {
@@ -41,18 +58,7 @@ PROFILE = hashlib.sha256(
             "guard": "s2-v1",
             "implementation": {
                 name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-                for name in (
-                    "provider.py",
-                    "context.py",
-                    "contracts.py",
-                    "service.py",
-                    "knowledge.py",
-                    "control.py",
-                    "router.py",
-                    "models.py",
-                    "operator.py",
-                    "graf.py",
-                )
+                for name in IMPLEMENTATION
             },
             # Graf data is part of the knowledge release (plan r4 section 2).
             "graf_data": {

@@ -19,9 +19,10 @@ import pytest
 
 from src.consultant import graf
 from src.consultant.context import Tokens
-from src.consultant.contracts import Fault, Pair, Turn
+from src.consultant.contracts import Pair, Turn
 from src.consultant.service import Consultant
-from tests.test_consultant import KEY, ProviderStub
+from tests.test_consultant import KEY
+from tests.test_consultant_graf_fakes import QUESTION, LunaStub, answer
 from tests.test_consultant_graf_flow import SHOP, WALKS, OpenRouter, evidence, talk, variants
 
 # An assistant answer written by someone other than Graf (a Luna text in PR-3b).
@@ -95,7 +96,7 @@ class Chat:
     def __init__(self, router, language="ru", window=None):
         client = httpx.AsyncClient(transport=httpx.MockTransport(router.handler))
         engine = graf.Graf(graf.Jev(client, "fixture-key"))
-        self.bot = Consultant(Controls(), Shelf(), ProviderStub(), Tokens(KEY), engine)
+        self.bot = Consultant(Controls(), Shelf(), LunaStub(), Tokens(KEY), engine)
         self.router, self.language, self.window = router, language, window
         self.tab, self.history, self.token = uuid4(), [], None
 
@@ -165,6 +166,8 @@ async def test_product_path_answer_after_a_pregnancy_reply_keeps_the_flag():
     for message in ("часто болею", "мне 30", "женщина", "да"):
         await chat.say(message)
         chat.rewrite()
+    # A post-offer follow-up that Luna reads as one goes to the product path (PO-03).
+    chat.bot.provider.script = [answer(intent=("follow_up", "high"))]
     follow = await chat.say("как принимать?")
     assert any(call[0] == "response" for call in chat.provider)  # the product path answered
     assert body(follow["context_token"])["g"] is True
@@ -186,13 +189,14 @@ async def test_reply_to_a_check_graf_did_not_write(answer, outcome):
     assert body(check["context_token"])["c"] == {"d": digest(message), "q": [digest(message)]}
     chat.rewrite()
     reply = await chat.say(answer)
+    # Every check-reply turn also prepares the normal brief of the checked message (SF-02),
+    # so Jev reads the checked message, never the reply.
+    assert router.states == [message, message]
     if outcome == "103":
         assert reply["answer"] in variants("emergency.general")
-        assert router.calls == []
         assert body(reply["context_token"])["c"] is None
     else:
         # The checked message continues; its digest is cleared for later turns (TK-07).
-        assert router.states == [message]
         assert any(v in reply["answer"] for v in variants("ack.muscle_cramps"))
         token = body(reply["context_token"])
         assert (token["c"], token["x"]) == (None, [digest(message)])
@@ -209,7 +213,7 @@ async def test_reply_to_a_check_after_a_forged_checked_message_is_103():
     chat.history[-1] = ("у дочки насморк", chat.history[-1][1])
     reply = await chat.say("нет")
     assert reply["answer"] in variants("emergency.general")
-    assert router.calls == []
+    assert router.states == [message]  # the first turn's normal brief only
 
 
 # --- TK-10: carry-over across a safety response -------------------------------------------
@@ -242,11 +246,13 @@ async def test_check_on_a_post_offer_turn_then_no_keeps_the_selection():
     check = await chat.say(checked)
     assert check["answer"] in variants("emergency.check")
     assert (check["products"], body(check["context_token"])["s"]) == ([], [kids])
+    # The checked message is again a post-offer turn; Luna reads it as a follow-up.
+    chat.bot.provider.script = [answer(intent=("follow_up", "high"))]
     await chat.say("нет")
     (call, *_) = [c for c in chat.provider if c[0] == "response"]
     sent = json.loads(call[1][0]["content"])
     assert (sent["question"], sent["displayed_selection"]) == (checked, [kids])
-    assert router.states == [message]
+    assert router.states == [message, checked, checked]  # the normal briefs (SF-02)
 
 
 # --- TK-09: version 1 tokens --------------------------------------------------------------
@@ -319,13 +325,14 @@ async def test_walks_give_the_same_answers_with_the_flow_in_the_token(
     ids=["below-0.7", "unclear", "jev-500", "jev-timeout", "jev-version", "second-complaint"],
 )
 async def test_complaint_turn_never_reaches_retrieval(router):
-    # A situation-level question has no approved text; until Luna writes it (PR-3b) the
-    # turn ends with the error response. Retrieval is never called.
+    # A situation-level question has no approved text; Luna writes it (spec r2 HR-07 (b)).
+    # Retrieval is never called.
     chat = Chat(router)
-    with pytest.raises(Fault) as fault:
-        await chat.say("часто болею")
-    assert (fault.value.code, fault.value.status) == ("answer_unavailable", 503)
+    reply = await chat.say("часто болею")
+    assert reply["status"] == "clarification"
+    assert reply["answer"] == QUESTION["ru"]
     assert chat.provider == []
+    assert len(chat.bot.provider.luna) == 1
     assert len(chat.bot.controls.registered) == 1
 
 
