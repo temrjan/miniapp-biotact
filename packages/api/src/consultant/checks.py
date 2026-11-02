@@ -332,6 +332,14 @@ ANNOTATIONS = (
     "shikoyat yo'q",
 )
 FORM = re.compile(r"https?://|<[^>]+>|\]\(|\*\*|__|^\s*[#\-*•]", re.M)
+# TC-06 web address without a scheme (spec r3 V-03, pattern ADDRESS): www. in any case; dotted
+# Latin/digit labels ending in a label of two or more Latin letters followed by '/', in any
+# case; the same without '/' when the last label is all lower or all upper case.
+ADDRESS = re.compile(
+    r"(?i:\bwww\.)"
+    r"|(?i:\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[a-z]{2,}/)"
+    r"|\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:[a-z]{2,}|[A-Z]{2,})\b"
+)
 # Cyrillic is also used for Uzbek. Clear Russian prose is rejected conservatively; shared
 # script, product names or a single borrowed or quoted word are insufficient.
 RUSSIAN_PROSE = re.compile(
@@ -339,6 +347,12 @@ RUSSIAN_PROSE = re.compile(
     r"содержит|детей|взрослых|инструкци[яию]|индивидуальная|непереносимость)\b",
     re.I,
 )
+
+
+def bad_form(text: str) -> bool:
+    """TC-06: a link, an address without a scheme, HTML, Markdown, a list or heading line,
+    or SENSITIVE."""
+    return bool(FORM.search(text) or ADDRESS.search(text) or SENSITIVE.search(text))
 
 
 def language_ok(language: str, text: str) -> bool:
@@ -546,7 +560,7 @@ def check(
                 return "TC-05"
     if claims(text) - reference.allowed_claims:
         return "TC-05"
-    if FORM.search(text) or SENSITIVE.search(text):
+    if bad_form(text):
         return "TC-06"
     if not language_ok(language, text):
         return "TC-07"

@@ -3,6 +3,7 @@ BO-02), the text checks (§9) and the PROFILE list (OP-04). Expected values come
 spec's acceptance column, products.json and templates.json, not from the checked code."""
 
 import json
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 from src.consultant import graf, luna
 from src.consultant.checks import (
     Catalogue,
+    bad_form,
     customer_numbers,
     extract,
     question_reference,
@@ -20,7 +22,7 @@ from src.consultant.checks import (
 from src.consultant.checks import check as check_text
 from src.consultant.contracts import Turn
 from src.consultant.graf import Part, Writer
-from src.consultant.hybrid import Validator
+from src.consultant.hybrid import Units, Validator, matches
 from src.consultant.provider import IMPLEMENTATION
 from tests.test_consultant_graf_fakes import echo, neutral
 from tests.test_consultant_graf_flow import evidence
@@ -177,6 +179,139 @@ def test_quote_apostrophes_are_normalised():
     customers = ["o‘g‘limga 5 yosh"]
     out = read(customers, facts=age(5, "o'g'limga 5 yosh"))
     assert out.sure["age"] == 5
+
+
+# spec r3 V-02: a quote matches on whole words and whole numbers (§2 Quote match, MR-01).
+@pytest.mark.parametrize(
+    ("quote", "message", "valid"),
+    [
+        ("д", "да", False),
+        ("4", "мне 47", False),
+        ("мне 4", "мне 47", False),
+        ("38", "температура 38,9", False),
+        ("9", "температура 38,9", False),
+        ("38", "температура 38.9", False),
+        ("38,9", "температура 38,9", True),
+        ("38", "38, 39", True),  # comma and space: two numbers
+        ("мне 47", "для себя, мне 47", True),
+        ("47", "мне47", True),  # a letter next to a digit is a boundary
+        ("мне", "мне47", True),
+        ("Мне 47", "мне 47", True),
+        ("O‘G‘IL", "o'g'il uchun", True),
+        ("у сына кашель", "У сына кашель, ему 5", True),
+        ("кашл", "кашель", False),
+        ("o", "o'g'il uchun", False),
+        ("g'il", "o'g'il uchun", False),
+        ("'g'il", "o'g'il uchun", False),
+        ("tog'", "tog' yaqinida", True),
+        ("tog", "tog' yaqinida", True),
+        (",", "да, болит", False),  # punctuation only
+        ("", "да", False),
+        ("не болит", "не, болит", False),  # characters between are compared exactly
+        ("болит", "болит болит", True),
+        ("пять лет", "ребёнку пять лет", True),
+        ("около пяти лет", "около пяти лет", True),
+        ("мне 48", "мне 47", False),
+    ],
+)
+def test_quote_match(quote, message, valid):
+    assert matches(quote, Units.of(graf.norm(message))) is valid
+
+
+def test_a_later_whole_occurrence_matches_after_a_cut_one():
+    assert matches("4", Units.of(graf.norm("мне 47, сыну 4")))
+
+
+def test_every_quoted_field_needs_whole_words_and_whole_numbers():
+    """MR-01 applies to every quote of the reading: facts (also not_stated), intolerance,
+    danger, topic_change, age_candidates and check_reply (objections: the next test)."""
+    customers = ["мне 47, температура 38,9", "да"]
+    out = read(
+        customers,
+        facts={
+            **age(4, "мне 4"),
+            "temperature": {
+                "state": "stated",
+                "number": 38,
+                "quote": "38",
+                "confidence": "high",
+            },
+            "whom": {"state": "stated", "value": "self", "quote": "м", "confidence": "high"},
+            "sex": {"state": "not_stated", "quote": "мн", "confidence": "high"},
+            "pregnant": {"state": "stated", "value": True, "quote": "д", "confidence": "low"},
+            "intolerance": {"present": True, "quote": "темп"},
+            "danger": {"present": True, "quote": "ратура 38"},
+            "topic_change": {"present": True, "quote": "9"},
+        },
+        age_candidates=[
+            {"number": 4, "unit": "years", "person": "self", "quote": "4"},
+            {"number": 9, "unit": "years", "person": "child", "quote": "9"},
+        ],
+        check_reply={"value": "no", "quote": "д", "confidence": "high"},
+    )
+    assert out.sure == {}
+    assert (out.pregnant, out.intolerance, out.topic_change) == (False, False, False)
+    assert out.danger == ()
+    assert out.candidates == frozenset()
+    assert out.check_reply is None
+    assert sorted(out.ignored) == sorted(
+        [
+            "age",
+            "temperature",
+            "whom",
+            "pregnant",
+            "intolerance",
+            "topic_change",
+            "danger",
+            "age_candidate",
+            "age_candidate",
+        ]
+    )
+    whole = read(
+        customers,
+        facts={
+            **age(47, "мне 47"),
+            "temperature": {
+                "state": "stated",
+                "number": 38.9,
+                "quote": "38,9",
+                "confidence": "high",
+            },
+            "danger": {"present": True, "quote": "температура 38,9"},
+        },
+        check_reply={"value": "no", "quote": "да", "confidence": "high"},
+    )
+    assert whole.sure == {"age": 47, "temperature": 38.9}
+    assert len(whole.danger) == 1
+    assert whole.check_reply == "no"
+
+
+@pytest.mark.parametrize(
+    ("message", "source", "cut", "word"),
+    [
+        ("после бега одышка", "doc.sob.ru", "одышк", "одышка"),
+        ("мама задыхается", "amb.breath.ru.1", "задыха", "задыхается"),
+    ],
+)
+def test_an_objection_quote_cut_mid_word_leaves_the_barrier(message, source, cut, word):
+    # BO-02 [r3 V-02]: the cut stem holds the hit words but does not match the message.
+    hits = graf.listing([(0, message)], graf.Facts(), graf.tier(message)[1], 0)
+    hit = next(h for h in hits if h.source == source)
+    assert graf.hit_words(source, cut)
+    validator = Validator([message], hits, None, False)
+
+    def accepted(quote):
+        base = neutral()
+        base["objections"] = [
+            {"hit_id": hit.id, "reason": "other_meaning", "quote": quote, "confidence": "high"}
+        ]
+        answer = luna.Answer.model_validate(
+            {"reading": base, "text": {"target": "check", "body": "x"}}
+        )
+        return hit in validator.read(answer).accepted
+
+    assert not accepted(cut)
+    assert accepted(word)
 
 
 def test_out_of_range_values_are_ignored_and_recorded():
@@ -449,10 +584,117 @@ def test_uzbek_treatment_claim_and_family_claims():
         "Строка\n- пункт",
         "Строка\n# заголовок",
         "Пишите на a@b.co",
+        "Подробнее на biotact.uz/promo",  # spec r3 V-03: addresses without a scheme
+        "Пишите в t.me/biotact",
+        "Смотрите www.example.com",
+        "Сайт BIOTACT.UZ",
     ],
 )
 def test_form(text):
     assert check_text(text + "?", question_reference("ru", frozenset()), NAMES, "ru") == "TC-06"
+
+
+@pytest.mark.parametrize(
+    ("text", "address"),
+    [
+        ("biotact.uz/promo", True),
+        ("t.me/biotact", True),
+        ("www.example.com", True),
+        ("biotact.uz", True),
+        ("BIOTACT.UZ", True),
+        ("Biotact.Uz/promo", True),
+        ("HTTPS://EXAMPLE.COM", True),
+        ("shop.biotact.uz.", True),
+        ("bit.ly/x1", True),
+        ("Принимайте 1 капсулу в день. Если не пройдёт, обратитесь к врачу.", False),
+        ("kuniga 1 marta.Ovqatdan keyin ichiladi.", False),
+        ("Температура 38.5 или 38,5", False),
+        ("т.е. по 1 капсуле в день и т.д.", False),
+        ("BIFOLAK® ZINCUM+C+D3 — 1 капсула в день.", False),
+        ("CALCIY TRIACTIVE® D3.", False),
+        ("1.5 мл, 2.5 мг, 0.5 kapsula", False),
+        ("va h.k.", False),
+        ("Наберите 103.", False),
+    ],
+)
+def test_tc06_rejects_a_web_address_without_a_scheme(text, address):
+    # spec r3 TC-06 acceptance (V-03).
+    assert bad_form(text) is address
+
+
+def test_every_template_variant_and_shop_name_passes_tc06():
+    """§9 self-check [r3 V-03]: every variant of every template, raw, filled with sample
+    values and filled with each product's name and dose strings, and every shop_name pass
+    TC-06."""
+    placeholder = re.compile(r"\{(\w+)\}")
+    products = graf.PRODUCTS["products"]
+    writer = Writer(
+        Turn(
+            request_id=uuid4(),
+            tab_id=uuid4(),
+            context_revision=1,
+            language="ru",
+            question="x",
+            history=[],
+            page_product_id=None,
+            context_token=None,
+        )
+    )
+    relations = [writer.relation(whom) for whom in graf.TEMPLATES["relation"]]
+    for product in products:
+        assert not bad_form(product["shop_name"]), product["shop_name"]
+    texts = 0
+    for key in graf.TEXT:
+        for language in ("ru", "uz"):
+            for variant in graf.TEXT[key][language]:
+                filled = [
+                    placeholder.sub("", variant),
+                    placeholder.sub(lambda m: SAMPLE.get(m[1], ""), variant),
+                ]
+                for product in products:
+                    for say in says(product, language):
+                        for relation in relations:
+                            values = {
+                                **relation,
+                                "product": product["shop_name"],
+                                "product1": product["shop_name"],
+                                "product2": product["shop_name"],
+                                "dose": say,
+                                "dose1": say,
+                                "dose2": say,
+                                "course": say,
+                                "age_min": str(product.get("age_min") or ""),
+                            }
+                            filled.append(
+                                placeholder.sub(
+                                    lambda m, v=values: v.get(m[1], SAMPLE.get(m[1], "")),
+                                    variant,
+                                )
+                            )
+                for text in filled:
+                    assert not bad_form(text), (key, language, text)
+                    texts += 1
+    assert texts > 20_000
+
+
+def says(product, language):
+    """Every customer-facing dose or course string of a product (say_ru / say_uz)."""
+    found = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            for k, v in value.items():
+                if k == "say_" + language and isinstance(v, str):
+                    found.append(v)
+                else:
+                    walk(v)
+        elif isinstance(value, list):
+            for v in value:
+                walk(v)
+
+    walk(product)
+    assert found, product["id"]
+    return sorted(set(found))
 
 
 def test_language_and_internal_names():
@@ -480,33 +722,36 @@ def test_naming_the_age_in_the_ambiguous_case():
     assert check_text("Для ребёнка подберём?", ref, NAMES, "ru", 5) == "TC-08"
 
 
+SAMPLE = {
+    "rel_for_ru": "для вас",
+    "rel_for_ru_cap": "Для вас",
+    "rel_dat_ru": "вам",
+    "rel_for_uz_cap": "Siz uchun",
+    "rel_nom_uz_cap": "Siz",
+    "product": "BIFOLAK® NEO",
+    "product1": "BIFOLAK® NEO",
+    "product2": "BIFOLAK® ZINCUM",
+    "reason1": "По инструкции.",
+    "reason2": "По инструкции.",
+    "dose": "1 капсула в день",
+    "dose1": "1 капсула в день",
+    "dose2": "1 стик в день",
+    "course": "курс 20–30 дней",
+    "age_min": "7",
+    "ack": "",
+    "question": "Сколько лет?",
+    "opening": "",
+    "offer": "",
+    "reason": "",
+    "notes": "",
+    "blocks": "",
+}
+
+
 def test_every_template_variant_passes_against_its_family():
     """§9 self-check: every variant of every template, filled with sample values, passes
     TC-03, TC-04 and TC-05 as T against every other variant of the same key as A."""
-    sample = {
-        "rel_for_ru": "для вас",
-        "rel_for_ru_cap": "Для вас",
-        "rel_dat_ru": "вам",
-        "rel_for_uz_cap": "Siz uchun",
-        "rel_nom_uz_cap": "Siz",
-        "product": "BIFOLAK® NEO",
-        "product1": "BIFOLAK® NEO",
-        "product2": "BIFOLAK® ZINCUM",
-        "reason1": "По инструкции.",
-        "reason2": "По инструкции.",
-        "dose": "1 капсула в день",
-        "dose1": "1 капсула в день",
-        "dose2": "1 стик в день",
-        "course": "курс 20–30 дней",
-        "age_min": "7",
-        "ack": "",
-        "question": "Сколько лет?",
-        "opening": "",
-        "offer": "",
-        "reason": "",
-        "notes": "",
-        "blocks": "",
-    }
+    sample = SAMPLE
     checked = 0
     for key in graf.TEXT:
         for language in ("ru", "uz"):

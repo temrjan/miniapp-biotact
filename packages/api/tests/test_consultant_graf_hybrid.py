@@ -308,7 +308,8 @@ async def test_a_sure_not_stated_removes_a_misread_duration(monkeypatch):
     assert record.template != "doctor.cough_long"
     assert record.graf_outcome != "doctor"
     assert "duration" not in record.facts
-    assert record.facts["age"] == [0.67, "luna"]
+    # spec r3 MR-03: the reply to the age question is the customer's own value (V-01).
+    assert record.facts["age"] == [0.67, "confirmed"]
     assert reply["status"] == "clarification"
 
 
@@ -387,6 +388,189 @@ async def test_an_objection_to_the_only_pregnancy_word_asks_the_pregnancy_questi
     reply = await chat.say(message)
     assert body(reply["context_token"])["f"]["t"] == "ask.pregnancy"
     assert reply["products"] == []
+
+
+# --- spec r3 V-01: a confirmed reply stands (MR-03 origin table, HR-05, MR-04, MR-05, MR-07) --
+#
+# Expected values come from spec r3 "Luna's effect by origin" and the acceptance column: a
+# value the customer gave in reply to Graf's question for that slot (origin "confirmed") is
+# never replaced or removed by Luna's reading; only her pregnant = true adds caution.
+
+OLD_NEW = {
+    "age": (47.0, 4.0),
+    "duration": (21.0, 2.0),
+    "temperature": (38.5, 39.5),
+    "sex": ("female", "male"),
+    "whom": ("self", "son"),
+}
+
+
+BY_ORIGIN = [
+    (None, "value", ("new", "luna")),
+    (None, "not_stated", (None, None)),
+    ("parser", "value", ("new", "luna")),
+    ("parser", "not_stated", (None, None)),
+    ("luna", "value", ("new", "luna")),
+    ("luna", "not_stated", ("old", "luna")),
+    ("confirmed", "value", ("old", "confirmed")),
+    ("confirmed", "equal", ("old", "confirmed")),
+    ("confirmed", "not_stated", ("old", "confirmed")),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "origin", "reading", "expected"),
+    [
+        (name, *row)
+        for name in OLD_NEW
+        for row in BY_ORIGIN
+        # No Graf question asks whom, so whom is never confirmed (spec r3 §2 Fact origin).
+        if not (name == "whom" and row[0] == "confirmed")
+    ],
+)
+def test_lunas_sure_reading_acts_by_the_origin_of_the_value(name, origin, reading, expected):
+    old, new = OLD_NEW[name]
+    facts = graf.Facts()
+    if origin is not None:
+        setattr(facts, name, old)
+        facts.origin[name] = origin
+    value = {"value": new, "equal": old, "not_stated": None}[reading]
+    graf.Lens(values={name: value}, read=True).apply(facts)
+    want_value = {"new": new, "old": old, None: None}[expected[0]]
+    assert (getattr(facts, name), facts.origin.get(name)) == (want_value, expected[1])
+
+
+@pytest.mark.parametrize(
+    ("before", "luna_true", "after"),
+    [
+        ((None, None), True, (True, "luna")),
+        ((True, "parser"), True, (True, "parser")),
+        ((True, "luna"), True, (True, "luna")),
+        ((True, "confirmed"), True, (True, "confirmed")),
+        ((False, "confirmed"), True, (True, "luna")),  # the caution direction (MR-07)
+        ((False, "confirmed"), False, (False, "confirmed")),
+        ((True, "confirmed"), False, (True, "confirmed")),
+    ],
+)
+def test_lunas_pregnancy_reading_by_origin(before, luna_true, after):
+    facts = graf.Facts()
+    if before[0] is not None:
+        facts.pregnant, facts.origin["pregnant"] = before
+    graf.Lens(pregnant=luna_true, read=True).apply(facts)
+    assert (facts.pregnant, facts.origin.get("pregnant")) == after
+
+
+async def test_a_sure_luna_age_does_not_replace_a_confirmed_reply():
+    """Review F-01 proof test (review.dev.pr3b.r1.md, artifacts/review-pr3b-r1/
+    test_proof_f01.py), adapted: fails on C1 e06405f. On r3 it passes by the quote match
+    alone ("4" does not match "47", MR-01); the next test isolates the origin rule."""
+    chat = Recorded(OpenRouter({"часто болею": "immunity"}))
+    first = await chat.say("часто болею")
+    assert body(first["context_token"])["f"]["t"] == "ask.whom_age"
+    chat.script(answer(facts={**age(4, "4"), **fact("whom", "self", "для себя")}))
+    reply = await chat.say("для себя, 47")
+    record = chat.records[-1]
+    assert record.facts["age"][0] == 47.0, record.facts
+    assert record.facts["age"][1] != "luna"
+    assert offered(reply) != ["immunocomplex_kids"]
+
+
+FOUR_TIMES = "часто болею, 4 раза за зиму"
+
+
+async def test_a_confirmed_age_stays_against_a_sure_luna_age_with_a_valid_quote():
+    # HR-05 / MR-03 acceptance: "4" is a whole number of the first message, so the quote is
+    # valid (MR-01); the reply to the age question is confirmed and stays.
+    chat = Recorded(OpenRouter({FOUR_TIMES: "immunity"}))
+    first = await chat.say(FOUR_TIMES)
+    assert body(first["context_token"])["f"]["t"] == "ask.whom_age"
+    assert "age" not in chat.records[-1].facts
+    chat.script(answer(facts={**age(4, "4"), **fact("whom", "self", "для себя")}))
+    reply = await chat.say("для себя, 47")
+    assert chat.records[-1].facts["age"] == [47.0, "confirmed"]
+    assert body(reply["context_token"])["f"]["v"]["age"] == [47.0, "confirmed"]
+    assert offered(reply) == []
+    final = await chat.say("мужчина")
+    assert offered(final) == ["immunocomplex"]  # the adult product, not KIDS
+
+
+async def test_a_low_luna_age_against_a_confirmed_age_asks_nothing():
+    # MR-04 [r3 V-01]: a low value against a confirmed value is recorded only.
+    chat = Recorded(OpenRouter({FOUR_TIMES: "immunity"}))
+    await chat.say(FOUR_TIMES)
+    chat.script(answer(facts={**age(4, "4", confidence="low"), **fact("whom", "self", "для себя")}))
+    reply = await chat.say("для себя, 47")
+    flow = body(reply["context_token"])["f"]
+    assert flow["t"] not in graf.AGE_SLOT_TEMPLATES
+    assert flow["v"]["age"] == [47.0, "confirmed"]
+    final = await chat.say("мужчина")
+    assert offered(final) == ["immunocomplex"]
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        {
+            "state": "stated",
+            "number": 3,
+            "unit": "days",
+            "quote": "может 3 дня",
+            "confidence": "high",
+        },
+        {"state": "not_stated", "quote": "40 дней", "confidence": "high"},
+    ],
+)
+async def test_a_confirmed_duration_keeps_the_doctor_decision_it_rests_on(duration):
+    # MR-03 / §7.2 K1 [r3 V-01]: a K1 doctor outcome on a confirmed value stays.
+    chat = Recorded(OpenRouter({"кашель у ребенка": "acute_cold"}))
+    await chat.say("кашель у ребенка")
+    asked = await chat.say("5 лет")
+    assert body(asked["context_token"])["f"]["t"] == "ask.duration"
+    chat.script(answer(facts={"duration": duration}))
+    reply = await chat.say("40 дней, а может 3 дня")  # the parser reads the longer one
+    record = chat.records[-1]
+    assert record.facts["duration"] == [40.0, "confirmed"]
+    assert record.template == "doctor.cough_long"
+    assert reply["products"] == []
+
+
+@pytest.mark.parametrize("luna_age", [(35, "мне 35"), (5, "ребёнку 5")])
+async def test_a_confirmed_age_in_the_ambiguous_case_stands_and_needs_no_naming(luna_age):
+    # MR-05 / TC-08 [r3 V-01]: the reply "5" to the age question is confirmed; Luna's age
+    # (another one, or the same one) does not stand over it, so the text needs no age name.
+    chat = Recorded(OpenRouter({AMBIGUOUS: "immunity"}))
+    first = await chat.say(AMBIGUOUS)
+    assert body(first["context_token"])["f"]["t"] == "ask.age"
+    candidates = [
+        {"number": 5, "unit": "years", "person": "child", "quote": "ребёнку 5"},
+        {"number": 35, "unit": "years", "person": "self", "quote": "мне 35"},
+    ]
+    chat.script(answer(facts=age(*luna_age), candidates=candidates))
+    reply = await chat.say("5")
+    assert chat.records[-1].facts["age"] == [5.0, "confirmed"]
+    assert offered(reply) == ["immunocomplex_kids"]
+    assert "5 лет" not in reply["answer"]
+    assert [c["check_id"] for c in chat.records[-1].luna["calls"]] == [None]
+
+
+async def test_lunas_pregnancy_overrides_a_confirmed_no_and_never_a_confirmed_yes():
+    # MR-07 [r3 V-01]: Luna's pregnant = true sets true over a confirmed false (caution, pg);
+    # her pregnant = false leaves a confirmed true unchanged. The flow ends at the reply, so
+    # the quote comes from an earlier customer message of the same flow.
+    chat = Recorded(OpenRouter({"часто болею": "immunity"}))
+    for message in ("часто болею", "мне 30", "женщина"):
+        asked = await chat.say(message)
+    assert body(asked["context_token"])["f"]["t"] == "ask.pregnancy"
+    chat.script(answer(facts=fact("pregnant", True, "женщина", confidence="low")))
+    reply = await chat.say("нет")
+    assert chat.records[-1].facts["pregnant"] == [True, "luna"]
+    assert body(reply["context_token"])["g"] is True  # pg (TK-05)
+    yes = Recorded(OpenRouter({"часто болею": "immunity"}))
+    for message in ("часто болею", "мне 30", "женщина"):
+        await yes.say(message)
+    yes.script(answer(facts=fact("pregnant", False, "женщина")))
+    await yes.say("да")
+    assert yes.records[-1].facts["pregnant"] == [True, "confirmed"]
 
 
 # --- MR-08 and TR-02 ------------------------------------------------------------------------
@@ -951,6 +1135,27 @@ async def test_parser_yes_luna_no_with_a_failing_text_keeps_the_check_pending():
         )
     )
     assert retry["answer"] in variants("emergency.general")
+
+
+async def test_a_cut_check_reply_quote_never_dismisses_the_check():
+    # spec r3 MR-01 / §7.2 K3 reply (V-02), review probe A2e: "д" does not match "да".
+    chat = Recorded(OpenRouter({WEAK: "muscle_cramps"}))
+    await chat.say(WEAK)
+    chat.script(answer(target="emergency", check_reply=("no", "д", "high")))
+    reply = await chat.say("да")
+    assert reply["answer"] in variants("emergency.general")
+    assert reply["status"] == "limited"
+
+
+async def test_a_cut_number_age_quote_is_ignored():
+    # spec r3 §12 item 3 (V-02): "мне 4" does not match "мне 47"; the parser's 47 stays.
+    message = "часто болею, мне 47"
+    chat = Recorded(OpenRouter({message: "immunity"}))
+    chat.script(answer(facts=age(4, "мне 4")))
+    await chat.say(message)
+    record = chat.records[-1]
+    assert record.facts["age"] == [47.0, "parser"]
+    assert "age" in record.luna["reading"]["ignored"]
 
 
 async def test_a_danger_flag_raises_a_check_and_no_clears_it_for_later_turns():

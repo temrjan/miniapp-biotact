@@ -143,6 +143,50 @@ class Reading:
     ignored: list[str] = field(default_factory=list)
 
 
+# Quote match (spec r3 §2, V-02): the units of a normalized message are its words (runs of
+# letters and ASCII apostrophes without edge apostrophes, as Graf tokens() reads them) and its
+# numbers (as the TC-02 extractor reads them); a letter next to a digit is a unit boundary.
+WORD = re.compile(r"[a-zа-яёўқғҳ']+")
+NUMBER = re.compile(r"[0-9]+(?:[.,][0-9]+)?")
+ALNUM = re.compile(r"[0-9a-zа-яёўқғҳ]")
+
+
+@dataclass(frozen=True)
+class Units:
+    """A normalized customer message with the start and end offsets of its units."""
+
+    text: str
+    starts: frozenset[int]
+    ends: frozenset[int]
+
+    @staticmethod
+    def of(text: str) -> "Units":
+        spans = [(m.start(), m.end()) for m in NUMBER.finditer(text)]
+        for m in WORD.finditer(text):
+            word = m[0].strip("'")
+            if word:
+                start = m.start() + m[0].index(word)
+                spans.append((start, start + len(word)))
+        return Units(text, frozenset(s for s, _ in spans), frozenset(e for _, e in spans))
+
+
+def matches(quote: str, message: Units) -> bool:
+    """MR-01: the normalized quote holds a letter or digit and occurs in the message where
+    its first letter or digit starts a unit and its last letter or digit ends one; the
+    characters between are compared exactly."""
+    q = norm(quote).strip()
+    edges = [i for i, c in enumerate(q) if ALNUM.match(c)]
+    if not edges:
+        return False
+    first, last = edges[0], edges[-1] + 1
+    at = message.text.find(q)
+    while at != -1:
+        if at + first in message.starts and at + last in message.ends:
+            return True
+        at = message.text.find(q, at + 1)
+    return False
+
+
 def years(number: float, unit: str) -> float:
     """MR-02 age conversion, as parse_age converts."""
     if unit == "months":
@@ -154,9 +198,10 @@ def years(number: float, unit: str) -> float:
 
 class Validator:
     """Validates one Luna answer against the conversation and the brief's hits. A quote
-    counts only when it is copied from a customer message of the conversation (MR-01); an
-    objection only when its quote comes from its hit's message and holds the hit's words
-    (BO-02)."""
+    counts only when it matches a customer message of the conversation on whole words and
+    whole numbers (MR-01, spec r3 V-02); an objection only when its quote matches its hit's
+    message and holds the hit's words (BO-02); a check reply only when its quote matches the
+    current message."""
 
     def __init__(
         self, customers: list[str], hits: list[Hit], whom: str | None, child_word: bool
@@ -164,11 +209,15 @@ class Validator:
         self.customers = customers
         self.hits = {h.id: h for h in hits}
         self.whom, self.child_word = whom, child_word
-        self.normed = [norm(m) for m in customers]
+        self.units = [Units.of(norm(m)) for m in customers]
 
-    def quoted(self, quote: str, messages: list[str] | None = None) -> bool:
-        q = norm(quote).strip()
-        return bool(q) and any(q in m for m in (self.normed if messages is None else messages))
+    def holders(self, quote: str) -> list[int]:
+        """Indexes of the customer messages the quote matches."""
+        return [i for i, m in enumerate(self.units) if matches(quote, m)]
+
+    def quoted(self, quote: str, indexes: list[int] | None = None) -> bool:
+        units = self.units if indexes is None else [self.units[i] for i in indexes]
+        return any(matches(quote, m) for m in units)
 
     def read(self, answer: luna.Answer) -> Reading:
         r = answer.reading
@@ -210,10 +259,7 @@ class Validator:
                 else:
                     out.ignored.append(name)
         if f.danger.present:
-            q = norm(f.danger.quote).strip()
-            holders = [
-                digest(m) for m, n in zip(self.customers, self.normed, strict=True) if q and q in n
-            ]
+            holders = [digest(self.customers[i]) for i in self.holders(f.danger.quote)]
             out.danger = tuple(dict.fromkeys(holders))
             if not holders:
                 out.ignored.append("danger")
@@ -237,7 +283,7 @@ class Validator:
                 out.ignored.append("objection")
                 out.objections.append({"hit_id": None, "accepted": False})
                 continue
-            message = [self.normed[hit.index]] if hit.index < len(self.normed) else []
+            message = [hit.index] if hit.index < len(self.units) else []
             valid = (
                 objection.confidence == "high"
                 and bool(message)
@@ -252,7 +298,7 @@ class Validator:
         reply = r.check_reply
         if (
             reply.value in {"yes", "no"}
-            and self.quoted(reply.quote, [self.normed[-1]])
+            and self.quoted(reply.quote, [len(self.units) - 1])
             and (reply.value == "yes" or reply.confidence == "high")
         ):
             out.check_reply = reply.value

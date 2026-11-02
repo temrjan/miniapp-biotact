@@ -1400,8 +1400,12 @@ class Lens:
     repeat: bool = False
 
     def apply(self, facts: Facts) -> None:
-        """Merge Luna's values into the facts (MR-03, MR-07)."""
+        """Merge Luna's values into the facts (MR-03, MR-07). A value the customer gave in
+        reply to Graf's question for that slot (origin 'confirmed') stays; only
+        `pregnant = true` may change a confirmed false (spec r3 V-01)."""
         for name, value in self.values.items():
+            if facts.origin.get(name) == "confirmed":
+                continue
             if value is None:
                 if facts.origin.get(name) == "parser":
                     setattr(facts, name, None)
