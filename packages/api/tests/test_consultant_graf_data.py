@@ -17,7 +17,8 @@ SELF_TEST = graf.SAFETY["self_test"]
 R4 = {
     "products.json": "a9449a5ec94f9973c14130e62a53362648ccf1480491f21d26dceddf53995a04",
     "situations.json": "441374406edc32fcc9a72621456544f24570148da160bc06f596565b4a3623f2",
-    "templates.json": "1659997907b9e98db9103b9b6d06a6ea7de94ee53f97ecf543f4ed07d64858ae",
+    # spec r6 S4: r4 plus the template info.how_to_buy.
+    "templates.json": "c1a2043d53c0e25e35e4dd089f504a42e46276875c3b89e2afe7bbd52924fa8e",
     "safety.json": "635519f2899e3c8cfd7098337c40a20b8c56e9fa78266a88fe7a765a766d942a",
     "phrases-r3.json": "6f90ae092de34b568a4a47b584684e22fd420920a19e3639ec79209fa0803cca",
     "phrases-two-complaints.json": (

@@ -26,7 +26,7 @@ from src.consultant.context import (
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
 from src.consultant.graf import Graf, Stage
-from src.consultant.hybrid import Failure, HybridTurn, route
+from src.consultant.hybrid import Failure, HybridTurn, buying, route
 from src.consultant.knowledge import ADVICE, Evidence, Knowledge
 from src.consultant.provider import PROFILE, Provider
 from src.consultant.record import GRAF_DATA, Counters, Recorder, TurnRecord, noop
@@ -258,7 +258,10 @@ class Consultant:
                 target = route(normal, work.selection, work.evidence, owned, flow)
             return await work.safety(stage, normal, target)
         target = route(request, work.selection, work.evidence, owned, flow)
-        if not target.hybrid:
+        # Step 5a (spec r6 BUY-01, BUY-02): after the product path, before steps 6 to 8, and
+        # never on a safety turn.
+        buy = target.kind != "product" and buying(request.question)
+        if not target.hybrid and not buy:
             # Step 5 (and a version 1 flow whose start left the window): the product path.
             record.path, work.hybrid = "product", False
             if target.kind == "aside":
@@ -272,6 +275,8 @@ class Consultant:
             record.path = "page_product" if target.page is not None else "hybrid"
         if not self.hybrid:
             raise Failure("switch_off")
+        if buy:
+            return await work.how_to_buy(target)
         return await work.normal(target)
 
     async def product(

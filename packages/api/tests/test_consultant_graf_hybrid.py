@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.consultant import graf, luna, service
+from src.consultant import graf, hybrid, luna, service
 from src.consultant import record as recording
 from src.consultant.contracts import Fault, Pair, Turn
 from tests.test_consultant_graf_fakes import QUESTION, answer, echo, objection
@@ -107,9 +107,11 @@ async def test_first_as_a_reply_to_a_choose_question_continues_the_flow():
     assert reply["status"] == "clarification"
 
 
-async def test_named_product_goes_to_the_product_path_without_luna():
+# spec r6 §12 item 13 (f): a how-to-buy message that names a product keeps the product path.
+@pytest.mark.parametrize("question", ["Как принимать IMMUNOCOMPLEX®?", "Как купить IMMUNOCOMPLEX?"])
+async def test_named_product_goes_to_the_product_path_without_luna(question):
     chat = Recorded(OpenRouter())
-    await chat.say("Как принимать IMMUNOCOMPLEX®?")
+    await chat.say(question)
     assert [c[0] for c in chat.provider][:1] == ["response"]
     assert chat.luna.luna == []
     assert chat.records[-1].path == "product"
@@ -571,6 +573,171 @@ async def test_lunas_pregnancy_overrides_a_confirmed_no_and_never_a_confirmed_ye
     yes.script(answer(facts=fact("pregnant", False, "женщина")))
     await yes.say("да")
     assert yes.records[-1].facts["pregnant"] == [True, "confirmed"]
+
+
+# --- spec r5 S3: age naming in the ambiguous case (MR-05, AN-01 to AN-04, TC-08; §12 item 12)
+
+
+THROAT = "болит горло"
+TWO_AGES = "ребёнку 5, мне 35"
+AGES = [
+    {"number": 5, "unit": "years", "person": "child", "quote": "ребёнку 5"},
+    {"number": 35, "unit": "years", "person": "self", "quote": "мне 35"},
+]
+SURE_FIVE = {"facts": age(5, "ребёнку 5"), "candidates": AGES}
+
+
+def names(words, **change):
+    """A Luna step whose text is `words` followed by the approved text of its target (or
+    the neutral question): the same text with the age named or not."""
+
+    def step(brief):
+        out = answer(**change)(brief)
+        out["text"]["body"] = f"{words} {out['text']['body']}".strip()
+        return out
+
+    return step
+
+
+def checks_of(chat):
+    return [c["check_id"] for c in chat.records[-1].luna["calls"]]
+
+
+async def throat_chat():
+    """'болит горло' asks for whom and the age (ask.whom_age)."""
+    chat = Recorded(OpenRouter({THROAT: "acute_cold"}))
+    asked = await chat.say(THROAT)
+    assert body(asked["context_token"])["f"]["t"] == "ask.whom_age"
+    return chat
+
+
+async def age_stands(chat):
+    """Turn 2: Luna is sure of 5 for the child; the next decision is the duration question,
+    written by the second call with the age named."""
+    chat.script(answer(**SURE_FIVE), names("Для ребёнка 5 лет:"))
+    reply = await chat.say(TWO_AGES)
+    assert chat.records[-1].template == "ask.duration"
+    return reply
+
+
+async def test_the_first_question_after_the_age_stands_must_name_it():
+    # (a) and (f): without "5 лет" the second-call text fails TC-08 and the turn ends with the
+    # failure response; the retry with the same token still requires the naming.
+    chat = await throat_chat()
+    for _ in range(2):
+        chat.script(answer(**SURE_FIVE), echo)
+        await chat.fails(TWO_AGES)
+        assert chat.records[-1].template == "ask.duration"
+        assert checks_of(chat) == [None, "TC-08"]  # first text was for D0 (HR-07 (d))
+    reply = await age_stands(chat)
+    assert "5 лет" in reply["answer"]
+    assert checks_of(chat) == [None, None]
+    assert body(reply["context_token"])["f"]["v"]["age"] == [5.0, "luna"]
+
+
+async def test_a_later_question_need_not_name_the_age_and_an_offer_must():
+    # (b) AN-03: the incoming flow holds (5.0, luna) and the turn continues it, so a question
+    # text without the age passes; AN-01: the offer text must name it, also when Luna does
+    # not read the age again on that turn (the merged age keeps origin luna).
+    chat = await throat_chat()
+    await age_stands(chat)
+    asked = await chat.say("не помню")  # the duration parser misses: the re-ask
+    assert chat.records[-1].template == "reask.duration"
+    assert "5 лет" not in asked["answer"]
+    assert checks_of(chat) == [None]
+    assert chat.records[-1].facts["age"] == [5.0, "luna"]
+    chat.script(echo, echo)
+    await chat.fails("3 дня")
+    assert chat.records[-1].graf_outcome == "offer"
+    assert checks_of(chat) == ["TC-08", "TC-08"]
+    chat.script(names("Для ребёнка 5 лет:"))
+    offer = await chat.say("3 дня")
+    assert offered(offer) == ["immunocomplex_kids"]
+    assert "5 лет" in offer["answer"]
+    assert checks_of(chat) == [None]
+
+
+async def test_a_first_message_with_two_ages_and_a_sure_age_names_it_in_a_question():
+    # (c): on a first-message turn the question is always the first text after the age.
+    message = "ребёнку 5, мне 35, болит горло"
+    chat = Recorded(OpenRouter({message: "acute_cold"}))
+    chat.script(answer(**SURE_FIVE), echo)
+    await chat.fails(message)
+    assert chat.records[-1].graf_outcome == "question"
+    assert checks_of(chat)[-1] == "TC-08"
+    chat.script(answer(**SURE_FIVE), names("Для ребёнка 5 лет:"))
+    reply = await chat.say(message)
+    assert chat.records[-1].graf_outcome == "question"
+    assert "5 лет" in reply["answer"]
+
+
+async def test_a_changed_luna_age_must_be_named_again():
+    # (d) AN-03: the incoming flow holds (5.0, luna); Luna is now sure of 6, so the question
+    # is the first text after the new age.
+    chat = await throat_chat()
+    await age_stands(chat)
+    six = {"facts": age(6, "ребёнку 6")}
+    chat.script(answer(**six), names("Для ребёнка 5 лет:", **six))
+    await chat.fails("ребёнку 6, не помню")
+    assert chat.records[-1].facts["age"] == [6.0, "luna"]
+    assert chat.records[-1].template == "reask.duration"
+    assert "TC-08" in checks_of(chat)
+    chat.script(names("Для ребёнка 6 лет:", **six))
+    reply = await chat.say("ребёнку 6, не помню")
+    assert "6 лет" in reply["answer"]
+    assert body(reply["context_token"])["f"]["v"]["age"] == [6.0, "luna"]
+
+
+async def test_a_danger_check_on_the_naming_turn_moves_the_naming_to_the_next_turn():
+    # (e) AN-04: the SF-05 check text is not checked for naming and its token keeps the
+    # incoming flow (TK-10), which holds no age; after "нет" the checked message continues
+    # and its question is again the first text after the age (failure, then the retry).
+    message = TWO_AGES + ", он очень вялый"
+    chat = await throat_chat()
+    incoming = body(chat.token)["f"]
+    chat.script(answer(**SURE_FIVE, danger="очень вялый", target="check"))
+    check = await chat.say(message)
+    assert chat.records[-1].graf_outcome == "check"
+    assert "5 лет" not in check["answer"]
+    held = body(check["context_token"])
+    assert held["f"] == incoming
+    assert "age" not in held["f"]["v"]
+    reply_no = answer(**SURE_FIVE, check_reply=("no", "нет", "high"))
+    chat.script(reply_no, echo)
+    await chat.fails("нет")
+    assert chat.records[-1].template == "ask.duration"
+    assert checks_of(chat)[-1] == "TC-08"
+    chat.script(reply_no, names("Для ребёнка 5 лет:"))
+    reply = await chat.say("нет")
+    assert "5 лет" in reply["answer"]
+    assert body(reply["context_token"])["f"]["v"]["age"] == [5.0, "luna"]
+
+
+async def test_a_carried_months_age_is_named_only_when_luna_reads_it_again():
+    # The flow state keeps the age in years (0.67 for 8 months): when Luna does not read the
+    # age on the offer turn, no customer text could show that number, so it is not checked;
+    # when she reads it again, the offer must name "8 месяцев".
+    message = "ребёнку 8 месяцев, мне 30"
+    months = {
+        "facts": {
+            **age(8, "ребёнку 8 месяцев", unit="months"),
+            "duration": {"state": "not_stated", "quote": "8 месяцев", "confidence": "high"},
+        }
+    }
+    for reread in (False, True):
+        chat = await throat_chat()
+        chat.script(answer(**months), names("Для ребёнка 8 месяцев:"))
+        asked = await chat.say(message)
+        assert body(asked["context_token"])["f"]["v"]["age"] == [0.67, "luna"]
+        again = {"facts": age(8, "ребёнку 8 месяцев", unit="months")} if reread else {}
+        chat.script(answer(**again), echo)
+        if reread:
+            await chat.fails("3 дня")
+            assert checks_of(chat) == ["TC-08", "TC-08"]
+        else:
+            await chat.say("3 дня")
+            assert checks_of(chat) == [None]
+        assert chat.records[-1].graf_outcome not in {"question", *graf.SITUATION_LEVEL}
 
 
 # --- MR-08 and TR-02 ------------------------------------------------------------------------
@@ -1281,6 +1448,139 @@ async def test_page_product_low_intent_asks_and_doctor_words_win():
     assert doctor.provider == []
 
 
+# --- spec r6 S4 how-to-buy turn (§5.5, BUY-01 to BUY-06; §12 item 13) and S5 (item 14) -----
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        *[
+            (m, True)
+            for m in (
+                "как заказать?",
+                "Как оформить заказ на сайте?",
+                "как купить",
+                "Как купить?",
+                "Как сделать заказ?",
+                "Хочу заказать",
+                "Подскажите, пожалуйста, как у вас купить?",
+                "qanday buyurtma beraman?",
+                "qanday sotib olsam bo'ladi?",
+                "Qanday qilib buyurtma bersa bo'ladi?",
+            )
+        ],
+        *[
+            (m, False)
+            for m in (
+                "как купить что-нибудь от кашля для ребёнка?",
+                "как заказать доставку в Самарканд?",
+                "как оплатить?",
+                "Где можно купить?",
+                "как принимать?",
+                "мне 47",
+                "qanday ichish kerak?",
+                "Как купить IMMUNOCOMPLEX?",
+            )
+        ],
+    ],
+)
+def test_a_how_to_buy_message_is_recognised_by_its_words_only(message, expected):
+    # (a) the BUY-01 table.
+    assert hybrid.buying(message) is expected
+
+
+async def test_a_how_to_buy_first_message_is_written_from_its_template_without_jev():
+    # (b) and (c): no Jev request; Luna's text equal to A is delivered; a text without
+    # «В корзину» fails TC-04, then the second call; both failing → the failure response.
+    router = OpenRouter()
+    chat = Recorded(router)
+    reply = await chat.say("как заказать?")
+    assert router.calls == []
+    (brief,) = chat.luna.briefs
+    assert (brief["turn"], brief["decision"], brief["hits"]) == (
+        "how_to_buy",
+        {"kind": "how_to_buy"},
+        [],
+    )
+    assert brief["jev"]["status"] == "not_run"
+    assert brief["texts"]["decision"] in variants("info.how_to_buy")
+    assert (reply["status"], reply["answer"]) == ("answer", brief["texts"]["decision"])
+    assert (reply["products"], body(reply["context_token"])["f"]) == ([], None)
+    record = chat.records[-1]
+    assert (record.path, record.graf_outcome, record.template) == (
+        "hybrid",
+        "how_to_buy",
+        "info.how_to_buy",
+    )
+    assert (record.facts, record.offered_product_ids) == (None, None)
+    plain = answer(body="Выберите товар на сайте и оформите покупку.")
+    chat.script(plain)
+    await chat.say("как купить?")
+    assert checks_of(chat) == ["TC-04", None]
+    chat.script(plain, plain)
+    await chat.fails("как купить?")
+    assert checks_of(chat) == ["TC-04", "TC-04"]
+
+
+async def test_a_how_to_buy_message_inside_a_flow_keeps_the_flow():
+    # (d): the token carries the incoming flow unchanged; the next reply continues it.
+    router = OpenRouter({THROAT: "acute_cold"})
+    chat = Recorded(router)
+    asked = await chat.say(THROAT)
+    reply = await chat.say("как заказать?")
+    assert chat.records[-1].graf_outcome == "how_to_buy"
+    assert body(reply["context_token"])["f"] == body(asked["context_token"])["f"]
+    await chat.say("для себя, 47")
+    assert chat.luna.briefs[-1]["turn"] == "continuation"
+    assert chat.records[-1].template == "ask.duration"
+    assert router.states == [THROAT]
+
+
+async def test_after_an_offer_a_how_to_buy_answer_keeps_the_cards_and_may_name_them():
+    # (e) and S5: the cards of the selection come back, the selection stays in the token,
+    # and a text naming the shown product passes TC-01.
+    chat = Recorded(OpenRouter({"сын часто болеет, ему 5": "immunity"}))
+    offer = await chat.say("сын часто болеет, ему 5")
+    text = "Нажмите «В корзину» на карточке IMMUNOCOMPLEX® KIDS — он будет в «Корзине»."
+    chat.script(answer(body=text))
+    reply = await chat.say("как купить?")
+    assert (reply["answer"], reply["status"], reply["products"]) == (
+        text,
+        "answer",
+        offer["products"],
+    )
+    assert body(reply["context_token"])["s"] == [shop("immunocomplex_kids")]
+    assert chat.records[-1].path == "post_offer"
+    assert chat.luna.briefs[-1]["shown_products"] == ["IMMUNOCOMPLEX® KIDS"]
+
+
+async def test_a_danger_quote_on_a_how_to_buy_turn_raises_the_check_and_keeps_the_flow():
+    # (g) SF-05 on a how-to-buy turn: the quote of an earlier message raises the check.
+    message = "сын часто болеет, вчера весь день был вялый"
+    chat = Recorded(OpenRouter({message: "immunity"}))
+    asked = await chat.say(message)
+    chat.script(answer(target="check", danger="весь день был вялый"))
+    check = await chat.say("как заказать?")
+    assert check["answer"] in variants("emergency.check")
+    held = body(check["context_token"])
+    assert held["f"] == body(asked["context_token"])["f"]
+    assert held["c"] == {"d": digest("как заказать?"), "q": [digest(message)]}
+
+
+async def test_a_post_offer_question_naming_the_shown_product_is_delivered():
+    # §12 item 14, service level: after an IMMUNOCOMPLEX® offer, "нет" with an unsure intent.
+    chat = Recorded(OpenRouter({"Часто простываю": "immunity"}))
+    for message in ("Часто простываю", "для себя, 47", "женщина"):
+        await chat.say(message)
+    offer = await chat.say("нет")
+    assert offered(offer) == ["immunocomplex"]
+    text = "Вы про IMMUNOCOMPLEX® или о новой жалобе?"
+    chat.script(answer(intent=("unsure", "high"), body=text, target="question"))
+    reply = await chat.say("нет")
+    assert (reply["answer"], reply["status"]) == (text, "clarification")
+    assert reply["products"] == offer["products"]
+
+
 # --- FR-01, FR-02: failure response ---------------------------------------------------------
 
 
@@ -1328,6 +1628,7 @@ async def test_switch_off_answers_hybrid_turns_with_the_failure_response_and_res
     chat.bot.hybrid = False
     await chat.fails("ему 5")
     await chat.fails("давит в груди")
+    await chat.fails("как заказать?")  # spec r6 §12 item 13 (f)
     assert len(chat.luna.luna) == 1
     named = await chat.bot.turn(chat.request("Как принимать IMMUNOCOMPLEX®?"))
     assert named["status"] in {"answer", "clarification", "limited", "refused"}

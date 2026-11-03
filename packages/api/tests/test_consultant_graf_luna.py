@@ -59,6 +59,20 @@ def test_the_prefix_is_static_and_lists_the_complaint_catalogue():
     assert len(luna.PREFIX) > 8 * 1024
 
 
+def test_the_prefix_holds_the_r4_blocks_and_the_r6_rules():
+    # Spec r6 §12 item 11 (T1): the r4 block headings and the HB-01 and PN-01 sentences.
+    # Luna's behaviour under them is measured by DC-02; TC-04 and TC-08 enforce the safety
+    # items whatever the prefix says.
+    for heading in ("SYMPATHY AND VARIETY", "AGE QUESTION WITH SEVERAL AGES", "HOW-TO-BUY TURN"):
+        assert "\n" + heading + "\n" in luna.PREFIX
+    assert "press the «В корзину» («Savatga») button on its card" in luna.PREFIX
+    assert "Name no product, except a shown product on a post-offer turn" in luna.PREFIX
+    assert (
+        "The post-offer question may name a product of the shown products and must not name "
+        "any other product." in luna.PREFIX
+    )
+
+
 def test_the_schema_equals_the_committed_schema_and_is_strict():
     committed = json.loads((FIXTURES / "luna_turn_schema.json").read_text(encoding="utf-8"))
     assert committed == luna.SCHEMA
@@ -722,6 +736,62 @@ def test_naming_the_age_in_the_ambiguous_case():
     assert check_text("Для ребёнка подберём?", ref, NAMES, "ru", 5) == "TC-08"
 
 
+@pytest.mark.parametrize(
+    ("text", "result"),
+    [
+        ("Вы про IMMUNOCOMPLEX® или о новой жалобе?", None),
+        ("Вы про DERMACOMPLEX® или о новой жалобе?", "TC-01"),
+        ("Вы про капсулы IMMUNOCOMPLEX® или о новой жалобе?", "TC-01"),
+    ],
+)
+def test_the_post_offer_question_may_name_a_shown_product_only(text, result):
+    # Spec r6 §12 item 14 (S5): the displayed-selection set {IMMUNOCOMPLEX®}.
+    ref = question_reference("ru", frozenset(), frozenset({"IMMUNOCOMPLEX®"}))
+    assert check_text(text, ref, NAMES, "ru") == result
+
+
+@pytest.mark.parametrize(
+    ("whom", "template", "without", "kept"),
+    [
+        (
+            "self",
+            "ask.age_self",
+            "Necha yoshdasiz?",
+            "Homiladorlik davrida tanlash uchun: necha yoshdasiz?",
+        ),
+        (
+            None,
+            "ask.whom_age",
+            "Kim uchun tanlaymiz va yoshi nechada?",
+            "Homiladorlik davrida kim uchun tanlaymiz va yoshi nechada?",
+        ),
+    ],
+)
+def test_the_pregnancy_word_of_an_uzbek_acknowledgement_line_is_kept(whom, template, without, kept):
+    # Spec r4 §12 item 11, WR-06 example: in Uzbek both ack.pregnancy_tone_cramps variants
+    # carry the only pregnancy word of that situation's age question, so TC-04 requires it.
+    turn = Turn(
+        request_id=uuid4(),
+        tab_id=uuid4(),
+        context_revision=1,
+        language="uz",
+        question="x",
+        history=[],
+        page_product_id=None,
+        context_token=None,
+    )
+    facts = graf.Facts(pregnant=True, whom=whom, origin={"pregnant": "parser"})
+    outcome = graf.decide("pregnancy_tone_cramps", facts)
+    assert outcome.template == template
+    approved = graf.Graf(None).reply(Writer(turn), outcome, None, facts, log=False)  # type: ignore[arg-type]
+    assert approved is not None
+    assert any(p.template == "ack.pregnancy_tone_cramps" for p in approved.parts)
+    ref = reference("uz", approved.parts, [], question=True, safety=False, customer=frozenset())
+    assert check_text(approved.answer, ref, NAMES, "uz") is None
+    assert check_text(without, ref, NAMES, "uz") == "TC-04"
+    assert check_text(kept, ref, NAMES, "uz") is None
+
+
 SAMPLE = {
     "rel_for_ru": "для вас",
     "rel_for_ru_cap": "Для вас",
@@ -775,7 +845,9 @@ def test_every_template_variant_passes_against_its_family():
                         result,
                     )
                     checked += 1
-    assert checked == 800  # the count of spec r2 answers E-2 (99 templates, RU and UZ)
+    # The count of spec r2 answers E-2 (99 templates, RU and UZ), plus spec r6 info.how_to_buy
+    # (2 variants in each language: 4 pairs each).
+    assert checked == 808
 
 
 # --- OP-04 PROFILE ---------------------------------------------------------------------------

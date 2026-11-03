@@ -49,6 +49,7 @@ from src.consultant.graf import (
     parse_age,
     repeats,
     signature,
+    tokens,
 )
 from src.consultant.knowledge import Evidence
 from src.consultant.record import Counters, TurnRecord
@@ -64,6 +65,91 @@ SAFETY_KINDS = ("emergency", "check")
 CHECK = Outcome("check", None, "emergency.check")
 GENERAL = Outcome("emergency", None, "emergency.general")
 POST_OFFER = Outcome("post_offer")
+HOW_TO_BUY = Outcome("how_to_buy", None, "info.how_to_buy")
+
+# spec r6 BUY-01: a how-to-buy message holds a buy term, and every Graf token of it is a buy
+# term, a question or filler word, or a verb form of ol-/ber-/qil- after a buy term. Buy terms
+# match as stems; the other words match whole. No word here carries a complaint, product,
+# person, age, number, place, payment or delivery meaning, so any such token stops the rule.
+BUY_TERMS = (
+    "купи",
+    "купл",
+    "покуп",
+    "заказ",
+    "закаж",
+    "приобре",
+    "оформ",
+    "sotib",
+    "xarid",
+    "buyurtma",
+    "zakaz",
+    "сотиб",
+    "харид",
+    "буюртма",
+)
+BUY_WORDS = frozenset(
+    {
+        "а",
+        "бы",
+        "вас",
+        "вы",
+        "его",
+        "здесь",
+        "и",
+        "как",
+        "каким",
+        "ли",
+        "мне",
+        "можно",
+        "на",
+        "образом",
+        "подскажите",
+        "пожалуйста",
+        "сайт",
+        "сайте",
+        "скажите",
+        "сделать",
+        "тут",
+        "у",
+        "хотел",
+        "хотела",
+        "хочу",
+        "я",
+        "ayting",
+        "aytib",
+        "bo'ladi",
+        "bo'lsa",
+        "iltimos",
+        "kerak",
+        "men",
+        "menga",
+        "mumkin",
+        "qanday",
+        "qilib",
+        "saytda",
+        "siz",
+        "sizda",
+        "бўлади",
+        "илтимос",
+        "мен",
+        "мумкин",
+        "қандай",
+        "қилиб",
+    }
+)
+BUY_VERBS = ("ol", "ber", "qil", "ол", "бер", "қил")
+
+
+def buying(question: str) -> bool:
+    """BUY-01: the message only asks how to buy or order on the site."""
+    words = tokens(question)
+    after = False
+    for word in words:
+        if word.startswith(BUY_TERMS):
+            after = True
+        elif word not in BUY_WORDS and not (after and word.startswith(BUY_VERBS)):
+            return False
+    return after
 
 
 class Failure(Exception):
@@ -393,6 +479,8 @@ def describe(outcome: Outcome) -> dict[str, Any]:
     # situation-level question: the brief names it apart so the target stays "decision".
     kind = "slot_question" if outcome.kind == "question" else outcome.kind
     info: dict[str, Any] = {"kind": kind}
+    if outcome.kind == HOW_TO_BUY.kind:
+        return info  # spec r6 BUY-04: the decision {kind: "how_to_buy"}
     if outcome.kind == "question" and outcome.template is not None:
         info["slot"] = QUESTION_SLOT.get(outcome.template)
     if outcome.kind == "confirm":
@@ -458,6 +546,32 @@ class Prepared:
         if self.route.kind == "post_offer":
             return POST_OFFER
         return self.brief.outcome if self.brief.outcome.kind in QUESTION_KINDS else None
+
+
+def named_age(prepared: Prepared, brief: Brief, reading: Reading) -> float | None:
+    """The age number a text must name in the ambiguous case (MR-05, TC-08, spec r5 AN-01 to
+    AN-03), or None. It applies when the merged age of D1 has origin 'luna'. A text that is
+    not a question always names it (AN-01); a question names it when it is the first text
+    after the age stands (AN-02). A question is not the first when D1 continues the incoming
+    flow, whose state already holds the same age with origin 'luna' (AN-03). The number is
+    Luna's own on this turn when she read the age sure, so a months age is named in months.
+    Otherwise it is the merged value, which the flow state keeps in years only: a whole
+    number of years is named as such; a fraction (an age given in months or weeks) has no
+    number a customer text would show, so it is not checked."""
+    facts, final, flow = brief.facts, brief.outcome, prepared.route.flow
+    if facts.age is None or facts.origin.get("age") != "luna":
+        return None
+    if (
+        final.kind in {"question", *SITUATION_LEVEL}
+        and flow is not None
+        and brief.origin is not None
+        and brief.origin.start == flow_texts(prepared.request, flow)[0]
+        and flow.facts.get("age") == (facts.age, "luna")
+    ):
+        return None
+    if reading.age_number is not None:
+        return reading.age_number
+    return facts.age if float(facts.age).is_integer() else None
 
 
 class HybridTurn:
@@ -722,9 +836,23 @@ class HybridTurn:
 
     # -- text selection and checks (HR-07, HR-08, §9) --------------------------------------------
 
+    def shown(self) -> frozenset[str]:
+        """The displayed-selection set (spec r6 TC-01): the canonical names the text matcher
+        finds in the names of the displayed selection's products."""
+        names = (self.evidence.products[i]["name"] for i in self.selection)
+        return frozenset(n for name in names for n in self.catalogue.find(name))
+
     def reference(self, outcome: Outcome, reply: Reply | None, harm: bool = False) -> Reference:
+        # spec r6 S5: the post-offer question, and the how-to-buy answer on a post-offer turn,
+        # may name a product of the displayed selection.
+        shown = (
+            self.shown()
+            if outcome.kind == POST_OFFER.kind
+            or (outcome.kind == HOW_TO_BUY.kind and self.selection)
+            else None
+        )
         if outcome.kind in SITUATION_LEVEL or reply is None:
-            return question_reference(self.request.language, self.customer_set)
+            return question_reference(self.request.language, self.customer_set, shown)
         return reference(
             self.request.language,
             reply.parts,
@@ -733,6 +861,7 @@ class HybridTurn:
             safety=outcome.kind in SAFETY_KINDS,
             customer=self.customer_set,
             self_harm=harm,
+            shown=shown,
         )
 
     def verify(self, text: luna.Text, ref: Reference, named_age: float | None) -> str | None:
@@ -804,16 +933,18 @@ class HybridTurn:
         prepared: Prepared | None,
         stage: Stage | None,
         harm: bool = False,
+        again: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """A delivered 103 or danger-check text keeps the incoming flow and selection
-        (TK-10); a check records the pending check (TK-06)."""
+        (TK-10); a check records the pending check (TK-06). `again` builds the second-call
+        brief when it is not the normal one (a how-to-buy turn)."""
         reply = self.render(self.request, outcome, None)
         delivered = await self.text_for(
             outcome,
             reply,
             text,
             text.target == outcome.kind,
-            lambda extra: self.dynamic(prepared, stage, None, extra),
+            again or (lambda extra: self.dynamic(prepared, stage, None, extra)),
             harm=harm,
         )
         self.graf.log(None, outcome.kind)
@@ -960,13 +1091,7 @@ class HybridTurn:
             and signature(final) == signature(question)
         )
         ambiguous = prepared.ambiguous or len(reading.candidates) >= 2
-        named = (
-            reading.age_number
-            if ambiguous
-            and brief.facts.origin.get("age") == "luna"
-            and final.kind not in {"question", *SITUATION_LEVEL}
-            else None
-        )
+        named = named_age(prepared, brief, reading) if ambiguous else None
         self.record_decision(final, brief, lens, reply)
         delivered = await self.text_for(
             final,
@@ -1049,6 +1174,54 @@ class HybridTurn:
         reading = self.validate(parsed.answer, prepared.hits, prepared.brief.facts)
         return await self.conclude(prepared, reading, parsed.answer.text, None)
 
+    def buying_brief(
+        self, reply: Reply, post: bool, second: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """BUY-04: the dynamic JSON of a how-to-buy call; Graf ran nothing for the message."""
+        brief: dict[str, Any] = {
+            "language": self.request.language,
+            "turn": HOW_TO_BUY.kind,
+            "conversation": self.conversation(),
+            "jev": self.jev(),
+            "decision": describe(HOW_TO_BUY),
+            "hits": [],
+            "texts": {"decision": reply.answer, "check": self.stage_text(CHECK)},
+        }
+        if post:
+            brief["shown_products"] = [self.evidence.products[i]["name"] for i in self.selection]
+        if second is not None:
+            brief["second_call"] = second
+        return brief
+
+    async def how_to_buy(self, target: Route) -> dict[str, Any]:
+        """A how-to-buy turn (spec r6 §5.5): Luna writes from info.how_to_buy; only her
+        danger reading acts (SF-05). The response keeps the incoming flow state, selection,
+        pregnancy flag and cleared digests (BUY-05), so an open flow or an offer goes on."""
+        post = target.kind == "post_offer"
+        reply = self.render(self.request, HOW_TO_BUY, None)
+        assert reply is not None
+
+        def again(extra: dict[str, Any]) -> dict[str, Any]:
+            return self.buying_brief(reply, post, extra)
+
+        parsed = await self.call(self.buying_brief(reply, post))
+        if parsed.answer is None:
+            raise Failure("luna")
+        reading = self.validate(parsed.answer, [], None)
+        text = parsed.answer.text
+        danger = tuple(d for d in reading.danger if d not in self.carry.cleared)
+        if danger:
+            check = Check(digest(self.request.question), danger)
+            return await self.safety_outcome(CHECK, text, check, None, None, again=again)
+        delivered = await self.text_for(HOW_TO_BUY, reply, text, text.target == "decision", again)
+        self.graf.log(None, HOW_TO_BUY.kind)
+        self.record.graf_outcome, self.record.template = HOW_TO_BUY.kind, HOW_TO_BUY.template
+        cards = [self.evidence.products[i] for i in self.selection] if post else []
+        carry = replace(self.carry, flow=self.incoming, check=None)
+        return self.c.envelope(
+            self.request, carry, self.selection, reply.status, delivered, [], cards, None, []
+        )
+
     async def safety(
         self, stage: Stage, normal: Turn | None, target: Route | None
     ) -> dict[str, Any]:
@@ -1129,4 +1302,4 @@ class HybridTurn:
         }
 
 
-__all__ = ["Failure", "HybridTurn", "Reading", "Route", "Validator", "route"]
+__all__ = ["Failure", "HybridTurn", "Reading", "Route", "Validator", "buying", "route"]
