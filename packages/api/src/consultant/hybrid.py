@@ -460,6 +460,32 @@ class Prepared:
         return self.brief.outcome if self.brief.outcome.kind in QUESTION_KINDS else None
 
 
+def named_age(prepared: Prepared, brief: Brief, reading: Reading) -> float | None:
+    """The age number a text must name in the ambiguous case (MR-05, TC-08, spec r5 AN-01 to
+    AN-03), or None. It applies when the merged age of D1 has origin 'luna'. A text that is
+    not a question always names it (AN-01); a question names it when it is the first text
+    after the age stands (AN-02). A question is not the first when D1 continues the incoming
+    flow, whose state already holds the same age with origin 'luna' (AN-03). The number is
+    Luna's own on this turn when she read the age sure, so a months age is named in months.
+    Otherwise it is the merged value, which the flow state keeps in years only: a whole
+    number of years is named as such; a fraction (an age given in months or weeks) has no
+    number a customer text would show, so it is not checked."""
+    facts, final, flow = brief.facts, brief.outcome, prepared.route.flow
+    if facts.age is None or facts.origin.get("age") != "luna":
+        return None
+    if (
+        final.kind in {"question", *SITUATION_LEVEL}
+        and flow is not None
+        and brief.origin is not None
+        and brief.origin.start == flow_texts(prepared.request, flow)[0]
+        and flow.facts.get("age") == (facts.age, "luna")
+    ):
+        return None
+    if reading.age_number is not None:
+        return reading.age_number
+    return facts.age if float(facts.age).is_integer() else None
+
+
 class HybridTurn:
     """One hybrid turn: everything between the routing and the response envelope."""
 
@@ -960,13 +986,7 @@ class HybridTurn:
             and signature(final) == signature(question)
         )
         ambiguous = prepared.ambiguous or len(reading.candidates) >= 2
-        named = (
-            reading.age_number
-            if ambiguous
-            and brief.facts.origin.get("age") == "luna"
-            and final.kind not in {"question", *SITUATION_LEVEL}
-            else None
-        )
+        named = named_age(prepared, brief, reading) if ambiguous else None
         self.record_decision(final, brief, lens, reply)
         delivered = await self.text_for(
             final,

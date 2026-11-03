@@ -59,6 +59,85 @@ def test_the_prefix_is_static_and_lists_the_complaint_catalogue():
     assert len(luna.PREFIX) > 8 * 1024
 
 
+@pytest.mark.parametrize(
+    ("rule", "wording"),
+    [
+        (
+            "WR-01",
+            "That line is optional material, not a sentence that the keep rule protects: "
+            "you may leave it out or say it in your own words.",
+        ),
+        (
+            "WR-02",
+            "Express sympathy at most once per complaint: only in your first answer about that "
+            "complaint, and only in words that fit the person the consultation is for",
+        ),
+        ("WR-02", "A new complaint in the same conversation is a new complaint for this rule."),
+        (
+            "WR-03",
+            "Every later answer about the same complaint goes straight to the question, the "
+            "offer or the answer, without a sympathy or acknowledgement opening.",
+        ),
+        (
+            "WR-04",
+            "Never repeat an opening, a sentence or a phrase that an assistant message of the "
+            "conversation already used",
+        ),
+        ("WR-04", "Vary your wording from answer to answer."),
+        (
+            "WR-05",
+            "Write as a person speaks in a chat: natural, simple sentences, not a form.",
+        ),
+        (
+            "WR-06",
+            "Precedence: the keep rule and the other writing rules come before these sympathy "
+            "and variety rules.",
+        ),
+        (
+            "WR-06",
+            "name that age with its unit in your first text after you chose it, also when that "
+            "text is a question, and in every text that is not a question",
+        ),
+        (
+            "WR-06",
+            "When an acknowledgement line mentions pregnancy or breastfeeding, keep that "
+            "mention, in your own words if you rewrite the line.",
+        ),
+        (
+            "WR-07",
+            "Reproduce the approved text unchanged only when these rules allow that text. An "
+            "approved text that opens with an acknowledgement line needs improvement in every "
+            "answer after the first about the same complaint.",
+        ),
+        (
+            "WR-07",
+            "or reproduce the approved text when it needs no improvement and the sympathy and "
+            "variety rules below allow it unchanged.",
+        ),
+        (
+            "WR-08",
+            "When ambiguous_age is true and the decision is a slot_question about the age "
+            '(decision kind "slot_question", slot "age"), never say that the age could not be '
+            "read and never ask for the age in digits. Ask whom the consultation is for, naming "
+            "the persons and ages the customer gave.",
+        ),
+        (
+            "WR-08",
+            "This rule is about wording only and does not change the reading rules",
+        ),
+        (
+            "WR-08",
+            "In every text, never say that a number or an age could not be read when a customer "
+            "message contains it.",
+        ),
+    ],
+)
+def test_the_prefix_states_the_r4_writing_rules(rule, wording):
+    # Spec r4 LC-03 acceptance: the committed wording of each rule WR-01 to WR-08. The r3
+    # assertions (byte-equal prefix, catalogue, length) are the test above, unchanged.
+    assert wording in luna.PREFIX, rule
+
+
 def test_the_schema_equals_the_committed_schema_and_is_strict():
     committed = json.loads((FIXTURES / "luna_turn_schema.json").read_text(encoding="utf-8"))
     assert committed == luna.SCHEMA
@@ -720,6 +799,48 @@ def test_naming_the_age_in_the_ambiguous_case():
     ref = question_reference("ru", customer_numbers(["ребёнку 5, мне 35"]))
     assert check_text("Для ребёнка 5 лет подберём?", ref, NAMES, "ru", 5) is None
     assert check_text("Для ребёнка подберём?", ref, NAMES, "ru", 5) == "TC-08"
+
+
+@pytest.mark.parametrize(
+    ("whom", "template", "without", "kept"),
+    [
+        (
+            "self",
+            "ask.age_self",
+            "Necha yoshdasiz?",
+            "Homiladorlik davrida tanlash uchun: necha yoshdasiz?",
+        ),
+        (
+            None,
+            "ask.whom_age",
+            "Kim uchun tanlaymiz va yoshi nechada?",
+            "Homiladorlik davrida kim uchun tanlaymiz va yoshi nechada?",
+        ),
+    ],
+)
+def test_the_pregnancy_word_of_an_uzbek_acknowledgement_line_is_kept(whom, template, without, kept):
+    # Spec r4 §12 item 11, WR-06 example: in Uzbek both ack.pregnancy_tone_cramps variants
+    # carry the only pregnancy word of that situation's age question, so TC-04 requires it.
+    turn = Turn(
+        request_id=uuid4(),
+        tab_id=uuid4(),
+        context_revision=1,
+        language="uz",
+        question="x",
+        history=[],
+        page_product_id=None,
+        context_token=None,
+    )
+    facts = graf.Facts(pregnant=True, whom=whom, origin={"pregnant": "parser"})
+    outcome = graf.decide("pregnancy_tone_cramps", facts)
+    assert outcome.template == template
+    approved = graf.Graf(None).reply(Writer(turn), outcome, None, facts, log=False)  # type: ignore[arg-type]
+    assert approved is not None
+    assert any(p.template == "ack.pregnancy_tone_cramps" for p in approved.parts)
+    ref = reference("uz", approved.parts, [], question=True, safety=False, customer=frozenset())
+    assert check_text(approved.answer, ref, NAMES, "uz") is None
+    assert check_text(without, ref, NAMES, "uz") == "TC-04"
+    assert check_text(kept, ref, NAMES, "uz") is None
 
 
 SAMPLE = {

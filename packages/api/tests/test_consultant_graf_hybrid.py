@@ -573,6 +573,179 @@ async def test_lunas_pregnancy_overrides_a_confirmed_no_and_never_a_confirmed_ye
     assert yes.records[-1].facts["pregnant"] == [True, "confirmed"]
 
 
+# --- spec r5 S3: age naming in the ambiguous case (MR-05, AN-01 to AN-04, TC-08; §12 item 12)
+
+
+THROAT = "болит горло"
+TWO_AGES = "ребёнку 5, мне 35"
+AGES = [
+    {"number": 5, "unit": "years", "person": "child", "quote": "ребёнку 5"},
+    {"number": 35, "unit": "years", "person": "self", "quote": "мне 35"},
+]
+SURE_FIVE = {"facts": age(5, "ребёнку 5"), "candidates": AGES}
+
+
+def names(words, **change):
+    """A Luna step whose text is `words` followed by the approved text of its target (or
+    the neutral question): the same text with the age named or not."""
+
+    def step(brief):
+        out = answer(**change)(brief)
+        out["text"]["body"] = f"{words} {out['text']['body']}".strip()
+        return out
+
+    return step
+
+
+def checks_of(chat):
+    return [c["check_id"] for c in chat.records[-1].luna["calls"]]
+
+
+async def throat_chat():
+    """'болит горло' asks for whom and the age (ask.whom_age)."""
+    chat = Recorded(OpenRouter({THROAT: "acute_cold"}))
+    asked = await chat.say(THROAT)
+    assert body(asked["context_token"])["f"]["t"] == "ask.whom_age"
+    return chat
+
+
+async def age_stands(chat):
+    """Turn 2: Luna is sure of 5 for the child; the next decision is the duration question,
+    written by the second call with the age named."""
+    chat.script(answer(**SURE_FIVE), names("Для ребёнка 5 лет:"))
+    reply = await chat.say(TWO_AGES)
+    assert chat.records[-1].template == "ask.duration"
+    return reply
+
+
+async def test_the_first_question_after_the_age_stands_must_name_it():
+    # (a) and (f): without "5 лет" the second-call text fails TC-08 and the turn ends with the
+    # failure response; the retry with the same token still requires the naming.
+    chat = await throat_chat()
+    for _ in range(2):
+        chat.script(answer(**SURE_FIVE), echo)
+        await chat.fails(TWO_AGES)
+        assert chat.records[-1].template == "ask.duration"
+        assert checks_of(chat) == [None, "TC-08"]  # first text was for D0 (HR-07 (d))
+    reply = await age_stands(chat)
+    assert "5 лет" in reply["answer"]
+    assert checks_of(chat) == [None, None]
+    assert body(reply["context_token"])["f"]["v"]["age"] == [5.0, "luna"]
+
+
+@pytest.mark.parametrize("reread", [True, False], ids=["luna-rereads-5", "luna-silent"])
+async def test_a_later_question_need_not_name_the_age_and_an_offer_must(reread):
+    # (b) AN-03: the incoming flow holds (5.0, luna) and the turn continues it, so a question
+    # text without the age passes; AN-01: the offer text must name it, also when Luna does
+    # not read the age again on that turn (the merged age keeps origin luna).
+    change = SURE_FIVE if reread else {}
+    chat = await throat_chat()
+    await age_stands(chat)
+    chat.script(answer(**change))
+    asked = await chat.say("не помню")  # the duration parser misses: the re-ask
+    assert chat.records[-1].template == "reask.duration"
+    assert "5 лет" not in asked["answer"]
+    assert checks_of(chat) == [None]
+    assert chat.records[-1].facts["age"] == [5.0, "luna"]
+    chat.script(answer(**change), echo)
+    await chat.fails("3 дня")
+    assert chat.records[-1].graf_outcome == "offer"
+    assert checks_of(chat) == ["TC-08", "TC-08"]
+    chat.script(names("Для ребёнка 5 лет:", **change))
+    offer = await chat.say("3 дня")
+    assert offered(offer) == ["immunocomplex_kids"]
+    assert "5 лет" in offer["answer"]
+    assert checks_of(chat) == [None]
+
+
+@pytest.mark.parametrize(
+    ("route", "kind"),
+    [("acute_cold", "question"), (("acute_cold", 0.5), "confirm")],
+    ids=["slot-question", "situation-level-question"],
+)
+async def test_a_first_message_with_two_ages_and_a_sure_age_names_it_in_a_question(route, kind):
+    # (c): on a first-message turn the question is always the first text after the age.
+    message = "ребёнку 5, мне 35, болит горло"
+    chat = Recorded(OpenRouter({message: route}))
+    chat.script(answer(**SURE_FIVE), echo)
+    await chat.fails(message)
+    assert chat.records[-1].graf_outcome == kind
+    assert checks_of(chat)[-1] == "TC-08"
+    chat.script(answer(**SURE_FIVE), names("Для ребёнка 5 лет:"))
+    reply = await chat.say(message)
+    assert chat.records[-1].graf_outcome == kind
+    assert "5 лет" in reply["answer"]
+
+
+async def test_a_changed_luna_age_must_be_named_again():
+    # (d) AN-03: the incoming flow holds (5.0, luna); Luna is now sure of 6, so the question
+    # is the first text after the new age.
+    chat = await throat_chat()
+    await age_stands(chat)
+    six = {"facts": age(6, "ребёнку 6")}
+    chat.script(answer(**six), names("Для ребёнка 5 лет:", **six))
+    await chat.fails("ребёнку 6, не помню")
+    assert chat.records[-1].facts["age"] == [6.0, "luna"]
+    assert chat.records[-1].template == "reask.duration"
+    assert "TC-08" in checks_of(chat)
+    chat.script(names("Для ребёнка 6 лет:", **six))
+    reply = await chat.say("ребёнку 6, не помню")
+    assert "6 лет" in reply["answer"]
+    assert body(reply["context_token"])["f"]["v"]["age"] == [6.0, "luna"]
+
+
+async def test_a_danger_check_on_the_naming_turn_moves_the_naming_to_the_next_turn():
+    # (e) AN-04: the SF-05 check text is not checked for naming and its token keeps the
+    # incoming flow (TK-10), which holds no age; after "нет" the checked message continues
+    # and its question is again the first text after the age (failure, then the retry).
+    message = TWO_AGES + ", он очень вялый"
+    chat = await throat_chat()
+    incoming = body(chat.token)["f"]
+    chat.script(answer(**SURE_FIVE, danger="очень вялый", target="check"))
+    check = await chat.say(message)
+    assert chat.records[-1].graf_outcome == "check"
+    assert "5 лет" not in check["answer"]
+    held = body(check["context_token"])
+    assert held["f"] == incoming
+    assert "age" not in held["f"]["v"]
+    reply_no = answer(**SURE_FIVE, check_reply=("no", "нет", "high"))
+    chat.script(reply_no, echo)
+    await chat.fails("нет")
+    assert chat.records[-1].template == "ask.duration"
+    assert checks_of(chat)[-1] == "TC-08"
+    chat.script(reply_no, names("Для ребёнка 5 лет:"))
+    reply = await chat.say("нет")
+    assert "5 лет" in reply["answer"]
+    assert body(reply["context_token"])["f"]["v"]["age"] == [5.0, "luna"]
+
+
+async def test_a_carried_months_age_is_named_only_when_luna_reads_it_again():
+    # The flow state keeps the age in years (0.67 for 8 months): when Luna does not read the
+    # age on the offer turn, no customer text could show that number, so it is not checked;
+    # when she reads it again, the offer must name "8 месяцев".
+    message = "ребёнку 8 месяцев, мне 30"
+    months = {
+        "facts": {
+            **age(8, "ребёнку 8 месяцев", unit="months"),
+            "duration": {"state": "not_stated", "quote": "8 месяцев", "confidence": "high"},
+        }
+    }
+    for reread in (False, True):
+        chat = await throat_chat()
+        chat.script(answer(**months), names("Для ребёнка 8 месяцев:"))
+        asked = await chat.say(message)
+        assert body(asked["context_token"])["f"]["v"]["age"] == [0.67, "luna"]
+        again = {"facts": age(8, "ребёнку 8 месяцев", unit="months")} if reread else {}
+        chat.script(answer(**again), echo)
+        if reread:
+            await chat.fails("3 дня")
+            assert checks_of(chat) == ["TC-08", "TC-08"]
+        else:
+            await chat.say("3 дня")
+            assert checks_of(chat) == [None]
+        assert chat.records[-1].graf_outcome not in {"question", *graf.SITUATION_LEVEL}
+
+
 # --- MR-08 and TR-02 ------------------------------------------------------------------------
 
 
