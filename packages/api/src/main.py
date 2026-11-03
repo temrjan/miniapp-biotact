@@ -60,6 +60,7 @@ from src.employee_referrals.privacy import K1_PATH, K1PrivacyMiddleware
 from src.employee_referrals.return_privacy import ReturnPrivacyMiddleware
 from src.employee_referrals.return_router import router as referral_returns_router
 from src.employee_referrals.router import router as employee_referrals_router
+from src.journal.writer import runtime as journal_runtime
 from src.loyalty.admin_router import router as admin_lottery_router
 from src.loyalty.router import router as loyalty_router
 from src.loyalty.router import summary_router as loyalty_summary_router
@@ -81,7 +82,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client = portal_http_client()
     app.state.campaign_http_client = client
     try:
-        async with consultant_runtime(app, settings, async_session_maker):
+        async with (
+            consultant_runtime(app, settings, async_session_maker),
+            journal_runtime(app, settings, async_session_maker),
+        ):
             yield
     finally:
         try:

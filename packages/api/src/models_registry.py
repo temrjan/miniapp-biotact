@@ -31,6 +31,7 @@ _MODEL_MODULES = (
     "src.employee_referrals.paid_models",
     "src.employee_referrals.return_models",
     "src.employee_referrals.delivery_models",
+    "src.journal.models",
 )
 
 for _module in _MODEL_MODULES:

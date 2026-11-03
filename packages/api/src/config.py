@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     # Luna-first hybrid while Graf is on; false answers hybrid turns with the failure
     # response (named-product questions still work).
     consultant_hybrid: bool = True
+    # The consultant journal (spec.opyt r2 JN-04, JG-01); read at startup, off by default.
+    consultant_journal: bool = False
 
     # Database
     database_url: str
