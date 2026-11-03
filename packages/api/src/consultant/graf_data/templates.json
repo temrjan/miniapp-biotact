@@ -807,6 +807,18 @@
    "placeholders": [],
    "use": "NI5: none of the offered products is admitted or in stock"
   },
+  "info.how_to_buy": {
+   "ru": [
+    "Выберите товар и нажмите на его карточке кнопку «В корзину». Добавленные товары будут в «Корзине» — это кнопка со значком корзинки.",
+    "Нажмите «В корзину» на карточке нужного товара. Все добавленные товары можно посмотреть в «Корзине» — кнопка со значком корзинки."
+   ],
+   "uz": [
+    "Mahsulotni tanlang va uning kartasidagi «Savatga» tugmasini bosing. Qo'shilgan mahsulotlar «Savat»da bo'ladi — bu savatcha belgisi bor tugma.",
+    "Kerakli mahsulot kartasida «Savatga» tugmasini bosing. Qo'shilgan mahsulotlarni «Savat»da ko'rishingiz mumkin — savatcha belgisi bor tugma."
+   ],
+   "placeholders": [],
+   "use": "spec r6 S4 (BUY-03): a message that only asks how to buy or order on the site; the website labels at 21c870c (Basket.tsx basketCopy add / title); no order, payment or delivery step"
+  },
   "question.message": {
    "ru": [
     "{ack} {question}"

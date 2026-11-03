@@ -59,83 +59,18 @@ def test_the_prefix_is_static_and_lists_the_complaint_catalogue():
     assert len(luna.PREFIX) > 8 * 1024
 
 
-@pytest.mark.parametrize(
-    ("rule", "wording"),
-    [
-        (
-            "WR-01",
-            "That line is optional material, not a sentence that the keep rule protects: "
-            "you may leave it out or say it in your own words.",
-        ),
-        (
-            "WR-02",
-            "Express sympathy at most once per complaint: only in your first answer about that "
-            "complaint, and only in words that fit the person the consultation is for",
-        ),
-        ("WR-02", "A new complaint in the same conversation is a new complaint for this rule."),
-        (
-            "WR-03",
-            "Every later answer about the same complaint goes straight to the question, the "
-            "offer or the answer, without a sympathy or acknowledgement opening.",
-        ),
-        (
-            "WR-04",
-            "Never repeat an opening, a sentence or a phrase that an assistant message of the "
-            "conversation already used",
-        ),
-        ("WR-04", "Vary your wording from answer to answer."),
-        (
-            "WR-05",
-            "Write as a person speaks in a chat: natural, simple sentences, not a form.",
-        ),
-        (
-            "WR-06",
-            "Precedence: the keep rule and the other writing rules come before these sympathy "
-            "and variety rules.",
-        ),
-        (
-            "WR-06",
-            "name that age with its unit in your first text after you chose it, also when that "
-            "text is a question, and in every text that is not a question",
-        ),
-        (
-            "WR-06",
-            "When an acknowledgement line mentions pregnancy or breastfeeding, keep that "
-            "mention, in your own words if you rewrite the line.",
-        ),
-        (
-            "WR-07",
-            "Reproduce the approved text unchanged only when these rules allow that text. An "
-            "approved text that opens with an acknowledgement line needs improvement in every "
-            "answer after the first about the same complaint.",
-        ),
-        (
-            "WR-07",
-            "or reproduce the approved text when it needs no improvement and the sympathy and "
-            "variety rules below allow it unchanged.",
-        ),
-        (
-            "WR-08",
-            "When ambiguous_age is true and the decision is a slot_question about the age "
-            '(decision kind "slot_question", slot "age"), never say that the age could not be '
-            "read and never ask for the age in digits. Ask whom the consultation is for, naming "
-            "the persons and ages the customer gave.",
-        ),
-        (
-            "WR-08",
-            "This rule is about wording only and does not change the reading rules",
-        ),
-        (
-            "WR-08",
-            "In every text, never say that a number or an age could not be read when a customer "
-            "message contains it.",
-        ),
-    ],
-)
-def test_the_prefix_states_the_r4_writing_rules(rule, wording):
-    # Spec r4 LC-03 acceptance: the committed wording of each rule WR-01 to WR-08. The r3
-    # assertions (byte-equal prefix, catalogue, length) are the test above, unchanged.
-    assert wording in luna.PREFIX, rule
+def test_the_prefix_holds_the_r4_blocks_and_the_r6_rules():
+    # Spec r6 §12 item 11 (T1): the r4 block headings and the HB-01 and PN-01 sentences.
+    # Luna's behaviour under them is measured by DC-02; TC-04 and TC-08 enforce the safety
+    # items whatever the prefix says.
+    for heading in ("SYMPATHY AND VARIETY", "AGE QUESTION WITH SEVERAL AGES", "HOW-TO-BUY TURN"):
+        assert "\n" + heading + "\n" in luna.PREFIX
+    assert "press the «В корзину» («Savatga») button on its card" in luna.PREFIX
+    assert "Name no product, except a shown product on a post-offer turn" in luna.PREFIX
+    assert (
+        "The post-offer question may name a product of the shown products and must not name "
+        "any other product." in luna.PREFIX
+    )
 
 
 def test_the_schema_equals_the_committed_schema_and_is_strict():
@@ -802,6 +737,20 @@ def test_naming_the_age_in_the_ambiguous_case():
 
 
 @pytest.mark.parametrize(
+    ("text", "result"),
+    [
+        ("Вы про IMMUNOCOMPLEX® или о новой жалобе?", None),
+        ("Вы про DERMACOMPLEX® или о новой жалобе?", "TC-01"),
+        ("Вы про капсулы IMMUNOCOMPLEX® или о новой жалобе?", "TC-01"),
+    ],
+)
+def test_the_post_offer_question_may_name_a_shown_product_only(text, result):
+    # Spec r6 §12 item 14 (S5): the displayed-selection set {IMMUNOCOMPLEX®}.
+    ref = question_reference("ru", frozenset(), frozenset({"IMMUNOCOMPLEX®"}))
+    assert check_text(text, ref, NAMES, "ru") == result
+
+
+@pytest.mark.parametrize(
     ("whom", "template", "without", "kept"),
     [
         (
@@ -896,7 +845,9 @@ def test_every_template_variant_passes_against_its_family():
                         result,
                     )
                     checked += 1
-    assert checked == 800  # the count of spec r2 answers E-2 (99 templates, RU and UZ)
+    # The count of spec r2 answers E-2 (99 templates, RU and UZ), plus spec r6 info.how_to_buy
+    # (2 variants in each language: 4 pairs each).
+    assert checked == 808
 
 
 # --- OP-04 PROFILE ---------------------------------------------------------------------------

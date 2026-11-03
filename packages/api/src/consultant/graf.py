@@ -828,6 +828,8 @@ STATUS = {
     "post_offer": "clarification",
     "check": "clarification",
     "offer": "answer",
+    # spec r6 BUY-03: the how-to-buy answer (template info.how_to_buy).
+    "how_to_buy": "answer",
     "emergency": "limited",
     "doctor": "limited",
     "no_product": "limited",

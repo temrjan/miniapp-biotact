@@ -269,6 +269,9 @@ ANCHORS: dict[str, tuple[str, ...]] = {
     ),
     "doctor": ("врач", "педиатр", "доктор", "окулист", "shifokor", "pediatr", "okulist", "шифокор"),
     "pregnancy": ("беремен", "кормл", "кормящ", "грудн вскармлив", "homilador", "emiz"),
+    # spec r6 TC-04: the website's add-to-basket label; every variant holds it only in
+    # info.how_to_buy, so it is required there alone.
+    "basket": ("в корзину", "savatga"),
 }
 TREATMENT = (
     "лечи",
@@ -397,7 +400,9 @@ def bigrams(text: str) -> frozenset[tuple[str, str]]:
 @dataclass(frozen=True)
 class Reference:
     """The reference of a final decision D1: its template family, its products and how the
-    checks treat it. `parts` empty and `question` true is R-Q."""
+    checks treat it. `parts` empty and `question` true is R-Q. `shown`, when set, is the
+    displayed-selection set: the products found in the text must be a subset of it instead
+    of equal to `products` (spec r6 TC-01 exception)."""
 
     language: str
     parts: tuple[Part, ...]
@@ -407,6 +412,7 @@ class Reference:
     extra: tuple[str, ...] = ()
     customer: frozenset[float] = frozenset()
     situation_level: bool = False
+    shown: frozenset[str] | None = None
 
     @cached_property
     def families(self) -> tuple[tuple[str, ...], ...]:
@@ -528,7 +534,10 @@ def check(
     if not text.strip():
         return "blank"
     found = catalogue.find(text)
-    if found != reference.products:
+    if reference.shown is not None:
+        if not found <= reference.shown:
+            return "TC-01"
+    elif found != reference.products:
         return "TC-01"
     if forms(text) - reference.allowed_forms:
         return "TC-01"
@@ -571,10 +580,19 @@ def check(
     return None
 
 
-def question_reference(language: str, customer: frozenset[float]) -> Reference:
-    """R-Q: no parts; a question mark is required; only customer numbers are allowed."""
+def question_reference(
+    language: str, customer: frozenset[float], shown: frozenset[str] | None = None
+) -> Reference:
+    """R-Q: no parts; a question mark is required; only customer numbers are allowed. The
+    post-offer question passes `shown` (spec r6 TC-01 exception)."""
     return Reference(
-        language, (), frozenset(), question=True, customer=customer, situation_level=True
+        language,
+        (),
+        frozenset(),
+        question=True,
+        customer=customer,
+        situation_level=True,
+        shown=shown,
     )
 
 
@@ -587,6 +605,7 @@ def reference(
     safety: bool,
     customer: frozenset[float],
     self_harm: bool = False,
+    shown: frozenset[str] | None = None,
 ) -> Reference:
     extra = TEXT["emergency.self_harm"][language] if self_harm else ()
     return Reference(
@@ -597,6 +616,7 @@ def reference(
         safety=safety,
         extra=tuple(extra),
         customer=customer,
+        shown=shown,
     )
 
 
