@@ -13,6 +13,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
+from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
@@ -48,23 +49,48 @@ def event_loop():
     loop.close()
 
 
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def db_schema() -> AsyncGenerator[None, None]:
+    """Build the test schema once per session and drop it when the session ends.
+
+    The initial ``drop_all`` removes tables that an interrupted earlier run left behind, so the
+    session always starts from the current models. The engine lives in the session loop only;
+    tests use their own engine from ``test_db``.
+    """
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+
+    yield
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+
+
+def _truncate_all_tables(connection: Connection) -> None:
+    """Empty every model table and restart the sequences that its columns own."""
+    preparer = connection.dialect.identifier_preparer
+    tables = ", ".join(preparer.format_table(table) for table in Base.metadata.sorted_tables)
+    connection.exec_driver_sql(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE")
+
+
 @pytest_asyncio.fixture(scope="function")
-async def test_db() -> AsyncGenerator[AsyncSession, None]:
-    """Create test database session."""
+async def test_db(db_schema: None) -> AsyncGenerator[AsyncSession, None]:
+    """Create test database session on the session schema; empty all tables afterwards."""
     engine_test = create_async_engine(TEST_DATABASE_URL, echo=False)
     async_session_test = async_sessionmaker(
         engine_test, class_=AsyncSession, expire_on_commit=False
     )
 
-    async with engine_test.begin() as conn:
-        await conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
-        await conn.run_sync(Base.metadata.create_all)
-
     async with async_session_test() as session:
         yield session
 
     async with engine_test.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(_truncate_all_tables)
 
     await engine_test.dispose()
 
