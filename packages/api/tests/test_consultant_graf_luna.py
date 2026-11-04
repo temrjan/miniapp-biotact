@@ -12,8 +12,10 @@ from pydantic import ValidationError
 
 from src.consultant import graf, luna
 from src.consultant.checks import (
+    PUBLIC_CONTACTS,
     Catalogue,
     bad_form,
+    conditions_reference,
     customer_numbers,
     extract,
     question_reference,
@@ -63,7 +65,13 @@ def test_the_prefix_holds_the_r4_blocks_and_the_r6_rules():
     # Spec r6 §12 item 11 (T1): the r4 block headings and the HB-01 and PN-01 sentences.
     # Luna's behaviour under them is measured by DC-02; TC-04 and TC-08 enforce the safety
     # items whatever the prefix says.
-    for heading in ("SYMPATHY AND VARIETY", "AGE QUESTION WITH SEVERAL AGES", "HOW-TO-BUY TURN"):
+    # Spec r7 §2.7 item 11: plus the heading of block CD.
+    for heading in (
+        "SYMPATHY AND VARIETY",
+        "AGE QUESTION WITH SEVERAL AGES",
+        "HOW-TO-BUY TURN",
+        "SHOP CONDITIONS TURN",
+    ):
         assert "\n" + heading + "\n" in luna.PREFIX
     assert "press the «В корзину» («Savatga») button on its card" in luna.PREFIX
     assert "Name no product, except a shown product on a post-offer turn" in luna.PREFIX
@@ -686,7 +694,13 @@ def test_every_template_variant_and_shop_name_passes_tc06():
                                 )
                             )
                 for text in filled:
-                    assert not bad_form(text), (key, language, text)
+                    if key.startswith("conditions."):
+                        # spec r7 §2.5: with the CT-05 masking and a leading «* » or «** »
+                        # of a line removed (A is never delivered; T is checked in full).
+                        text = re.sub(r"(?m)^\*{1,2} ", "", text)
+                        assert not bad_form(text, PUBLIC_CONTACTS), (key, language, text)
+                    else:
+                        assert not bad_form(text), (key, language, text)
                     texts += 1
     assert texts > 20_000
 
@@ -748,6 +762,148 @@ def test_the_post_offer_question_may_name_a_shown_product_only(text, result):
     # Spec r6 §12 item 14 (S5): the displayed-selection set {IMMUNOCOMPLEX®}.
     ref = question_reference("ru", frozenset(), frozenset({"IMMUNOCOMPLEX®"}))
     assert check_text(text, ref, NAMES, "ru") == result
+
+
+# Spec r7 §2.7 item 17: the CT-01 to CT-05 cases (spec-r7-r1/s6_samples.json and the
+# acceptance column), RU and UZ. TK…CON are the conditions.* templates; the products a text
+# may name are those the spec says the approved texts name, plus the shown ones.
+TK, RG = "conditions.delivery_tashkent", "conditions.delivery_regions"
+PAY, RET, CON = "conditions.payment", "conditions.return", "conditions.contacts"
+BIFOLAK = frozenset({"BIFOLAK® ACTIVE", "BIFOLAK® MAGNIY"})
+IMMUNO = frozenset({"IMMUNOCOMPLEX®"})
+DELIVERY_RU = "IMMUNOCOMPLEX® доставим по Ташкенту за 30 000 сум, от 250 000 сум — бесплатно."
+CONTACTS_UZ = (
+    "Savollaringiz bo'lsa, 998 93 555 17 47 raqamiga qo'ng'iroq qiling yoki telegramda "
+    "yozing: @Biotact_uz."
+)
+
+
+@pytest.mark.parametrize(
+    ("language", "keys", "products", "text", "result"),
+    [
+        # CT-01 products
+        (
+            "ru",
+            (RET,),
+            BIFOLAK,
+            "К сожалению, товар возврату и обмену не подлежит. По соглашению сторон BIFOLAK® "
+            "ACTIVE и BIFOLAK® MAGNIY можно заменить по форме выпуска — со стиков на капсулы и "
+            "наоборот.",
+            None,
+        ),
+        ("ru", (TK, RG), IMMUNO, DELIVERY_RU, None),  # post-offer, IMMUNOCOMPLEX® shown
+        ("ru", (TK, RG), frozenset(), DELIVERY_RU, "TC-01"),
+        ("ru", (RET,), BIFOLAK, "Замена возможна для IMMUNOCOMPLEX®.", "TC-01"),
+        (
+            "uz",
+            (RET,),
+            BIFOLAK,
+            "Mahsulot qaytarilmaydi va almashtirilmaydi. Kelishuvga ko'ra BIFOLAK® ACTIVE va "
+            "BIFOLAK® MAGNIY shaklini almashtirish mumkin: stiklardan kapsulalarga va aksincha.",
+            None,
+        ),
+        ("uz", (RET,), BIFOLAK, "IMMUNOCOMPLEX® ham almashtirilishi mumkin.", "TC-01"),
+        # CT-02 values (and the swap case, recorded as passing: a residual risk)
+        (
+            "ru",
+            (TK, RG),
+            frozenset(),
+            "Доставляем по Ташкенту с понедельника по пятницу, примерно с 16 до 20 часов.",
+            None,
+        ),
+        (
+            "ru",
+            (TK, RG),
+            frozenset(),
+            "Стоимость доставки — 250 000 сум, бесплатно от 30 000 сум.",
+            None,
+        ),
+        (
+            "ru",
+            (TK, RG),
+            frozenset(),
+            "Доставка по Ташкенту бесплатная при заказе от 20 000 сум.",
+            "CT-02",
+        ),
+        ("ru", (TK, RG), frozenset(), "Доставка по Ташкенту стоит тридцать тысяч сум.", "CT-02"),
+        ("ru", (TK, RG), frozenset(), "Доставка бесплатная от 300 тысяч сум.", "TC-03"),
+        ("ru", (TK, RG), frozenset(), "Доставка займёт 3 дня.", "TC-03"),
+        (
+            "uz",
+            (TK, RG),
+            frozenset(),
+            "Toshkent bo'ylab yetkazib berish narxi 30 000 so'm, 250 000 so'm va undan yuqori "
+            "xaridlarda bepul. Hududlarga BTS Express kuryerlik xizmati yetkazadi, muddat va "
+            "narx uning shartlarida belgilanadi va alohida to'lanadi.",
+            None,
+        ),
+        (
+            "uz",
+            (TK, RG),
+            frozenset(),
+            "Toshkent bo'ylab 20 000 so'mdan yuqori xaridlarda yetkazib berish bepul.",
+            "CT-02",
+        ),
+        (
+            "uz",
+            (TK, RG),
+            frozenset(),
+            "Toshkent bo'ylab 100 000 so'mdan yuqori xaridlarda yetkazib berish bepul.",
+            "TC-03",
+        ),
+        # CT-03 contacts
+        (
+            "ru",
+            (CON,),
+            frozenset(),
+            "Позвоните по номеру 998 93 555 17 47 или напишите в Телеграм: @Biotact_uz.",
+            None,
+        ),
+        ("ru", (CON,), frozenset(), "Напишите нам в телеграм: @biotact_support.", "CT-03"),
+        ("ru", (CON,), frozenset(), "Позвоните по номеру 998 93 555 17 47.", "CT-03"),
+        ("ru", (CON,), frozenset(), "Позвоните по номеру 998 90 123 45 67.", "TC-03"),
+        ("uz", (CON,), frozenset(), CONTACTS_UZ, None),
+        ("uz", (CON,), frozenset(), "Telegramda yozing: @biotact_support.", "CT-03"),
+        ("uz", (CON,), frozenset(), "Telefon: 998 93 555 17 48.", "TC-03"),
+        # CT-04 claims: modal stems allowed; condition stems only where the texts hold them
+        (
+            "ru",
+            (TK, RG),
+            frozenset(),
+            "По Ташкенту доставка стоит 30 000 сум, а при покупке от 250 000 сум она бесплатная.",
+            None,
+        ),
+        (
+            "ru",
+            (PAY,),
+            frozenset(),
+            "Оплатить можно онлайн через Multicard: Payme, Click, Uzum, Xazna, Alif, Anorbank, "
+            "Oson, Beepul, Paynet, СБП, Trastpay, HUMO, UzCard, Visa и MasterCard.",
+            None,
+        ),
+        ("ru", (RET,), BIFOLAK, "Товар нельзя вернуть или обменять.", None),
+        ("ru", (RG,), frozenset(), "В регионы доставка бесплатная.", "CT-04"),
+        ("ru", (PAY,), frozenset(), "Можно оплатить наличными курьеру.", "CT-04"),
+        ("ru", (PAY,), frozenset(), "Оплатить можно через Payme или в рассрочку.", "CT-04"),
+        ("uz", (RG,), frozenset(), "Hududlarga yetkazib berish bepul.", "CT-04"),
+        ("uz", (PAY,), frozenset(), "Naqd pul bilan ham to'lash mumkin.", "CT-04"),
+        # CT-05 form: the approved phone is masked before SENSITIVE; the rest of TC-06 stays
+        (
+            "ru",
+            (CON,),
+            frozenset(),
+            "Можно позвонить: +998 93 555 17 47, или написать в телеграм @Biotact_uz.",
+            None,
+        ),
+        ("ru", (PAY,), frozenset(), "Оплатить можно на сайте www.biotact.uz/pay.", "TC-06"),
+        ("ru", (RET,), BIFOLAK, graf.TEXT[RET]["ru"][0], "TC-06"),  # the footnote marks of A
+        ("uz", (PAY,), frozenset(), "To'lov saytda: www.biotact.uz/pay.", "TC-06"),
+    ],
+)
+def test_the_checks_of_a_conditions_text(language, keys, products, text, result):
+    parts = [Part(k, (), graf.TEXT[k][language][0]) for k in keys]
+    ref = conditions_reference(language, parts, products, frozenset())
+    assert check_text(text, ref, NAMES, language) == result
 
 
 @pytest.mark.parametrize(
@@ -846,8 +1002,9 @@ def test_every_template_variant_passes_against_its_family():
                     )
                     checked += 1
     # The count of spec r2 answers E-2 (99 templates, RU and UZ), plus spec r6 info.how_to_buy
-    # (2 variants in each language: 4 pairs each).
-    assert checked == 808
+    # (2 variants in each language: 4 pairs each), plus the five spec r7 conditions.*
+    # templates (1 variant in each language: 1 pair each).
+    assert checked == 818
 
 
 # --- OP-04 PROFILE ---------------------------------------------------------------------------

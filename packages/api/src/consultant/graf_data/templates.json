@@ -819,6 +819,56 @@
    "placeholders": [],
    "use": "spec r6 S4 (BUY-03): a message that only asks how to buy or order on the site; the website labels at 21c870c (Basket.tsx basketCopy add / title); no order, payment or delivery step"
   },
+  "conditions.delivery_tashkent": {
+   "ru": [
+    "Доставка по Ташкенту\nСтандартная курьерская доставка\nЗаказы, оформленные до 13:00, доставляются в тот же день. После 13:00 — на следующий рабочий день\nСтоимость доставки — 30 000 сум\nДоставка осуществляется с понедельника по пятницу, ориентировочно с 16:00 до 20:00\nТолько предоплата — оплата до отправки заказа\nПри покупке от 250 000 сум — доставка по Ташкенту бесплатная"
+   ],
+   "uz": [
+    "Toshkent shahri bo'ylab yetkazib berish\nKuryer orqali standart yetkazib berish\nSoat 13:00 gacha rasmiylashtirilgan buyurtmalar shu kunning o'zida yetkazib beriladi. Soat 13:00 dan keyin esa — keyingi ish kunida\nYetkazib berish narxi — 30 000 so'm\nYetkazib berish dushanbadan jumagacha, taxminan soat 16:00 dan 20:00 gacha amalga oshiriladi\nFaqat oldindan to'lov — to'lov buyurtma jo'natilishidan avval amalga oshiriladi\n250 000 so'm va undan yuqori xaridlar uchun Toshkent shahri bo'ylab yetkazib berish bepul"
+   ],
+   "placeholders": [],
+   "use": "spec r7 S6 (CR-03, §2.4): delivery in Tashkent; the Captain's text 2026-11-04"
+  },
+  "conditions.delivery_regions": {
+   "ru": [
+    "Доставка по Узбекистану\nВсе регионы республики\nДоставка по регионам осуществляется курьерской службой BTS Express. Сроки и стоимость определяются на условиях службы доставки и оплачиваются клиентом отдельно"
+   ],
+   "uz": [
+    "O'zbekiston bo'ylab yetkazib berish\nRespublikaning barcha hududlari\nHududlar bo'ylab yetkazib berish BTS Express kuryerlik xizmati tomonidan amalga oshiriladi. Muddat va narx yetkazib berish xizmati shartlarida belgilanadi hamda mijoz tomonidan alohida to'lanadi."
+   ],
+   "placeholders": [],
+   "use": "spec r7 S6 (CR-03, §2.4): delivery to the regions; the Captain's text 2026-11-04"
+  },
+  "conditions.payment": {
+   "ru": [
+    "Оплата\nУдобный способ на ваш выбор\nОплата производится онлайн через платёжный агрегатор Multicard, который поддерживает более 10 платёжных систем\nPayme\nClick\nUzum\nXazna\nAlif\nAnorbank\nOson\nBeepul\nPaynet\nСБП\nTrastpay\nHUMO\nUzCard\nVisa\nMasterCard"
+   ],
+   "uz": [
+    "To'lov\nTanlovingiz bo'yicha qulay usul\nTo'lov 10 dan ortiq to'lov tizimlarini qo'llab-quvvatlaydigan Multicard to'lov agregatori orqali onlayn amalga oshiriladi.\nPayme\nClick\nUzum\nXazna\nAlif\nAnorbank\nOson\nBeepul\nPaynet\nSBP\nTrastpay\nHUMO\nUzCard\nVisa\nMasterCard"
+   ],
+   "placeholders": [],
+   "use": "spec r7 S6 (CR-03, §2.4): payment; the Captain's text 2026-11-04"
+  },
+  "conditions.return": {
+   "ru": [
+    "Возврат и обмен\nТовар возврату и обмену не подлежит\n* Продукция может быть дополнена и укомплектована по усмотрению ООО «BIOTACT» материалами информационного и/или рекламного характера (бумажный пакет, флаеры, буклеты, пробники, образцы и т.д.)\n** По соглашению сторон продукция BIFOLAK® ACTIVE и BIFOLAK® MAGNIY может быть заменена по форме выпуска (со стиков на капсулы и наоборот)"
+   ],
+   "uz": [
+    "Qaytarish va almashtirish\nMahsulot qaytarilmaydi va almashtirilmaydi\n* Mahsulotlar \"BIOTACT\" MCHJning ixtiyoriga ko'ra axborot va/yoki reklama xususiyatiga ega materiallar (qog'oz paket, flayerlar, bukletlar, namunalar va boshqalar) bilan to'ldirilishi va butlanishi mumkin.\n** Tomonlarning kelishuviga ko'ra, BIFOLAK® ACTIVE va BIFOLAK® MAGNIY mahsulotlari ishlab chiqarish shakli bo'yicha almashtirilishi mumkin (stiklardan kapsulalarga va aksincha)."
+   ],
+   "placeholders": [],
+   "use": "spec r7 S6 (CR-03, §2.4): return and exchange; the Captain's text 2026-11-04"
+  },
+  "conditions.contacts": {
+   "ru": [
+    "Если у Вас есть вопросы, можете обратиться\nпо номеру: 998 93 555 17 47\nили написать в телеграм: @Biotact_uz"
+   ],
+   "uz": [
+    "Savollaringiz bo'lsa, bizga murojaat qilishingiz mumkin\ntelefon raqami: 998 93 555 17 47\nyoki telegramda yozing: @Biotact_uz"
+   ],
+   "placeholders": [],
+   "use": "spec r7 S6 (CR-03, §2.4): contacts; the Captain's text 2026-11-04"
+  },
   "question.message": {
    "ru": [
     "{ack} {question}"

@@ -830,6 +830,8 @@ STATUS = {
     "offer": "answer",
     # spec r6 BUY-03: the how-to-buy answer (template info.how_to_buy).
     "how_to_buy": "answer",
+    # spec r7 CN-01: the shop conditions answer (templates conditions.*).
+    "conditions": "answer",
     "emergency": "limited",
     "doctor": "limited",
     "no_product": "limited",

@@ -102,6 +102,13 @@ HOW-TO-BUY TURN
 - Keep both button names exactly as the approved text writes them. Add no other step, say nothing about ordering, payment or delivery, write no sympathy line, and use text.target "decision".
 - Name no product, except a shown product on a post-offer turn (the brief lists the shown products).
 
+SHOP CONDITIONS TURN
+- On a conditions turn (turn "conditions", decision kind "conditions") answer the customer's question from the approved texts only, in simple spoken sentences. Use the facts that answer the question, use text.target "decision", and write no sympathy line.
+- Add no fact, number, amount, time, place, payment method, discount, cash or installment option, return promise or condition that the approved texts do not state. When the question asks about something the texts do not cover, say what the texts say and do not guess.
+- Write every amount, every time, the phone number and the Telegram handle exactly as the approved text writes them (for example «30 000 сум», «13:00», «998 93 555 17 47», «@Biotact_uz»). Do not repeat a number from the customer's message. When the contacts text is given, give both the phone number and the Telegram handle.
+- Do not copy the headings, the list layout or the footnote marks (* and **). Name the payment systems inline, separated by commas.
+- Name no product, except BIFOLAK® ACTIVE and BIFOLAK® MAGNIY when the return text is given, and a shown product on a post-offer turn.
+
 OUTPUT
 Return one JSON object that matches the response schema: first the reading, then the text."""
 

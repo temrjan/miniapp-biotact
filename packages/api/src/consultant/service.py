@@ -12,7 +12,7 @@ from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
-from src.consultant.checks import RUSSIAN_PROSE
+from src.consultant.checks import PUBLIC_CONTACTS, RUSSIAN_PROSE, mask
 from src.consultant.context import (
     SENSITIVE,
     Check,
@@ -26,7 +26,15 @@ from src.consultant.context import (
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
 from src.consultant.graf import Graf, Stage
-from src.consultant.hybrid import Failure, HybridTurn, buying, route
+from src.consultant.hybrid import (
+    HOW_TO_BUY,
+    Failure,
+    HybridTurn,
+    buying,
+    conditions,
+    conditions_outcome,
+    route,
+)
 from src.consultant.knowledge import ADVICE, Evidence, Knowledge
 from src.consultant.provider import PROFILE, Provider
 from src.consultant.record import GRAF_DATA, Counters, Recorder, TurnRecord, noop
@@ -111,8 +119,10 @@ class Consultant:
             await self.controls.reconcile(reservation, owner, inputs, outputs)
 
     async def turn(self, request: Turn) -> dict[str, Any]:
+        # spec r7 CT-06: the shop's approved public contacts in an earlier answer are masked.
         if SENSITIVE.search(request.question) or any(
-            SENSITIVE.search(p.question + " " + p.answer) for p in request.history
+            SENSITIVE.search(p.question + " " + mask(p.answer, PUBLIC_CONTACTS))
+            for p in request.history
         ):
             raise Fault("sensitive_input", 422)
         record = TurnRecord.start(request)
@@ -261,7 +271,9 @@ class Consultant:
         # Step 5a (spec r6 BUY-01, BUY-02): after the product path, before steps 6 to 8, and
         # never on a safety turn.
         buy = target.kind != "product" and buying(request.question)
-        if not target.hybrid and not buy:
+        # Step 5b (spec r7 §2.1, CN-04): the same place; 5a and 5b exclude each other (CR-02).
+        shop = () if target.kind == "product" or buy else conditions(request.question)
+        if not target.hybrid and not buy and not shop:
             # Step 5 (and a version 1 flow whose start left the window): the product path.
             record.path, work.hybrid = "product", False
             if target.kind == "aside":
@@ -276,7 +288,9 @@ class Consultant:
         if not self.hybrid:
             raise Failure("switch_off")
         if buy:
-            return await work.how_to_buy(target)
+            return await work.info(target, HOW_TO_BUY)
+        if shop:
+            return await work.info(target, conditions_outcome(shop))
         return await work.normal(target)
 
     async def product(
