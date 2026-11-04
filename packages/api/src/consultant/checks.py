@@ -352,10 +352,75 @@ RUSSIAN_PROSE = re.compile(
 )
 
 
-def bad_form(text: str) -> bool:
+def bad_form(text: str, masked: frozenset[str] = frozenset()) -> bool:
     """TC-06: a link, an address without a scheme, HTML, Markdown, a list or heading line,
-    or SENSITIVE."""
-    return bool(FORM.search(text) or ADDRESS.search(text) or SENSITIVE.search(text))
+    or SENSITIVE. SENSITIVE is searched after the values in `masked` are masked (spec r7
+    CT-05)."""
+    return bool(FORM.search(text) or ADDRESS.search(text) or SENSITIVE.search(mask(text, masked)))
+
+
+# --- spec r7 CT-02 to CT-06: the values, handles and condition stems of the shop texts -------
+
+# CT-02: a value is a maximal run of digit groups (joined by ':', '.' or ',') separated by
+# white space inside one line; each white-space run reads as one ASCII space.
+VALUE = re.compile(r"\d+(?:[:.,]\d+)*(?:[^\S\n]+\d+(?:[:.,]\d+)*)*")
+SPACES = re.compile(r"\s+")
+HOUR = re.compile(r"(\d{1,2}):\d\d")
+MULTIPLIERS = ("тыс", "млн", "миллион", "млрд", "ming", "минг", "mln", "million", "mlrd")
+HANDLE = re.compile(r"@\w+")
+# CT-04: (a) the modal stems a conditions text may use; (b) the condition stems it may use
+# only where the approved texts hold them.
+MODALS = frozenset({"можно", "нельзя", "mumkin"})
+CONDITION_CLAIMS = (
+    "бесплатн",
+    "bepul",
+    "tekin",
+    "наличн",
+    "naqd",
+    "нақд",
+    "рассроч",
+    "nasiya",
+    "скидк",
+    "chegirma",
+    "промокод",
+    "promokod",
+    "кешбэк",
+    "кэшбэк",
+    "keshbek",
+)
+CONTACTS = "conditions.contacts"
+
+
+def values(text: str) -> list[str]:
+    """CT-02: the values of a text, each white-space run read as one space."""
+    return [SPACES.sub(" ", m[0]) for m in VALUE.finditer(text)]
+
+
+def mask(text: str, masked: frozenset[str]) -> str:
+    """Every value of the text that is one of `masked` replaced by one space (CT-05, CT-06).
+    A value inside a longer run of digit groups is another value and stays."""
+    if not masked:
+        return text
+    return VALUE.sub(lambda m: " " if SPACES.sub(" ", m[0]) in masked else m[0], text)
+
+
+def public_values(texts: Iterable[str]) -> frozenset[str]:
+    """The values of the texts that SENSITIVE matches (at r7 the shop's phone number)."""
+    return frozenset(v for t in texts for v in values(t) if SENSITIVE.search(v))
+
+
+# CT-06: the approved public contact values of the conditions templates, both languages.
+PUBLIC_CONTACTS = public_values(
+    v
+    for key, item in TEXT.items()
+    if key.startswith("conditions.")
+    for language in ("ru", "uz")
+    for v in item[language]
+)
+
+
+def handles(text: str) -> frozenset[str]:
+    return frozenset(h.casefold() for h in HANDLE.findall(text))
 
 
 def language_ok(language: str, text: str) -> bool:
@@ -413,10 +478,40 @@ class Reference:
     customer: frozenset[float] = frozenset()
     situation_level: bool = False
     shown: frozenset[str] | None = None
+    # spec r7 §2.5: the reference of a conditions decision (CT-01 to CT-05 apply).
+    conditions: bool = False
 
     @cached_property
     def families(self) -> tuple[tuple[str, ...], ...]:
         return tuple(p.variants(self.language) for p in self.parts)
+
+    @cached_property
+    def values(self) -> frozenset[str]:
+        return frozenset(v for t in self.everything for v in values(t))
+
+    @cached_property
+    def hours(self) -> frozenset[str]:
+        return frozenset(m[1] for v in self.values if (m := HOUR.fullmatch(v)))
+
+    @cached_property
+    def public(self) -> frozenset[str]:
+        return public_values(self.everything)
+
+    @cached_property
+    def handles(self) -> frozenset[str]:
+        return frozenset(h for t in self.everything for h in handles(t))
+
+    @cached_property
+    def contacts(self) -> tuple[frozenset[str], frozenset[str]]:
+        """CT-03: the public values and the handles a text must hold when the contacts
+        text is part of the decision."""
+        texts = [v for p in self.parts if p.template == CONTACTS for v in p.variants(self.language)]
+        return public_values(texts), frozenset(h for t in texts for h in handles(t))
+
+    @cached_property
+    def condition_claims(self) -> frozenset[str]:
+        found = (Words.of(v) for v in self.everything)
+        return frozenset(c for w in found for c in CONDITION_CLAIMS if positions(w, c, "stem"))
 
     @cached_property
     def everything(self) -> tuple[str, ...]:
@@ -567,9 +662,10 @@ def check(
                 near.add((token, toks[i + 1]))
             if not near & reference.allowed_bigrams:
                 return "TC-05"
-    if claims(text) - reference.allowed_claims:
+    modals = MODALS if reference.conditions else frozenset()
+    if claims(text) - reference.allowed_claims - modals:
         return "TC-05"
-    if bad_form(text):
+    if bad_form(text, reference.public if reference.conditions else frozenset()):
         return "TC-06"
     if not language_ok(language, text):
         return "TC-07"
@@ -577,6 +673,29 @@ def check(
         return "TC-08"
     if INTERNAL & set(toks) or any(norm(a) in norm(text) for a in ANNOTATIONS):
         return "TC-10"
+    if reference.conditions:
+        return conditions_check(text, reference)
+    return None
+
+
+def conditions_check(text: str, reference: Reference) -> str | None:
+    """spec r7 CT-02 to CT-04 (b), after the other checks of a conditions text."""
+    if any(v not in reference.values and v not in reference.hours for v in values(text)):
+        return "CT-02"
+    if any(t.startswith(MULTIPLIERS) for t in tokens(text)):
+        return "CT-02"
+    found = handles(text)
+    if found - reference.handles:
+        return "CT-03"
+    required_values, required_handles = reference.contacts
+    if required_values - set(values(text)) or required_handles - found:
+        return "CT-03"
+    words = Words.of(text)
+    if any(
+        positions(words, c, "stem") and c not in reference.condition_claims
+        for c in CONDITION_CLAIMS
+    ):
+        return "CT-04"
     return None
 
 
@@ -620,14 +739,28 @@ def reference(
     )
 
 
+def conditions_reference(
+    language: str, parts: Sequence[Part], products: frozenset[str], customer: frozenset[float]
+) -> Reference:
+    """spec r7 §2.5: the reference of a conditions decision. `products` are the products a
+    text may name (CT-01): those the approved texts name and, on a post-offer turn, the
+    displayed selection; the empty set passes."""
+    return Reference(
+        language, tuple(parts), frozenset(), customer=customer, shown=products, conditions=True
+    )
+
+
 __all__ = [
+    "PUBLIC_CONTACTS",
     "Catalogue",
     "Numbers",
     "Part",
     "Reference",
     "check",
+    "conditions_reference",
     "customer_numbers",
     "extract",
+    "mask",
     "question_reference",
     "reference",
 ]

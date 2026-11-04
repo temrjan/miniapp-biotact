@@ -15,6 +15,7 @@ from src.consultant.checks import (
     Catalogue,
     Reference,
     anchors,
+    conditions_reference,
     customer_numbers,
     has_number,
     has_unit,
@@ -66,6 +67,8 @@ CHECK = Outcome("check", None, "emergency.check")
 GENERAL = Outcome("emergency", None, "emergency.general")
 POST_OFFER = Outcome("post_offer")
 HOW_TO_BUY = Outcome("how_to_buy", None, "info.how_to_buy")
+# spec r7 CN-01: the kind of a conditions decision; its templates are its `options`.
+CONDITIONS = "conditions"
 
 # spec r6 BUY-01: a how-to-buy message holds a buy term, and every Graf token of it is a buy
 # term, a question or filler word, or a verb form of ol-/ber-/qil- after a buy term. Buy terms
@@ -150,6 +153,112 @@ def buying(question: str) -> bool:
         elif word not in BUY_WORDS and not (after and word.startswith(BUY_VERBS)):
             return False
     return after
+
+
+def _words(text: str) -> tuple[str, ...]:
+    return tuple(text.split())
+
+
+# spec r7 CR-01: a conditions message holds a topic term, and every Graf token of it is a topic
+# term, a place word, an admitted word, a digit token, a BUY-01 buy term or word, or, after a
+# topic term, a verb form of ber-/qil-/bo'l-/ol-. Topic terms, place words and the admitted
+# stems match as stems; the admitted words match whole. No admitted word carries a complaint,
+# product, person, age, safety or dose meaning, so any such token stops the rule.
+CONDITION_TOPICS: dict[str, tuple[str, ...]] = {
+    "delivery": _words(
+        "достав привез привоз курьер отправ yetkaz етказ dostavka kuryer jo'nat жўнат"
+    ),
+    "payment": _words(
+        "оплат оплач заплат предоплат плат to'lov to'la тўлов тўла payme click uzum xazna alif "
+        "anorbank oson beepul paynet сбп sbp trastpay humo хумо uzcard узкард visa mastercard "
+        "multicard карт karta наличн naqd нақд"
+    ),
+    "return": _words(
+        "возврат вернут верну вернёт вернет вернём вернем обмен поменя замен qaytar қайтар "
+        "almash алмаш"
+    ),
+    "contacts": _words(
+        "связат связь связи контакт телефон позвон звон телеграм telegram телеграмм aloqa "
+        "алоқа bog'lan боғлан telefon qo'ng'iroq қўнғироқ murojaat мурожаат"
+    ),
+    "overview": _words("услови shart шарт"),
+}
+PLACES_TASHKENT = _words("ташкент тошкент toshkent")
+PLACES_REGIONS = _words(
+    "регион област город район узбекистан республик viloyat вилоят hudud ҳудуд shahar шаҳар "
+    "tuman туман o'zbekiston ўзбекистон самарканд samarqand самарқанд бухар buxoro бухоро "
+    "андижан andijon андижон наманган namangan ферган farg'ona фарғона коканд qo'qon қўқон "
+    "карши qarshi қарши термез termiz термиз нукус nukus ургенч urganch урганч хив xiva "
+    "навои navoiy джизак jizzax жиззах гулистан guliston гулистон каракалпак qoraqalpog "
+    "қорақалпоғ сурхандар surxondaryo кашкадар qashqadaryo хорезм xorazm сырдар sirdaryo "
+    "чирчик chirchiq ангрен angren алмалык olmaliq маргилан marg'ilon"
+)
+CONDITION_STEMS = BUY_TERMS + _words(
+    "стоимост бесплатн платн сроч выходн суббот воскресен рабоч служб получен товар продукт "
+    "онлайн onlayn номер raqam рақам написат yoz ёз bepul pullik narx нарх qancha қанча "
+    "qachon қачон nech неч soat соат kun кун hafta ҳафта стик капсул stik kapsul mahsulot "
+    "маҳсулот"
+)
+CONDITION_WORDS = BUY_WORDS | frozenset(
+    _words(
+        "сколько стоит стоить цена срок сроки долго быстро когда сегодня завтра день дня дней "
+        "время часов часа час какие какая какой чем через по в во до из к с со за от или но же "
+        "это есть будет ваш ваша вашей вам нас мы нам меня где куда нельзя надо нужно только "
+        "при получить деньги денег обратно назад если не то тоже вообще примерно обычно сейчас "
+        "сум тысяч so'm сўм ming минг va yoki ham bilan uchun bormi bor yo'q mi nima qaysi "
+        "қайси ни нима ва ёки ҳам билан учун борми бор йўқ pul пул bugun ertaga agar qayerga "
+        "қаерга shaharga toshkentga to'g'risida haqida ҳақида beriladimi bo'ladimi бўладими "
+        "mumkinmi мумкинми вами orqali орқали turadi туради bo'ylab бўйлаб"
+    )
+)
+CONDITION_VERBS = _words("ber qil bo'l ol бер қил бўл ол")
+# spec r7 CR-03: the templates in their fixed order.
+DELIVERY_TASHKENT, DELIVERY_REGIONS = "conditions.delivery_tashkent", "conditions.delivery_regions"
+CONDITION_TEMPLATES = (
+    DELIVERY_TASHKENT,
+    DELIVERY_REGIONS,
+    "conditions.payment",
+    "conditions.return",
+    "conditions.contacts",
+)
+
+
+def conditions(question: str) -> tuple[str, ...]:
+    """spec r7 CR-01 and CR-03: the templates a conditions message selects, in their fixed
+    order; empty when the message is not a conditions message."""
+    topics: set[str] = set()
+    places: set[str] = set()
+    after = False
+    for word in tokens(question):
+        found = {name for name, stems in CONDITION_TOPICS.items() if word.startswith(stems)}
+        if found:
+            topics |= found
+            after = True
+        elif word.startswith(PLACES_TASHKENT):
+            places.add(DELIVERY_TASHKENT)
+        elif word.startswith(PLACES_REGIONS):
+            places.add(DELIVERY_REGIONS)
+        elif not (
+            word.isdigit()
+            or word in CONDITION_WORDS
+            or word.startswith(CONDITION_STEMS)
+            or (after and word.startswith(CONDITION_VERBS))
+        ):
+            return ()
+    if topics == {"overview"}:
+        return CONDITION_TEMPLATES[:4]
+    chosen: set[str] = set()
+    if "delivery" in topics:
+        # One kind of place selects its text; no place or both kinds select both.
+        chosen |= places if len(places) == 1 else {DELIVERY_TASHKENT, DELIVERY_REGIONS}
+    chosen |= {"conditions." + name for name in topics - {"delivery", "overview"}}
+    return tuple(t for t in CONDITION_TEMPLATES if t in chosen)
+
+
+def conditions_outcome(templates: tuple[str, ...]) -> Outcome:
+    """spec r7 CN-01: the conditions decision. Its `template` is the template ids joined by
+    '+' (the record, CN-05)."""
+    return Outcome(CONDITIONS, None, "+".join(templates), options=templates)
 
 
 class Failure(Exception):
@@ -481,6 +590,8 @@ def describe(outcome: Outcome) -> dict[str, Any]:
     info: dict[str, Any] = {"kind": kind}
     if outcome.kind == HOW_TO_BUY.kind:
         return info  # spec r6 BUY-04: the decision {kind: "how_to_buy"}
+    if outcome.kind == CONDITIONS:
+        return {**info, "templates": list(outcome.options)}  # spec r7 CN-02
     if outcome.kind == "question" and outcome.template is not None:
         info["slot"] = QUESTION_SLOT.get(outcome.template)
     if outcome.kind == "confirm":
@@ -643,6 +754,12 @@ class HybridTurn:
         """The approved text A of a decision; None for a situation-level question (R-Q)."""
         if outcome.kind in SITUATION_LEVEL:
             return None
+        if outcome.kind == CONDITIONS:
+            # spec r7 CN-01: the selected templates in their order, joined by a blank line.
+            writer = Writer(request)
+            answer = "\n\n".join(writer.pick(template) for template in outcome.options)
+            parts = tuple(writer.parts)
+            return Reply(STATUS[CONDITIONS], answer, [], [], [], [], CONDITIONS, None, parts)
         evidence = None if outcome.kind in SAFETY_KINDS else self.evidence
         return self.graf.reply(Writer(request), outcome, evidence, facts, log=False)
 
@@ -843,6 +960,16 @@ class HybridTurn:
         return frozenset(n for name in names for n in self.catalogue.find(name))
 
     def reference(self, outcome: Outcome, reply: Reply | None, harm: bool = False) -> Reference:
+        if outcome.kind == CONDITIONS and reply is not None:
+            # spec r7 CT-01: the products the approved texts name, and on a post-offer turn
+            # the displayed selection.
+            named = frozenset(n for part in reply.parts for n in self.catalogue.find(part.text))
+            return conditions_reference(
+                self.request.language,
+                reply.parts,
+                named | (self.shown() if self.selection else frozenset()),
+                self.customer_set,
+            )
         # spec r6 S5: the post-offer question, and the how-to-buy answer on a post-offer turn,
         # may name a product of the displayed selection.
         shown = (
@@ -1174,16 +1301,17 @@ class HybridTurn:
         reading = self.validate(parsed.answer, prepared.hits, prepared.brief.facts)
         return await self.conclude(prepared, reading, parsed.answer.text, None)
 
-    def buying_brief(
-        self, reply: Reply, post: bool, second: dict[str, Any] | None = None
+    def info_brief(
+        self, outcome: Outcome, reply: Reply, post: bool, second: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """BUY-04: the dynamic JSON of a how-to-buy call; Graf ran nothing for the message."""
+        """BUY-04 (spec r7 CN-02): the dynamic JSON of a how-to-buy or conditions call; Graf
+        ran nothing for the message."""
         brief: dict[str, Any] = {
             "language": self.request.language,
-            "turn": HOW_TO_BUY.kind,
+            "turn": outcome.kind,
             "conversation": self.conversation(),
             "jev": self.jev(),
-            "decision": describe(HOW_TO_BUY),
+            "decision": describe(outcome),
             "hits": [],
             "texts": {"decision": reply.answer, "check": self.stage_text(CHECK)},
         }
@@ -1193,18 +1321,19 @@ class HybridTurn:
             brief["second_call"] = second
         return brief
 
-    async def how_to_buy(self, target: Route) -> dict[str, Any]:
-        """A how-to-buy turn (spec r6 §5.5): Luna writes from info.how_to_buy; only her
-        danger reading acts (SF-05). The response keeps the incoming flow state, selection,
-        pregnancy flag and cleared digests (BUY-05), so an open flow or an offer goes on."""
+    async def info(self, target: Route, outcome: Outcome) -> dict[str, Any]:
+        """A how-to-buy turn (spec r6 §5.5) or a conditions turn (spec r7 §2.3): Luna writes
+        from the approved text; only her danger reading acts (SF-05). The response keeps the
+        incoming flow state, selection, pregnancy flag and cleared digests (BUY-05, CN-03), so
+        an open flow or an offer goes on."""
         post = target.kind == "post_offer"
-        reply = self.render(self.request, HOW_TO_BUY, None)
+        reply = self.render(self.request, outcome, None)
         assert reply is not None
 
         def again(extra: dict[str, Any]) -> dict[str, Any]:
-            return self.buying_brief(reply, post, extra)
+            return self.info_brief(outcome, reply, post, extra)
 
-        parsed = await self.call(self.buying_brief(reply, post))
+        parsed = await self.call(self.info_brief(outcome, reply, post))
         if parsed.answer is None:
             raise Failure("luna")
         reading = self.validate(parsed.answer, [], None)
@@ -1213,9 +1342,9 @@ class HybridTurn:
         if danger:
             check = Check(digest(self.request.question), danger)
             return await self.safety_outcome(CHECK, text, check, None, None, again=again)
-        delivered = await self.text_for(HOW_TO_BUY, reply, text, text.target == "decision", again)
-        self.graf.log(None, HOW_TO_BUY.kind)
-        self.record.graf_outcome, self.record.template = HOW_TO_BUY.kind, HOW_TO_BUY.template
+        delivered = await self.text_for(outcome, reply, text, text.target == "decision", again)
+        self.graf.log(None, outcome.kind)
+        self.record.graf_outcome, self.record.template = outcome.kind, outcome.template
         cards = [self.evidence.products[i] for i in self.selection] if post else []
         carry = replace(self.carry, flow=self.incoming, check=None)
         return self.c.envelope(
@@ -1302,4 +1431,14 @@ class HybridTurn:
         }
 
 
-__all__ = ["Failure", "HybridTurn", "Reading", "Route", "Validator", "buying", "route"]
+__all__ = [
+    "Failure",
+    "HybridTurn",
+    "Reading",
+    "Route",
+    "Validator",
+    "buying",
+    "conditions",
+    "conditions_outcome",
+    "route",
+]

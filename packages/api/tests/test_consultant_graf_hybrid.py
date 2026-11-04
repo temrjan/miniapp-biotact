@@ -107,8 +107,16 @@ async def test_first_as_a_reply_to_a_choose_question_continues_the_flow():
     assert reply["status"] == "clarification"
 
 
-# spec r6 §12 item 13 (f): a how-to-buy message that names a product keeps the product path.
-@pytest.mark.parametrize("question", ["Как принимать IMMUNOCOMPLEX®?", "Как купить IMMUNOCOMPLEX?"])
+# spec r6 §12 item 13 (f), spec r7 §2.7 item 16 (f): a how-to-buy or conditions message that
+# names a product keeps the product path.
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Как принимать IMMUNOCOMPLEX®?",
+        "Как купить IMMUNOCOMPLEX?",
+        "доставка IMMUNOCOMPLEX в Самарканд?",
+    ],
+)
 async def test_named_product_goes_to_the_product_path_without_luna(question):
     chat = Recorded(OpenRouter())
     await chat.say(question)
@@ -1581,6 +1589,189 @@ async def test_a_post_offer_question_naming_the_shown_product_is_delivered():
     assert reply["products"] == offer["products"]
 
 
+# --- spec r7 S6 shop conditions (§2.1 to §2.3, CT-06; §2.7 items 15 and 16) ------------------
+
+TK, RG = "conditions.delivery_tashkent", "conditions.delivery_regions"
+PAY, RET, CON = "conditions.payment", "conditions.return", "conditions.contacts"
+DELIVERY = (
+    "По Ташкенту доставка стоит 30 000 сум, от 250 000 сум — бесплатно. "
+    "В регионы везёт BTS Express, сроки и стоимость — по её условиям."
+)
+CONTACTS = "Позвоните по номеру 998 93 555 17 47 или напишите в Телеграм: @Biotact_uz."
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("а доставка бесплатная?", (TK, RG)),
+        ("сколько стоит доставка?", (TK, RG)),
+        ("доставляете в Самарканд?", (RG,)),
+        ("чем можно оплатить?", (PAY,)),
+        ("можно вернуть?", (RET,)),
+        ("как с вами связаться?", (CON,)),
+        ("как заказать доставку в Самарканд?", (RG,)),
+        ("как оплатить?", (PAY,)),
+        ("Сколько стоит доставка по Ташкенту?", (TK,)),
+        ("Когда привезут заказ?", (TK, RG)),
+        ("Можно оплатить картой Humo?", (PAY,)),
+        ("Можно наличными?", (PAY,)),
+        ("Можно поменять стики на капсулы?", (RET,)),
+        ("Какой у вас номер телефона?", (CON,)),
+        ("Доставка и оплата?", (TK, RG, PAY)),
+        ("Какие у вас условия?", (TK, RG, PAY, RET)),
+        ("Условия доставки в регионы", (RG,)),
+        ("Есть доставка по Узбекистану?", (RG,)),
+        ("Доставка по Ташкенту и в Самарканд?", (TK, RG)),  # both kinds of place
+        ("Хочу заказать с доставкой, сколько стоит?", (TK, RG)),
+        ("Заказ на 300 000 сум, доставка бесплатная?", (TK, RG)),
+        ("Yetkazib berish qancha turadi?", (TK, RG)),
+        ("Yetkazib berish narxi qancha?", (TK, RG)),
+        ("Samarqandga yetkazib berasizmi?", (RG,)),
+        ("Qanday to'lasa bo'ladi?", (PAY,)),
+        ("Payme orqali to'lash mumkinmi?", (PAY,)),
+        ("Mahsulotni qaytarsa bo'ladimi?", (RET,)),
+        ("Siz bilan qanday bog'lansa bo'ladi?", (CON,)),
+        ("Toshkent bo'ylab yetkazib berish bepulmi?", (TK,)),
+        ("Етказиб бериш қанча?", (TK, RG)),
+        ("Қандай тўласа бўлади?", (PAY,)),
+        ("Маҳсулотни қайтарса бўладими?", (RET,)),
+        ("как заказать?", ()),
+        ("как купить", ()),
+        ("сколько стоит?", ()),
+        ("сколько стоит IMMUNOCOMPLEX?", ()),
+        ("доставка IMMUNOCOMPLEX в Самарканд?", ()),
+        ("у ребёнка кашель, доставка есть?", ()),
+        ("болит живот, можно вернуть?", ()),
+        ("мне 47", ()),
+        ("как принимать?", ()),
+        ("можно беременным?", ()),
+        ("Где можно купить?", ()),
+        ("доставляете в Москву?", ()),
+        ("можно ли самовывоз?", ()),
+        ("сколько дней принимать?", ()),
+        ("срок годности?", ()),
+        ("хочу вернуть деньги, мне стало плохо после капсул", ()),
+        ("qanday buyurtma beraman?", ()),
+        ("qanday ichish kerak?", ()),
+        ("плохо с сердцем, как с вами связаться?", ()),
+    ],
+)
+def test_a_conditions_message_is_recognised_by_its_words_only(message, expected):
+    # Item 15: the CR-03 table (RU, UZ Latin, UZ Cyrillic); () = not a conditions message.
+    assert hybrid.conditions(message) == expected
+
+
+def test_no_token_is_both_a_how_to_buy_word_and_a_topic_term():
+    # Item 15, CR-02: no topic stem is a prefix of a BUY-01 buy term or word, and no buy term
+    # or verb stem is a prefix of a topic stem, so steps 5a and 5b exclude each other.
+    topics = [s for stems in hybrid.CONDITION_TOPICS.values() for s in stems]
+    buy = (*hybrid.BUY_TERMS, *hybrid.BUY_WORDS)
+    overlap = [(t, b) for t in topics for b in buy if b.startswith(t)]
+    overlap += [
+        (t, b) for t in topics for b in (*hybrid.BUY_TERMS, *hybrid.BUY_VERBS) if t.startswith(b)
+    ]
+    assert overlap == []
+
+
+async def test_a_conditions_first_message_is_written_from_its_templates_without_jev():
+    # Item 16 (b), CN-05, (e); and CT-01 through the service: a return text may name the
+    # products its approved text names.
+    router = OpenRouter()
+    chat = Recorded(router)
+    chat.script(answer(body=DELIVERY))
+    reply = await chat.say("сколько стоит доставка?")
+    assert router.calls == []
+    (brief,) = chat.luna.briefs
+    assert (brief["turn"], brief["decision"], brief["hits"], brief["jev"]["status"]) == (
+        "conditions",
+        {"kind": "conditions", "templates": [TK, RG]},
+        [],
+        "not_run",
+    )
+    assert brief["texts"]["decision"] == graf.TEXT[TK]["ru"][0] + "\n\n" + graf.TEXT[RG]["ru"][0]
+    assert (reply["status"], reply["answer"], reply["products"]) == ("answer", DELIVERY, [])
+    assert body(reply["context_token"])["f"] is None
+    record = chat.records[-1]
+    assert (record.path, record.graf_outcome, record.template) == (
+        "hybrid",
+        "conditions",
+        TK + "+" + RG,
+    )
+    assert (record.situation, record.facts, record.offered_product_ids) == (None, None, None)
+    assert (checks_of(chat), record.luna["text_target"], record.luna["equal_to_a"]) == (
+        [None],
+        "decision",
+        False,
+    )
+    invented = answer(body="Доставка по Ташкенту бесплатная при заказе от 20 000 сум.")
+    chat.script(invented, answer(body=DELIVERY))
+    assert (await chat.say("сколько стоит доставка?"))["answer"] == DELIVERY
+    assert checks_of(chat) == ["CT-02", None]
+    chat.script(invented, invented)
+    await chat.fails("сколько стоит доставка?")
+    assert checks_of(chat) == ["CT-02", "CT-02"]
+    text = (
+        "Товар возврату и обмену не подлежит. BIFOLAK® ACTIVE и BIFOLAK® MAGNIY по соглашению "
+        "сторон можно заменить со стиков на капсулы и наоборот."
+    )
+    chat.script(answer(body=text))
+    assert (await chat.say("можно вернуть?"))["answer"] == text
+
+
+async def test_a_conditions_message_inside_a_flow_keeps_the_flow():
+    # Item 16 (c): the token carries the incoming flow unchanged; the next reply continues it.
+    router = OpenRouter({THROAT: "acute_cold"})
+    chat = Recorded(router)
+    asked = await chat.say(THROAT)
+    assert chat.records[-1].template == "ask.whom_age"
+    reply = await chat.say("как оплатить?")
+    assert (chat.records[-1].graf_outcome, chat.records[-1].template) == ("conditions", PAY)
+    assert body(reply["context_token"])["f"] == body(asked["context_token"])["f"]
+    await chat.say("для себя, 47")
+    assert chat.luna.briefs[-1]["turn"] == "continuation"
+    assert chat.records[-1].template == "ask.duration"
+
+
+async def test_after_an_offer_a_conditions_answer_keeps_the_cards():
+    # Item 16 (d), CT-01: the cards and the selection stay; the shown product may be named.
+    chat = Recorded(OpenRouter({"сын часто болеет, ему 5": "immunity"}))
+    offer = await chat.say("сын часто болеет, ему 5")
+    text = "IMMUNOCOMPLEX® KIDS доставим по Ташкенту за 30 000 сум, от 250 000 сум — бесплатно."
+    chat.script(answer(body=text))
+    reply = await chat.say("а доставка сколько?")
+    assert (reply["answer"], reply["status"], reply["products"]) == (
+        text,
+        "answer",
+        offer["products"],
+    )
+    assert body(reply["context_token"])["s"] == [shop("immunocomplex_kids")]
+    assert (chat.records[-1].path, chat.records[-1].graf_outcome) == ("post_offer", "conditions")
+    assert chat.luna.briefs[-1]["shown_products"] == ["IMMUNOCOMPLEX® KIDS"]
+
+
+async def test_a_weak_ambulance_phrase_with_a_delivery_word_is_a_safety_turn():
+    # Item 16 (f): step 3 runs before step 5b.
+    chat = Recorded(OpenRouter({WEAK: "muscle_cramps"}))
+    reply = await chat.say(WEAK + ", доставка есть?")
+    assert reply["answer"] in variants("emergency.check")
+    assert chat.records[-1].path == "safety"
+
+
+async def test_the_approved_phone_in_an_earlier_answer_is_not_sensitive_input():
+    # CT-06: a delivered contacts answer does not block the next turn; another number in an
+    # answer and the approved phone in the current question still give 422.
+    chat = Recorded(OpenRouter())
+    chat.script(answer(body=CONTACTS))
+    assert (await chat.say("как с вами связаться?"))["answer"] == CONTACTS
+    await chat.say("как оплатить?")
+    chat.history[0] = (chat.history[0][0], "Позвоните по номеру 998 90 111 22 33.")
+    with pytest.raises(Fault, match="sensitive_input"):
+        await chat.bot.turn(chat.request("как оплатить?"))
+    chat.history[0] = (chat.history[0][0], CONTACTS)
+    with pytest.raises(Fault, match="sensitive_input"):
+        await chat.bot.turn(chat.request("ваш номер 998 93 555 17 47?"))
+
+
 # --- FR-01, FR-02: failure response ---------------------------------------------------------
 
 
@@ -1629,6 +1820,7 @@ async def test_switch_off_answers_hybrid_turns_with_the_failure_response_and_res
     await chat.fails("ему 5")
     await chat.fails("давит в груди")
     await chat.fails("как заказать?")  # spec r6 §12 item 13 (f)
+    await chat.fails("как оплатить?")  # spec r7 §2.7 item 16 (f)
     assert len(chat.luna.luna) == 1
     named = await chat.bot.turn(chat.request("Как принимать IMMUNOCOMPLEX®?"))
     assert named["status"] in {"answer", "clarification", "limited", "refused"}
