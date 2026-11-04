@@ -13,7 +13,7 @@ from tests import test_category_schema_migration as migration
 
 scratch = migration.scratch
 PREVIOUS = "b7e31c904a62"
-CURRENT = "e9a21c40b735"
+CURRENT = "8d1b1791159b"
 BUYER_TABLES = {
     "buyer_email_identities",
     "buyer_email_challenges",
