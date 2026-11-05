@@ -43,6 +43,8 @@ fields, up to 4096 body bytes. Success retains the existing token/User DTO.
 Wrong, unknown, inactive or revoked credentials share a generic401. Malformed
 wire is422; oversized body413. Storage/hash/SQL-echo/capacity failure is503.
 Existing per-IP five-failures/60seconds and subsequent 900second lockout remain.
+The IP is the buyer `peer()` address: `X-Real-IP` counts only from a peer in
+`BUYER_TRUSTED_PROXY_PEERS`; the application does not read `X-Forwarded-For`.
 Bcrypt runs off the event loop, with four in-flight admissions and no waiting
 queue; cancellation holds admission until its worker finishes. Unknown valid
 named login performs a fixed cost12 dummy comparison.
