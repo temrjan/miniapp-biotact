@@ -1,5 +1,6 @@
 """CRM Bot API router for AI assistant."""
 
+import hmac
 import logging
 from typing import Annotated
 
@@ -33,8 +34,12 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 async def verify_bot_token(
     x_bot_token: Annotated[str | None, Header()] = None,
 ) -> None:
-    """Verify bot API token."""
-    if not x_bot_token or x_bot_token != settings.bot_api_token.get_secret_value():
+    """Verify bot API token in constant time (audit M4 a).
+
+    Bytes, not str: ``compare_digest`` raises on a non-ASCII str, which would be a 500.
+    """
+    expected = settings.bot_api_token.get_secret_value().encode("utf-8")
+    if not x_bot_token or not hmac.compare_digest(x_bot_token.encode("utf-8"), expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid bot token",

@@ -23,6 +23,7 @@ from src.auth.passwords import (
     normalize_login,
     password_bytes,
 )
+from src.buyer_auth.router import peer
 from src.config import settings
 from src.database import get_db
 from src.users.models import User
@@ -132,20 +133,6 @@ def record_login_attempt(ip: str, success: bool) -> None:
     if success:
         LOGIN_ATTEMPTS[ip]["attempts"] = []
         LOGIN_ATTEMPTS[ip]["locked_until"] = None
-
-
-def get_client_ip(request: Request) -> str:
-    """Get client IP from request, handling proxies."""
-    # Check for forwarded headers (behind nginx/proxy)
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip
-
-    return request.client.host if request.client else "unknown"
 
 
 class CodeResponse(BaseModel):
@@ -384,7 +371,8 @@ async def admin_login(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> LoginResponse:
     """Authenticate a named/compat credential; token issuance never grants a role."""
-    client_ip = get_client_ip(http_request)
+    # Audit S1: the buyer rule; X-Real-IP counts only from BUYER_TRUSTED_PROXY_PEERS.
+    client_ip = peer(http_request, settings)
     is_allowed, wait_seconds = check_rate_limit(client_ip)
     if not is_allowed:
         raise HTTPException(

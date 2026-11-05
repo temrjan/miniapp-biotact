@@ -38,7 +38,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.service import get_user_by_telegram_id
-from src.common.exceptions import BadRequestException, ConflictException, NotFoundException
+from src.common.exceptions import (
+    BadRequestException,
+    ConflictException,
+    ForbiddenException,
+    NotFoundException,
+)
 from src.loyalty.models import (
     CustomerProfile,
     LotteryDraw,
@@ -923,6 +928,8 @@ async def get_my_tickets(db: AsyncSession, *, telegram_id: int) -> MyTicketsOutc
     user = await get_user_by_telegram_id(db, telegram_id)
     if user is None:
         return _NO_TICKETS
+    if not user.is_active:  # audit M2: refused as on the other buyer routes
+        raise ForbiddenException("User is inactive")
 
     latest = (
         await db.execute(

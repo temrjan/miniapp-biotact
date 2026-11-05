@@ -13,11 +13,13 @@ import bcrypt
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from httpx import ASGITransport, AsyncClient
 from jose import jwt
 from pydantic import SecretStr
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from scripts import admin_accounts as cli
 from src.auth import admin_router as auth
@@ -34,6 +36,8 @@ from src.auth.passwords import (
     password_bytes,
 )
 from src.config import settings
+from src.database import get_db
+from src.main import app
 from src.users.models import User
 
 URL = "/api/v1/admin/auth"
@@ -318,6 +322,73 @@ async def test_throttle_lockout_expiry_and_success_reset(client, test_db, monkey
     assert (await login(client, "ab")).status_code == 401
     assert (await login(client)).status_code == 200
     assert not auth.LOGIN_ATTEMPTS["127.0.0.1"]["attempts"]
+
+
+@contextlib.asynccontextmanager
+async def peer_client(db, peer, asgi=None):
+    """An HTTP client whose connection comes from ``peer``; ``asgi`` wraps the app like the server."""
+
+    async def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        transport = ASGITransport(app=asgi or app, client=(peer, 50000))
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
+            yield http
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def attempt(password, headers):
+    body = json.dumps({"username": "fictional", "password": password})
+    return {"content": body, "headers": {"Content-Type": "application/json", **headers}}
+
+
+def through_nginx(real, sent):
+    """Headers as production nginx forwards them: X-Real-IP overwritten, X-Forwarded-For appended."""
+    return {"X-Real-IP": real, "X-Forwarded-For": f"{sent}, {real}"}
+
+
+@pytest.mark.parametrize("stack", ["trusted-proxy-peers", "uvicorn-proxy-headers"])
+async def test_s1_through_proxy_limit_keys_on_address_the_proxy_wrote(test_db, monkeypatch, stack):
+    """Audit S1 invariant 1: behind nginx, client-sent forwarding values do not move the key.
+
+    ``trusted-proxy-peers``: the app sees the nginx peer, listed in BUYER_TRUSTED_PROXY_PEERS.
+    ``uvicorn-proxy-headers``: the list is empty and the app runs behind uvicorn's default proxy
+    header handling (trusts 127.0.0.1), as ecosystem.config.js launches it.
+    """
+    await account(test_db)
+    asgi = None
+    if stack == "trusted-proxy-peers":
+        monkeypatch.setattr(settings, "buyer_trusted_proxy_peers", ["127.0.0.1/32"])
+    else:
+        asgi = ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")
+    client_ip, other_ip = "203.0.113.7", "203.0.113.8"
+    async with peer_client(test_db, "127.0.0.1", asgi) as http:
+        for index in range(5):
+            sent = through_nginx(client_ip, f"198.51.100.{index}")
+            assert (await http.post(URL + "/login", **attempt("ab", sent))).status_code == 401
+        sent = through_nginx(client_ip, "198.51.100.99")
+        assert (await http.post(URL + "/login", **attempt(PASSWORD, sent))).status_code == 429
+        # Another client that names the locked address in its own header is not locked.
+        sent = through_nginx(other_ip, client_ip)
+        assert (await http.post(URL + "/login", **attempt(PASSWORD, sent))).status_code == 200
+    assert set(auth.LOGIN_ATTEMPTS) == {client_ip, other_ip}
+
+
+async def test_s1_direct_connection_ignores_forwarding_headers(test_db, monkeypatch):
+    """Audit S1 invariant 2: a peer that is not a trusted proxy is the key; headers are ignored."""
+    await account(test_db)
+    monkeypatch.setattr(settings, "buyer_trusted_proxy_peers", ["127.0.0.1/32"])
+    direct = "192.0.2.50"
+    async with peer_client(test_db, direct) as http:
+        for index in range(5):
+            sent = {"X-Real-IP": f"198.51.100.{index}", "X-Forwarded-For": f"198.51.100.{index}"}
+            assert (await http.post(URL + "/login", **attempt("ab", sent))).status_code == 401
+        sent = {"X-Real-IP": "198.51.100.99", "X-Forwarded-For": "198.51.100.98"}
+        assert (await http.post(URL + "/login", **attempt(PASSWORD, sent))).status_code == 429
+    assert set(auth.LOGIN_ATTEMPTS) == {direct}
 
 
 async def test_capacity_echo_and_lockout_precede_sql(client, test_db, monkeypatch):
