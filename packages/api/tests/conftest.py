@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
-from sqlalchemy import Connection
+from sqlalchemy import Connection, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
@@ -71,11 +71,31 @@ async def db_schema() -> AsyncGenerator[None, None]:
     await engine.dispose()
 
 
-def _truncate_all_tables(connection: Connection) -> None:
-    """Empty every model table and restart the sequences that its columns own."""
+def _empty_all_tables(connection: Connection) -> None:
+    """Empty every model table and restart every sequence of the schema.
+
+    ``DELETE`` instead of ``TRUNCATE``: on this schema ``TRUNCATE`` creates new files for every
+    table and index and costs about half a second per test, even when all tables are empty.
+    The explicit lock is the one ``TRUNCATE`` takes, in the same table order, so the cleanup
+    still waits for every other transaction that touches a table. Referencing tables are
+    emptied first, so no foreign key check or ``ON DELETE`` action finds a row. The last
+    query fails the test loudly if a trigger or a rule kept a row.
+    """
+    tables = Base.metadata.sorted_tables
     preparer = connection.dialect.identifier_preparer
-    tables = ", ".join(preparer.format_table(table) for table in Base.metadata.sorted_tables)
-    connection.exec_driver_sql(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE")
+    names = ", ".join(preparer.format_table(table) for table in tables)
+    connection.exec_driver_sql(f"LOCK TABLE {names} IN ACCESS EXCLUSIVE MODE")
+    for table in reversed(tables):
+        connection.execute(table.delete())
+    sequences = connection.exec_driver_sql(
+        "SELECT oid::regclass::text FROM pg_class WHERE relkind = 'S' "
+        "AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())"
+    )
+    for sequence in sequences.scalars().all():
+        connection.exec_driver_sql(f"ALTER SEQUENCE {sequence} RESTART")
+    left = connection.execute(select(or_(*(select(table).exists() for table in tables))))
+    if left.scalar_one():
+        raise RuntimeError("test cleanup left rows in a model table")
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -90,7 +110,7 @@ async def test_db(db_schema: None) -> AsyncGenerator[AsyncSession, None]:
         yield session
 
     async with engine_test.begin() as conn:
-        await conn.run_sync(_truncate_all_tables)
+        await conn.run_sync(_empty_all_tables)
 
     await engine_test.dispose()
 
