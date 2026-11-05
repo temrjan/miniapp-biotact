@@ -45,6 +45,11 @@ wire is422; oversized body413. Storage/hash/SQL-echo/capacity failure is503.
 Existing per-IP five-failures/60seconds and subsequent 900second lockout remain.
 The IP is the buyer `peer()` address: `X-Real-IP` counts only from a peer in
 `BUYER_TRUSTED_PROXY_PEERS`; the application does not read `X-Forwarded-For`.
+Under the `ecosystem.config.js` launch, uvicorn's proxy-header handling has already
+set the peer from the nginx-appended `X-Forwarded-For` entry; it must trust only the
+nginx address (`FORWARDED_ALLOW_IPS` unset or `127.0.0.1`), because `*` makes the
+address client-chosen. With that handling off (`--no-proxy-headers`),
+`BUYER_TRUSTED_PROXY_PEERS` must be `["127.0.0.1/32"]`.
 Bcrypt runs off the event loop, with four in-flight admissions and no waiting
 queue; cancellation holds admission until its worker finishes. Unknown valid
 named login performs a fixed cost12 dummy comparison.
