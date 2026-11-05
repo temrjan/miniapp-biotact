@@ -12,7 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from src.auth.schemas import TelegramUser
 from src.auth.service import get_or_create_user, get_user_by_telegram_id
-from src.common.exceptions import ConflictException, NotFoundException
+from src.common.exceptions import ConflictException, ForbiddenException, NotFoundException
 from src.loyalty.models import (
     Consent,
     ConsentPurpose,
@@ -408,6 +408,8 @@ async def get_loyalty_summary(session: AsyncSession, telegram_id: int) -> Loyalt
     user = await get_user_by_telegram_id(session, telegram_id)
     if user is None:
         return _non_member_summary(balance=0)
+    if not user.is_active:  # audit M2: refused as on the other buyer routes
+        raise ForbiddenException("User is inactive")
     return await get_loyalty_summary_by_user_id(session, user.id)
 
 
@@ -517,6 +519,8 @@ async def record_consent(
     """
     async with db.begin():
         user = await get_or_create_user(db, telegram_user)
+        if not user.is_active:  # audit M2: refused as on the other buyer routes
+            raise ForbiddenException("User is inactive")
         user_id = user.id
 
         # Lazy-create the profile race-safely; the inserter owns the one-time `joined` event.
@@ -667,6 +671,8 @@ async def set_marketing_consent(
         user = await get_user_by_telegram_id(db, telegram_user.id)
         if user is None:
             raise NotFoundException("Not a loyalty member")
+        if not user.is_active:  # audit M2: refused as on the other buyer routes
+            raise ForbiddenException("User is inactive")
         profile_id = (
             await db.execute(
                 select(CustomerProfile.id)
@@ -742,6 +748,8 @@ async def submit_survey(
         user = await get_user_by_telegram_id(db, telegram_user.id)
         if user is None:
             raise NotFoundException("Not a club member")
+        if not user.is_active:  # audit M2: refused as on the other buyer routes
+            raise ForbiddenException("User is inactive")
 
         # SELECT resolves membership (None → not a member) AND is the primary per-user serializer:
         # the FOR UPDATE row lock makes concurrent survey calls serialize on the survey_done dedup
@@ -844,6 +852,8 @@ async def activate_code(
         # aborts (claim rolls back — no double credit, retryable). Unreachable in the bot-first flow
         # (the user row exists before the mini-app opens). Pre-existing shared helper, out of scope.
         user = await get_or_create_user(db, telegram_user)
+        if not user.is_active:  # audit M2: refused as on the other buyer routes
+            raise ForbiddenException("User is inactive")
         user_id = user.id
 
         # Lazy-create the profile race-safely, then lock it (per-user serialization point).
