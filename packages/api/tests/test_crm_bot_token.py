@@ -11,7 +11,9 @@ TOKEN = "ab" * 16
 
 @pytest.mark.parametrize(
     "header",
-    [None, ("ba" * 16).encode(), "токен".encode()],
+    # "wrong" differs only in the last byte; "non-ascii" is the real token plus non-ASCII text,
+    # so a prefix-only or a non-ASCII-dropping comparison would accept it.
+    [None, (TOKEN[:-1] + "c").encode(), (TOKEN + "токен").encode()],
     ids=["missing", "wrong", "non-ascii"],
 )
 async def test_m4a_bot_token_refusal_is_401_never_500(client, monkeypatch, header) -> None:
