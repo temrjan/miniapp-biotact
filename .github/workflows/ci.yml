@@ -263,7 +263,7 @@ jobs:
 
       - name: Lint with ruff
         run: |
-          pip install ruff
+          pip install ruff==0.17.3
           ruff check bot/ tests/test_web_login.py
 
       - name: Format check with ruff
