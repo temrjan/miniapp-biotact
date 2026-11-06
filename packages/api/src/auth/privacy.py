@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 _private: ContextVar[bool] = ContextVar("private_admin_auth", default=False)
 _prefixes: set[str] = {"/api/v1/admin/auth", "/api/v1/buyer/auth", "/api/v1/bot/buyer/telegram"}
 _installed = False
-_buyer_cookies = ("__Host-biotact_buyer", "__Host-biotact_auth")
+# The guest purchase cookie (G1) accompanies every same-origin API request (``Path=/``).
+_buyer_cookies = ("__Host-biotact_buyer", "__Host-biotact_auth", "__Host-biotact_guest")
 _buyer_credential_markers = (
     *(cookie.lower() for cookie in _buyer_cookies),
     "x-csrf-token",
@@ -70,6 +71,15 @@ def install() -> None:
 
     logging.setLogRecordFactory(factory)
     _installed = True
+
+
+def log_outside_private_scope(logger: logging.Logger, message: str, *args: object) -> None:
+    """Emit one value-free operational line that the private-scope masking must not replace."""
+    token = _private.set(False)
+    try:
+        logger.error(message, *args)
+    finally:
+        _private.reset(token)
 
 
 def _strip_buyer_credentials(value: object) -> object:
@@ -197,7 +207,13 @@ class AuthPrivacyMiddleware:
         except Exception:
             if started:
                 raise
-            if "/buyer/auth" in self.prefix or "/bot/buyer/telegram" in self.prefix:
+            if self.prefix.endswith("/guest"):
+                response = JSONResponse(
+                    {"error": "service_unavailable"},
+                    status_code=503,
+                    headers={"Cache-Control": "no-store"},
+                )
+            elif "/buyer/auth" in self.prefix or "/bot/buyer/telegram" in self.prefix:
                 response = JSONResponse(
                     {"error": "authentication_unavailable"},
                     status_code=503,

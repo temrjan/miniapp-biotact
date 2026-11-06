@@ -12,7 +12,7 @@ from src.config import settings
 from src.database import get_db
 from src.employee_referrals.notices import invoice_referral_label, owns_paid
 from src.employee_referrals.paid import PaidUnavailableError, commit_paid
-from src.notifications.service import telegram_notifier
+from src.notifications.service import source_label, telegram_notifier
 from src.orders import service as orders_service
 from src.payments import size_stock
 from src.payments.lifecycle import PaymentAmountMismatchError, process_payment_event
@@ -224,6 +224,7 @@ async def _notify_paid(db: AsyncSession, order_id: int, *, invoice_uuid: str) ->
             delivery_address=order.delivery_address,
             invoice_uuid=invoice_uuid,
             points_applied=order.points_applied,
+            source_label=source_label(order),
         )
 
 

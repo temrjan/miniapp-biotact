@@ -90,7 +90,7 @@ class OrderResponse(OrderBase):
 
     id: int
     order_number: str
-    user_id: int
+    user_id: int | None
     status: str
     payment_uuid: str | None = None
     payment_status: str | None = None

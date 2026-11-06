@@ -115,7 +115,7 @@ export interface OrderItem {
 export interface Order {
   id: number
   order_number: string
-  user_id: number
+  user_id: number | null
   status: OrderStatus
   payment_status?: string
   paid_at?: string

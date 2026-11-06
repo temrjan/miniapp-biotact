@@ -572,7 +572,7 @@ REVISION, PREDECESSOR = "8d1b1791159b", "e9a21c40b735"
 
 
 def test_the_migration_creates_the_journal_and_refuses_to_drop_stored_rows(scratch):
-    scratch.migrate(target="head")
+    scratch.migrate(target=REVISION)
     assert scratch.marker() == REVISION
     assert scratch.execute(COLUMN_QUERY) == COLUMNS
     assert scratch.execute(CONSTRAINT_QUERY) == CONSTRAINTS

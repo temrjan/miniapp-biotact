@@ -24,6 +24,7 @@ from src.auth.privacy import (
     AuthPrivacyMiddleware,
     filter_auth_telemetry,
     is_private_auth,
+    log_outside_private_scope,
     unavailable,
 )
 from src.banners.router import router as banners_router
@@ -60,6 +61,7 @@ from src.employee_referrals.privacy import K1_PATH, K1PrivacyMiddleware
 from src.employee_referrals.return_privacy import ReturnPrivacyMiddleware
 from src.employee_referrals.return_router import router as referral_returns_router
 from src.employee_referrals.router import router as employee_referrals_router
+from src.guest.router import router as guest_router
 from src.journal.writer import runtime as journal_runtime
 from src.loyalty.admin_router import router as admin_lottery_router
 from src.loyalty.router import router as loyalty_router
@@ -152,7 +154,11 @@ def create_app() -> FastAPI:
     bridge_prefix = settings.api_v1_prefix + "/bot/buyer/telegram"
     app.add_middleware(BuyerBoundaryMiddleware, prefix=bridge_prefix, config=settings)
     app.add_middleware(AuthPrivacyMiddleware, prefix=bridge_prefix)
+    guest_prefix = settings.api_v1_prefix + "/guest"
+    app.add_middleware(BuyerBoundaryMiddleware, prefix=guest_prefix, config=settings, guest=True)
+    app.add_middleware(AuthPrivacyMiddleware, prefix=guest_prefix)
     app.include_router(buyer_auth_router, prefix=settings.api_v1_prefix)
+    app.include_router(guest_router, prefix=settings.api_v1_prefix)
     app.include_router(telegram_auth_router, prefix=settings.api_v1_prefix)
     app.include_router(bridge_router, prefix=settings.api_v1_prefix)
     app.include_router(count_router)
@@ -313,6 +319,14 @@ def create_app() -> FastAPI:
     async def order_validation_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        if is_private_auth(request.scope, guest_prefix):
+            # Never echo input; a refused acceptance has its own code (S2 BD-03, OC-02).
+            terms = request.scope["path"].rstrip("/") == guest_prefix + "/orders" and any(
+                tuple(error["loc"]) == ("body", "accept_terms") for error in exc.errors()
+            )
+            return JSONResponse(
+                {"error": "terms_not_accepted" if terms else "invalid_request"}, status_code=422
+            )
         if is_private_auth(request.scope, buyer_prefix) or is_private_auth(
             request.scope, bridge_prefix
         ):
@@ -335,6 +349,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+        if is_private_auth(request.scope, guest_prefix):
+            log_outside_private_scope(logger, "Guest request failed | category=database_conflict")
+            return JSONResponse({"error": "service_unavailable"}, status_code=503)
         if is_private_auth(request.scope, buyer_prefix) or is_private_auth(
             request.scope, bridge_prefix
         ):
@@ -353,6 +370,11 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(OperationalError)
     async def operational_error_handler(request: Request, exc: OperationalError) -> JSONResponse:
+        if is_private_auth(request.scope, guest_prefix):
+            log_outside_private_scope(
+                logger, "Guest request failed | category=database_unavailable"
+            )
+            return JSONResponse({"error": "service_unavailable"}, status_code=503)
         if is_private_auth(request.scope, buyer_prefix) or is_private_auth(
             request.scope, bridge_prefix
         ):

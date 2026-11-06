@@ -229,11 +229,13 @@ async def settle_owned(db: AsyncSession, order: Order, invoice_uuid: str) -> boo
         raise conflict("order_payment_closed")
     order.owned_invoice_uuid = invoice_uuid
     order.payment_uuid = invoice_uuid
-    if order.points_applied and not await commit_redeem(
-        db, user_id=order.user_id, order_id=order.id, amount=order.points_applied
-    ):
-        # An accepted settlement is atomic with its points debit.
-        raise conflict("payment_verification_pending", 500)
+    if order.points_applied:
+        assert order.user_id is not None  # orders_owner_ck: points imply an owner.
+        if not await commit_redeem(
+            db, user_id=order.user_id, order_id=order.id, amount=order.points_applied
+        ):
+            # An accepted settlement is atomic with its points debit.
+            raise conflict("payment_verification_pending", 500)
     order.accepted_settlement = True
     order.size_owner_state = "paid"
     order.payment_status = "paid"

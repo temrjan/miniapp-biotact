@@ -11,7 +11,8 @@ from tests.test_buyer_auth_native import check_parity
 
 scratch = migration.scratch
 OLD = "c4f2a91e8d63"
-HEAD = "d8a14f90bc21"
+TG1 = "d8a14f90bc21"
+HEAD = "b4f4c51eb14a"  # G1 guest orders, the current single head after TG1.
 
 
 def test_s3_preserved_tg1_native_constraints_and_populated_refusal(scratch):
@@ -19,8 +20,8 @@ def test_s3_preserved_tg1_native_constraints_and_populated_refusal(scratch):
     scratch.seed()
     scratch.execute("INSERT INTO buyer_auth_limits VALUES ('retained','[1]',now())")
     before = scratch.snapshot()
-    scratch.migrate(target=HEAD)
-    assert scratch.marker() == HEAD
+    scratch.migrate(target=TG1)
+    assert scratch.marker() == TG1
     # Dropping only the still-empty additive table in a transaction gives an exact
     # comparison of ALL predecessor schema/rows, including archive exclusions/S3.
     scratch.conn.autocommit = False
@@ -30,6 +31,7 @@ def test_s3_preserved_tg1_native_constraints_and_populated_refusal(scratch):
     finally:
         scratch.conn.rollback()
         scratch.conn.autocommit = True
+    scratch.migrate(target=HEAD)  # Model parity is defined at the current head.
     check_parity(scratch)
     scratch.execute("""INSERT INTO buyer_telegram_requests
         (id,browser_digest,request_key,purpose,state,created_at,expires_at,delivery)
