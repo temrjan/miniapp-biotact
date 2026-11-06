@@ -77,11 +77,7 @@ async def send_broadcast(
     if not broadcast:
         raise NotFoundException("Broadcast not found")
 
-    if broadcast.status not in (
-        BroadcastStatus.DRAFT,
-        BroadcastStatus.CANCELLED,
-        BroadcastStatus.SENDING,
-    ):
+    if broadcast.status not in (BroadcastStatus.DRAFT, BroadcastStatus.CANCELLED):
         raise BadRequestException(f"Cannot send broadcast with status {broadcast.status}")
 
     # Prevent concurrent broadcasts
@@ -90,9 +86,6 @@ async def send_broadcast(
     )
     if service.has_active_broadcast() or result.scalar_one_or_none() is not None:
         raise BadRequestException("Another broadcast is currently sending")
-
-    if broadcast.status not in (BroadcastStatus.DRAFT, BroadcastStatus.CANCELLED):
-        raise BadRequestException(f"Cannot send broadcast with status {broadcast.status}")
 
     # Reset counters for retry
     broadcast.status = BroadcastStatus.SENDING

@@ -7,11 +7,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
+import psycopg2
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_object_session,
     async_sessionmaker,
@@ -34,6 +36,7 @@ class BroadcastHarness:
     """Test harness with real per-request DB sessions against PostgreSQL."""
 
     client: AsyncClient
+    engine: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
     admin_headers: dict[str, str]
 
@@ -59,6 +62,7 @@ async def broadcast_env(
     ) as ac:
         yield BroadcastHarness(
             client=ac,
+            engine=engine,
             sessions=sessions,
             admin_headers=admin_headers,
         )
@@ -82,6 +86,12 @@ async def test_s2_invariant_1_cancel_during_sending_stops_and_preserves_cancelle
                 ),
                 Broadcast(
                     id=2, title="Last-user cancel", text="Msg 2", status=BroadcastStatus.SENDING
+                ),
+                Broadcast(
+                    id=3,
+                    title="Post-loop cancel race",
+                    text="Msg 3",
+                    status=BroadcastStatus.SENDING,
                 ),
             ]
         )
@@ -145,6 +155,56 @@ async def test_s2_invariant_1_cancel_during_sending_stops_and_preserves_cancelle
         assert b2.status == BroadcastStatus.CANCELLED
         assert b2.completed_at is None
         assert (b2.total_users, b2.sent_count, b2.blocked_count, b2.failed_count) == (3, 1, 1, 1)
+
+    # Case C (F-01): cancel commits from another connection after the loop finishes and
+    # immediately before the finalization UPDATE setting completed_at executes.
+    sent_race: list[int] = []
+    injected_cancel: list[str] = []
+    sync_dsn = TEST_DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+
+    async def send_all_three(
+        _client: httpx.AsyncClient,
+        chat_id: int,
+        _broadcast: Broadcast,
+    ) -> tuple[bool, str]:
+        idx = len(sent_race)
+        sent_race.append(chat_id)
+        return outcomes[idx]
+
+    def inject_cancel_before_final_update(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if "UPDATE broadcasts" in statement and "completed_at" in statement and not injected_cancel:
+            with psycopg2.connect(sync_dsn) as conn, conn.cursor() as cur:
+                cur.execute("UPDATE broadcasts SET status = 'cancelled' WHERE id = 3")
+            with psycopg2.connect(sync_dsn) as conn, conn.cursor() as cur:
+                cur.execute("SELECT status FROM broadcasts WHERE id = 3")
+                row = cur.fetchone()
+                assert row is not None
+                injected_cancel.append(str(row[0]))
+
+    monkeypatch.setattr(broadcasts_service, "_send_to_user", send_all_three)
+    event.listen(h.engine.sync_engine, "before_cursor_execute", inject_cancel_before_final_update)
+    try:
+        await broadcasts_service.execute_broadcast(3)
+    finally:
+        event.remove(
+            h.engine.sync_engine, "before_cursor_execute", inject_cancel_before_final_update
+        )
+
+    assert len(sent_race) == 3
+    assert injected_cancel == ["cancelled"]
+    async with h.sessions() as db:
+        b3 = await db.get(Broadcast, 3)
+        assert b3 is not None
+        assert b3.status == BroadcastStatus.CANCELLED
+        assert b3.completed_at is None
+        assert (b3.total_users, b3.sent_count, b3.blocked_count, b3.failed_count) == (3, 1, 1, 1)
 
 
 async def test_s2_invariant_2_cancelled_error_and_exception_mark_broadcast_cancelled(
@@ -420,6 +480,64 @@ async def test_s2_invariant_3_stuck_sending_broadcast_recovers_while_active_send
         release_send.set()
         route_resp = await route_send_task
         assert route_resp.status_code == 200, route_resp.text
+
+    # 6. Handoff window (T-01): between send_broadcast committing SENDING and background
+    # execute_broadcast starting, GET list/detail must NOT falsely recover the fresh SENDING
+    # row to CANCELLED, concurrent /send must be rejected with 400, and the broadcast must complete.
+    async with h.sessions.begin() as db:
+        db.add(Broadcast(id=9, title="Handoff window", text="Body 9", status=BroadcastStatus.DRAFT))
+
+    handoff_sent: list[int] = []
+    handoff_list_status: list[str] = []
+    handoff_detail_status: list[str] = []
+    handoff_concurrent_status: list[int] = []
+
+    async def record_send(
+        _client: httpx.AsyncClient,
+        chat_id: int,
+        _broadcast: Broadcast,
+    ) -> tuple[bool, str]:
+        handoff_sent.append(chat_id)
+        return True, ""
+
+    real_execute_broadcast = broadcasts_service.execute_broadcast
+
+    async def execute_after_handoff_polls(broadcast_id: int) -> None:
+        list_poll = await h.client.get("/api/v1/admin/broadcasts", headers=h.admin_headers)
+        assert list_poll.status_code == 200, list_poll.text
+        items_map = {item["id"]: item for item in list_poll.json()["items"]}
+        handoff_list_status.append(items_map[broadcast_id]["status"])
+
+        detail_poll = await h.client.get(
+            f"/api/v1/admin/broadcasts/{broadcast_id}",
+            headers=h.admin_headers,
+        )
+        assert detail_poll.status_code == 200, detail_poll.text
+        handoff_detail_status.append(detail_poll.json()["status"])
+
+        concurrent_poll = await h.client.post(
+            "/api/v1/admin/broadcasts/8/send",
+            headers=h.admin_headers,
+        )
+        handoff_concurrent_status.append(concurrent_poll.status_code)
+
+        await real_execute_broadcast(broadcast_id)
+
+    monkeypatch.setattr(broadcasts_service, "_send_to_user", record_send)
+    monkeypatch.setattr(broadcasts_service, "execute_broadcast", execute_after_handoff_polls)
+
+    handoff_resp = await h.client.post("/api/v1/admin/broadcasts/9/send", headers=h.admin_headers)
+    assert handoff_resp.status_code == 200, handoff_resp.text
+    assert handoff_list_status == [BroadcastStatus.SENDING]
+    assert handoff_detail_status == [BroadcastStatus.SENDING]
+    assert handoff_concurrent_status == [400]
+    assert len(handoff_sent) == 2
+
+    async with h.sessions() as db:
+        b9 = await db.get(Broadcast, 9)
+        assert b9 is not None
+        assert b9.status == BroadcastStatus.COMPLETED
+        assert (b9.total_users, b9.sent_count, b9.blocked_count, b9.failed_count) == (2, 2, 0, 0)
 
 
 async def test_s2_invariant_4_blocked_bot_403_increments_blocked_count_without_deactivating_user(

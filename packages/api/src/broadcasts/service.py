@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.broadcasts.models import Broadcast, BroadcastStatus
@@ -349,33 +349,56 @@ async def execute_broadcast(broadcast_id: int) -> None:
                     await asyncio.sleep(RATE_LIMIT_DELAY)
 
             if broadcast.status != BroadcastStatus.CANCELLED:
-                with db.no_autoflush:
-                    await db.refresh(broadcast, ["status"])
-            broadcast.sent_count = sent_count
-            broadcast.blocked_count = blocked_count
-            broadcast.failed_count = failed_count
-            if broadcast.status == BroadcastStatus.CANCELLED:
-                await db.commit()
-                logger.info(
-                    "Broadcast %d cancelled: sent=%d, blocked=%d, failed=%d",
-                    broadcast_id,
-                    broadcast.sent_count,
-                    broadcast.blocked_count,
-                    broadcast.failed_count,
+                completed_id = (
+                    await db.execute(
+                        update(Broadcast)
+                        .where(
+                            Broadcast.id == broadcast_id,
+                            Broadcast.status == BroadcastStatus.SENDING,
+                        )
+                        .values(
+                            status=BroadcastStatus.COMPLETED,
+                            completed_at=datetime.now(UTC),
+                            sent_count=sent_count,
+                            blocked_count=blocked_count,
+                            failed_count=failed_count,
+                            photo_file_id=broadcast.photo_file_id,
+                            video_file_id=broadcast.video_file_id,
+                        )
+                        .returning(Broadcast.id)
+                    )
+                ).scalar_one_or_none()
+                if completed_id is not None:
+                    db.expire(broadcast)
+                    await db.commit()
+                    logger.info(
+                        "Broadcast %d completed: sent=%d, blocked=%d, failed=%d",
+                        broadcast_id,
+                        sent_count,
+                        blocked_count,
+                        failed_count,
+                    )
+                    return
+
+            await db.execute(
+                update(Broadcast)
+                .where(Broadcast.id == broadcast_id)
+                .values(
+                    sent_count=sent_count,
+                    blocked_count=blocked_count,
+                    failed_count=failed_count,
+                    photo_file_id=broadcast.photo_file_id,
+                    video_file_id=broadcast.video_file_id,
                 )
-                return
-
-            # Finalize
-            broadcast.status = BroadcastStatus.COMPLETED
-            broadcast.completed_at = datetime.now(UTC)
+            )
+            db.expire(broadcast)
             await db.commit()
-
             logger.info(
-                "Broadcast %d completed: sent=%d, blocked=%d, failed=%d",
+                "Broadcast %d cancelled: sent=%d, blocked=%d, failed=%d",
                 broadcast_id,
-                broadcast.sent_count,
-                broadcast.blocked_count,
-                broadcast.failed_count,
+                sent_count,
+                blocked_count,
+                failed_count,
             )
 
     except asyncio.CancelledError:
