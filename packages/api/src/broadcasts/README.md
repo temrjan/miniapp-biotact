@@ -92,7 +92,7 @@ Mass send идёт через `BackgroundTasks` (FastAPI) — один фоно�
 | Plain message | 4096 символов |
 | `sendVideo` через URL | ≤5 MB (через file_id — без лимита) |
 | file_id | бессрочно, **привязан к токену бота** (другой бот не примет) |
-| Блокировки (403) | пользователь помечается `is_active=False` автоматически |
+| Блокировки (403) | увеличивается `blocked_count`; пользователь не деактивируется (`is_active` остаётся `True`) |
 | Rate limit (429) | ретрай один раз с `retry_after` из ответа Telegram |
 
 ---
@@ -159,7 +159,7 @@ alembic upgrade head
 → file_id привязан к боту. Тот же file_id из @RawDataBot **не подойдёт** — нужно получать через наш `@BiotactBot`.
 
 **"Пользователь не получил рассылку"**
-→ Смотри поля `blocked_count` / `failed_count` у рассылки. Блок (403) → пользователь помечен `is_active=False` автоматически.
+→ Смотри поля `blocked_count` / `failed_count` у рассылки. Блок (403) увеличивает `blocked_count`, не меняя `is_active` пользователя.
 
 **"Видео не отправилось — ошибка 400"**
 → HTTPS-URL должен отдавать прямой `.mp4`, не HTML-страницу (YouTube/Google Drive не подойдут). Используй file_id.

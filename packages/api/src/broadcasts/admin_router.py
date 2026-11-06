@@ -77,15 +77,22 @@ async def send_broadcast(
     if not broadcast:
         raise NotFoundException("Broadcast not found")
 
-    if broadcast.status not in (BroadcastStatus.DRAFT, BroadcastStatus.CANCELLED):
+    if broadcast.status not in (
+        BroadcastStatus.DRAFT,
+        BroadcastStatus.CANCELLED,
+        BroadcastStatus.SENDING,
+    ):
         raise BadRequestException(f"Cannot send broadcast with status {broadcast.status}")
 
     # Prevent concurrent broadcasts
     result = await db.execute(
         select(Broadcast.id).where(Broadcast.status == BroadcastStatus.SENDING).limit(1)
     )
-    if result.scalar_one_or_none() is not None:
+    if service.has_active_broadcast() or result.scalar_one_or_none() is not None:
         raise BadRequestException("Another broadcast is currently sending")
+
+    if broadcast.status not in (BroadcastStatus.DRAFT, BroadcastStatus.CANCELLED):
+        raise BadRequestException(f"Cannot send broadcast with status {broadcast.status}")
 
     # Reset counters for retry
     broadcast.status = BroadcastStatus.SENDING
@@ -97,10 +104,14 @@ async def send_broadcast(
     broadcast.video_file_id = None
     broadcast.started_at = datetime.now(UTC)
     broadcast.completed_at = None
-    await db.commit()
-    await db.refresh(broadcast)
-
-    background_tasks.add_task(service.execute_broadcast, broadcast_id)
+    service.mark_broadcast_active(broadcast_id)
+    try:
+        await db.commit()
+        await db.refresh(broadcast)
+        background_tasks.add_task(service.execute_broadcast, broadcast_id)
+    except BaseException:
+        service.unmark_broadcast_active(broadcast_id)
+        raise
 
     return broadcast
 
@@ -135,7 +146,7 @@ async def cancel_broadcast(
     _admin: AdminUser,
 ) -> Broadcast:
     """Cancel a broadcast."""
-    broadcast = await service.get_broadcast(db, broadcast_id)
+    broadcast = await service.get_broadcast(db, broadcast_id, recover_stuck=False)
     if not broadcast:
         raise NotFoundException("Broadcast not found")
 

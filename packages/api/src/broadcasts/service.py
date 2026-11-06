@@ -21,6 +21,40 @@ TELEGRAM_API = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
 RATE_LIMIT_DELAY = 0.05  # 20 msg/sec (safe margin under 30 limit)
 
 _BOLD_MARKDOWN = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_active_broadcast_ids: set[int] = set()
+
+
+def mark_broadcast_active(broadcast_id: int) -> None:
+    """Mark a broadcast ID as actively sending in this process."""
+    _active_broadcast_ids.add(broadcast_id)
+
+
+def unmark_broadcast_active(broadcast_id: int) -> None:
+    """Remove a broadcast ID from active in-process tracking."""
+    _active_broadcast_ids.discard(broadcast_id)
+
+
+def has_active_broadcast() -> bool:
+    """Return True if any broadcast send is active in this process."""
+    return bool(_active_broadcast_ids)
+
+
+async def recover_stuck_broadcasts(db: AsyncSession) -> None:
+    """Transition orphaned SENDING broadcasts (not active in this process) to CANCELLED."""
+    stmt = (
+        select(Broadcast)
+        .where(Broadcast.status == BroadcastStatus.SENDING)
+        .execution_options(populate_existing=True)
+    )
+    if _active_broadcast_ids:
+        stmt = stmt.where(Broadcast.id.notin_(_active_broadcast_ids))
+    result = await db.execute(stmt)
+    stuck_broadcasts = list(result.scalars().all())
+    if stuck_broadcasts:
+        for broadcast in stuck_broadcasts:
+            broadcast.status = BroadcastStatus.CANCELLED
+            logger.warning("Recovered stuck SENDING broadcast %d as cancelled", broadcast.id)
+        await db.commit()
 
 
 def _render_message_text(text: str) -> str:
@@ -53,8 +87,12 @@ async def create_broadcast(
 async def get_broadcast(
     db: AsyncSession,
     broadcast_id: int,
+    *,
+    recover_stuck: bool = True,
 ) -> Broadcast | None:
     """Get broadcast by ID."""
+    if recover_stuck:
+        await recover_stuck_broadcasts(db)
     return await db.get(Broadcast, broadcast_id)
 
 
@@ -64,6 +102,7 @@ async def get_broadcasts_paginated(
     size: int = 20,
 ) -> BroadcastListResponse:
     """Get paginated list of broadcasts."""
+    await recover_stuck_broadcasts(db)
     count_result = await db.execute(select(func.count(Broadcast.id)))
     total = count_result.scalar_one()
 
@@ -89,7 +128,7 @@ async def cancel_broadcast(
 ) -> Broadcast:
     """Cancel a broadcast."""
     broadcast.status = BroadcastStatus.CANCELLED
-    await db.flush()
+    await db.commit()
     await db.refresh(broadcast)
     return broadcast
 
@@ -236,13 +275,26 @@ async def execute_test_send(broadcast_id: int, target_telegram_id: int) -> None:
         )
 
 
+async def _cancel_sending_broadcast(broadcast_id: int) -> None:
+    """Mark a broadcast as CANCELLED in a fresh session if it is still SENDING."""
+    try:
+        async with async_session_maker() as cleanup_db:
+            broadcast = await cleanup_db.get(Broadcast, broadcast_id)
+            if broadcast and broadcast.status == BroadcastStatus.SENDING:
+                broadcast.status = BroadcastStatus.CANCELLED
+                await cleanup_db.commit()
+    except Exception:
+        logger.exception("Failed to mark broadcast %d as cancelled", broadcast_id)
+
+
 async def execute_broadcast(broadcast_id: int) -> None:
     """Execute broadcast in background — sends to all active users.
 
     Creates its own DB session (runs outside request lifecycle).
     """
-    async with async_session_maker() as db:
-        try:
+    _active_broadcast_ids.add(broadcast_id)
+    try:
+        async with async_session_maker() as db:
             broadcast = await db.get(Broadcast, broadcast_id)
             if not broadcast or broadcast.status != BroadcastStatus.SENDING:
                 logger.warning("Broadcast %d not found or not in sending state", broadcast_id)
@@ -266,8 +318,14 @@ async def execute_broadcast(broadcast_id: int) -> None:
                 len(telegram_ids),
             )
 
+            sent_count = broadcast.sent_count
+            blocked_count = broadcast.blocked_count
+            failed_count = broadcast.failed_count
+
             async with httpx.AsyncClient(timeout=15.0) as client:
                 for i, tid in enumerate(telegram_ids):
+                    with db.no_autoflush:
+                        await db.refresh(broadcast, ["status"])
                     if broadcast.status == BroadcastStatus.CANCELLED:
                         logger.info("Broadcast %d cancelled during sending", broadcast_id)
                         break
@@ -275,22 +333,37 @@ async def execute_broadcast(broadcast_id: int) -> None:
                     success, error_type = await _send_to_user(client, tid, broadcast)
 
                     if success:
-                        broadcast.sent_count += 1
+                        sent_count += 1
                     elif error_type == "blocked":
-                        broadcast.blocked_count += 1
-                        # Mark user as inactive
-                        user_result = await db.execute(select(User).where(User.telegram_id == tid))
-                        user = user_result.scalar_one_or_none()
-                        if user:
-                            user.is_active = False
+                        blocked_count += 1
                     else:
-                        broadcast.failed_count += 1
+                        failed_count += 1
 
                     # Persist counters every 10 messages
                     if (i + 1) % 10 == 0:
+                        broadcast.sent_count = sent_count
+                        broadcast.blocked_count = blocked_count
+                        broadcast.failed_count = failed_count
                         await db.commit()
 
                     await asyncio.sleep(RATE_LIMIT_DELAY)
+
+            if broadcast.status != BroadcastStatus.CANCELLED:
+                with db.no_autoflush:
+                    await db.refresh(broadcast, ["status"])
+            broadcast.sent_count = sent_count
+            broadcast.blocked_count = blocked_count
+            broadcast.failed_count = failed_count
+            if broadcast.status == BroadcastStatus.CANCELLED:
+                await db.commit()
+                logger.info(
+                    "Broadcast %d cancelled: sent=%d, blocked=%d, failed=%d",
+                    broadcast_id,
+                    broadcast.sent_count,
+                    broadcast.blocked_count,
+                    broadcast.failed_count,
+                )
+                return
 
             # Finalize
             broadcast.status = BroadcastStatus.COMPLETED
@@ -305,12 +378,13 @@ async def execute_broadcast(broadcast_id: int) -> None:
                 broadcast.failed_count,
             )
 
-        except Exception:
-            logger.exception("Broadcast %d failed with exception", broadcast_id)
-            try:
-                broadcast = await db.get(Broadcast, broadcast_id)
-                if broadcast:
-                    broadcast.status = BroadcastStatus.CANCELLED
-                    await db.commit()
-            except Exception:
-                logger.exception("Failed to mark broadcast %d as cancelled", broadcast_id)
+    except asyncio.CancelledError:
+        logger.warning("Broadcast %d task cancelled", broadcast_id)
+        cleanup_task = asyncio.create_task(_cancel_sending_broadcast(broadcast_id))
+        await asyncio.shield(cleanup_task)
+        raise
+    except Exception:
+        logger.exception("Broadcast %d failed with exception", broadcast_id)
+        await _cancel_sending_broadcast(broadcast_id)
+    finally:
+        _active_broadcast_ids.discard(broadcast_id)
