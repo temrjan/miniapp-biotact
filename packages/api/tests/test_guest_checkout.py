@@ -751,14 +751,35 @@ async def test_cookie_is_the_only_access_path(guest):
     assert guest.provider.creates == []
 
 
-async def test_commit_failure_sets_no_cookie_and_leaves_no_row(guest):
+async def test_commit_failure_sets_no_cookie_and_leaves_no_row(guest, caplog):
     fingerprint = (await quote(guest.client, ORDINARY))["quote_fingerprint"]
     guest.fail_commit.append(True)
+    caplog.set_level(logging.INFO)
     response = await guest.client.post(PATH + "/orders", json=body(ORDINARY, fingerprint))
     assert (response.status_code, response.json()) == (503, {"error": "service_unavailable"})
+    assert response.headers["cache-control"] == "no-store"
     assert "set-cookie" not in response.headers
+    assert "Guest request failed | category=database_unavailable" in caplog.text
     assert count(guest, "orders") == 0
     assert sizes(guest) == [("2XL", 0), ("L", 50), ("XL", 50)]
+
+
+async def test_non_idempotency_integrity_error_returns_503_service_unavailable(
+    guest, monkeypatch, caplog
+):
+    """BD-03: an IntegrityError other than OC-06's returns 503 service_unavailable with no-store."""
+    first = await place(guest.client, key="a" * 32)
+    assert first.status_code == 201
+    existing_number = first.json()["order_number"]
+    monkeypatch.setattr(guest_service, "generate_order_number", lambda: existing_number)
+    caplog.set_level(logging.INFO)
+    async with guest.browser() as other:
+        response = await place(other, key="b" * 32)
+        assert (response.status_code, response.json()) == (503, {"error": "service_unavailable"})
+        assert response.headers["cache-control"] == "no-store"
+        assert "set-cookie" not in response.headers
+    assert "Guest request failed | category=database_conflict" in caplog.text
+    assert count(guest, "orders") == 1
 
 
 # --------------------------------------------------------------------------- CK-10
@@ -956,6 +977,67 @@ async def test_payment_urls_are_pinned_to_settings(guest):
     assert guest.provider.reads == []
 
 
+async def test_payment_start_precedence_and_invalid_lang_when_enabled(guest):
+    """PY-01: 422 validation -> 404 missing/malformed cookie -> 403 CSRF -> 429 rate limit -> lookup."""
+    assert guest.config.guest_checkout_enabled is True
+    for invalid_body in ({"lang": "xx"}, {}, {"lang": "ru", "extra": 1}):
+        response = await guest.client.post(PATH + "/order/payment", json=invalid_body)
+        assert (response.status_code, response.json()) == (422, {"error": "invalid_request"})
+        assert response.headers["cache-control"] == "no-store"
+    assert count(guest, "buyer_auth_limits") == 0
+    for cookie_value in (None, "z" * 64, "F" * 64, "f" * 63):
+        async with guest.browser() as client:
+            if cookie_value is not None:
+                client.cookies.set(COOKIE, cookie_value)
+            response = await client.post(PATH + "/order/payment", json={"lang": "ru"})
+            assert (response.status_code, response.json()) == (404, {"error": "order_not_found"})
+    assert count(guest, "buyer_auth_limits") == 0
+    unknown_secret = "f" * 64
+    unknown_csrf = keyed(guest.config, "guest-csrf", unknown_secret)
+    async with guest.browser() as client:
+        client.cookies.set(COOKIE, unknown_secret)
+        for bad_csrf in (None, "0" * 64):
+            headers = {} if bad_csrf is None else {"X-CSRF-Token": bad_csrf}
+            response = await client.post(
+                PATH + "/order/payment", json={"lang": "ru"}, headers=headers
+            )
+            assert (response.status_code, response.json()) == (403, {"error": "request_forbidden"})
+        assert count(guest, "buyer_auth_limits") == 0
+        for _ in range(20):
+            response = await pay(client, unknown_csrf, "ru")
+            assert (response.status_code, response.json()) == (404, {"error": "order_not_found"})
+        assert count(guest, "buyer_auth_limits") == 1
+        limited = await pay(client, unknown_csrf, "ru")
+        assert (limited.status_code, limited.json()) == (429, {"error": "try_later"})
+        assert "retry-after" in limited.headers
+        # Higher-precedence checks still win after peer limit exhaustion.
+        bad_lang = await client.post(
+            PATH + "/order/payment", json={"lang": "xx"}, headers={"X-CSRF-Token": unknown_csrf}
+        )
+        assert (bad_lang.status_code, bad_lang.json()) == (422, {"error": "invalid_request"})
+        wrong_csrf = await pay(client, "0" * 64, "ru")
+        assert (wrong_csrf.status_code, wrong_csrf.json()) == (403, {"error": "request_forbidden"})
+    async with guest.browser() as no_cookie_client:
+        missing_cookie = await no_cookie_client.post(PATH + "/order/payment", json={"lang": "ru"})
+        assert (missing_cookie.status_code, missing_cookie.json()) == (
+            404,
+            {"error": "order_not_found"},
+        )
+    assert guest.provider.creates == []
+
+
+async def test_non_positive_amount_returns_502_without_provider_call(guest):
+    """PY-02(c): a non-positive order total returns 502 payment_unavailable without calling Multicard."""
+    created = await place(guest.client)
+    csrf = created.json()["csrf_token"]
+    guest.sql("UPDATE orders SET subtotal=0, total=0")
+    response = await pay(guest.client, csrf)
+    assert (response.status_code, response.json()) == (502, {"error": "payment_unavailable"})
+    assert response.headers["cache-control"] == "no-store"
+    assert guest.provider.creates == []
+    assert guest.messages == []
+
+
 @pytest.mark.parametrize("mode", ["500", "timeout", "refused", "no_url", "empty_uuid"])
 async def test_provider_failure_stores_nothing_then_retry_binds(guest, mode, caplog):
     created = await place(guest.client)
@@ -1125,6 +1207,27 @@ async def test_sized_provider_failure_becomes_uncertain_without_second_create(gu
     assert (response.status_code, response.json()) == (409, {"error": "payment_check_pending"})
     assert len(guest.provider.creates) == 1
     assert (await guest.client.get(PATH + "/order")).json()["state"] == "awaiting_payment"
+    assert guest.messages == []
+
+
+@pytest.mark.parametrize(
+    ("owner_state", "token_column"),
+    [("creating", "creation_token"), ("cancelling", "cancellation_token")],
+)
+async def test_sized_creating_and_cancelling_states_map_to_payment_check_pending(
+    guest, owner_state, token_column
+):
+    """PY-03: payment_processing (creating) and payment_cancellation_pending (cancelling) -> 409."""
+    created = await place(guest.client, [{"product_id": 505, "quantity": 1, "size": "L"}])
+    csrf = created.json()["csrf_token"]
+    guest.sql(
+        f"UPDATE orders SET size_owner_state=%s, {token_column}='token-1'",  # noqa: S608
+        (owner_state,),
+    )
+    response = await pay(guest.client, csrf)
+    assert (response.status_code, response.json()) == (409, {"error": "payment_check_pending"})
+    assert response.headers["cache-control"] == "no-store"
+    assert guest.provider.creates == []
     assert guest.messages == []
 
 

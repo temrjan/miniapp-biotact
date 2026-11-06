@@ -131,6 +131,10 @@ pytest tests/ -v                  # Тесты
 | `MULTICARD_STORE_ID` | Multicard магазин |
 | `CORS_ORIGINS` | Разрешённые домены |
 | `SENTRY_DSN` | Sentry (опционально) |
+| `GUEST_CHECKOUT_ENABLED` | Гостевой чекаут сайта (по умолчанию `false`) |
+| `PAYMENT_CALLBACK_BASE_URL` | Точный `https://` origin API для Multicard callback |
+| `GUEST_TERMS_VERSION` | Версия опубликованных Условий продажи (1–64 ASCII) |
+| `GUEST_PRIVACY_VERSION` | Версия опубликованной Политики конфиденциальности (1–64 ASCII) |
 
 
 ## Browser Telegram sign-in (disabled by default)
@@ -174,3 +178,20 @@ proofs, sessions and expired limits per invocation; schedule that existing CLI i
 an authorized operational environment. It retains completed context barriers and
 active session/customer state. Keep entry disabled until paired source/schema,
 CI, HTTPS cookies and designated-account delivery have been verified for activation.
+
+## Website guest checkout (disabled by default)
+
+Website guest checkout under `/api/v1/guest` (`POST /quote`, `POST /orders`,
+`GET /order`, `POST /order/payment`) is gated by `GUEST_CHECKOUT_ENABLED=false`.
+While `false`, every request under `/api/v1/guest` returns `404`
+`{"error": "guest_checkout_disabled"}` and startup requires none of the guest
+settings.
+
+When `GUEST_CHECKOUT_ENABLED=true`, startup validates that:
+- `BUYER_PROTECTION_KEY` is at least 32 UTF-8 bytes, differs from `SECRET_KEY`,
+  and `DATABASE_ECHO` is `false`;
+- `BUYER_PUBLIC_ORIGIN` and `PAYMENT_CALLBACK_BASE_URL` are exact `https://`
+  origins (no credentials, path, query, fragment, or trailing slash);
+- `GUEST_TERMS_VERSION` and `GUEST_PRIVACY_VERSION` are non-empty printable ASCII
+  strings of 1–64 characters (`0x20`–`0x7E`);
+- `BUYER_TRUSTED_PROXY_PEERS` entries parse as strict IP networks.

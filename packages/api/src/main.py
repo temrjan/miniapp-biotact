@@ -24,6 +24,7 @@ from src.auth.privacy import (
     AuthPrivacyMiddleware,
     filter_auth_telemetry,
     is_private_auth,
+    log_outside_private_scope,
     unavailable,
 )
 from src.banners.router import router as banners_router
@@ -349,7 +350,7 @@ def create_app() -> FastAPI:
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
         if is_private_auth(request.scope, guest_prefix):
-            logger.error("Guest request failed | category=database_conflict")
+            log_outside_private_scope(logger, "Guest request failed | category=database_conflict")
             return JSONResponse({"error": "service_unavailable"}, status_code=503)
         if is_private_auth(request.scope, buyer_prefix) or is_private_auth(
             request.scope, bridge_prefix
@@ -370,7 +371,9 @@ def create_app() -> FastAPI:
     @app.exception_handler(OperationalError)
     async def operational_error_handler(request: Request, exc: OperationalError) -> JSONResponse:
         if is_private_auth(request.scope, guest_prefix):
-            logger.error("Guest request failed | category=database_unavailable")
+            log_outside_private_scope(
+                logger, "Guest request failed | category=database_unavailable"
+            )
             return JSONResponse({"error": "service_unavailable"}, status_code=503)
         if is_private_auth(request.scope, buyer_prefix) or is_private_auth(
             request.scope, bridge_prefix
