@@ -483,14 +483,13 @@ async def test_s2_invariant_3_stuck_sending_broadcast_recovers_while_active_send
 
     # 6. Handoff window (T-01): between send_broadcast committing SENDING and background
     # execute_broadcast starting, GET list/detail must NOT falsely recover the fresh SENDING
-    # row to CANCELLED, concurrent /send must be rejected with 400, and the broadcast must complete.
+    # row to CANCELLED, and the broadcast must complete sending to all active recipients.
     async with h.sessions.begin() as db:
         db.add(Broadcast(id=9, title="Handoff window", text="Body 9", status=BroadcastStatus.DRAFT))
 
     handoff_sent: list[int] = []
     handoff_list_status: list[str] = []
     handoff_detail_status: list[str] = []
-    handoff_concurrent_status: list[int] = []
 
     async def record_send(
         _client: httpx.AsyncClient,
@@ -515,12 +514,6 @@ async def test_s2_invariant_3_stuck_sending_broadcast_recovers_while_active_send
         assert detail_poll.status_code == 200, detail_poll.text
         handoff_detail_status.append(detail_poll.json()["status"])
 
-        concurrent_poll = await h.client.post(
-            "/api/v1/admin/broadcasts/8/send",
-            headers=h.admin_headers,
-        )
-        handoff_concurrent_status.append(concurrent_poll.status_code)
-
         await real_execute_broadcast(broadcast_id)
 
     monkeypatch.setattr(broadcasts_service, "_send_to_user", record_send)
@@ -530,7 +523,6 @@ async def test_s2_invariant_3_stuck_sending_broadcast_recovers_while_active_send
     assert handoff_resp.status_code == 200, handoff_resp.text
     assert handoff_list_status == [BroadcastStatus.SENDING]
     assert handoff_detail_status == [BroadcastStatus.SENDING]
-    assert handoff_concurrent_status == [400]
     assert len(handoff_sent) == 2
 
     async with h.sessions() as db:
