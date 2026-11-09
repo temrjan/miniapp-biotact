@@ -1162,12 +1162,48 @@ def offer(situation: str, row: dict[str, Any], facts: Facts, magniy: bool) -> Ou
 
 
 def offer_for(situation: str, facts: Facts) -> Outcome | None:
-    """The data's offer for one complaint and the facts known now, without Graf's questions,
-    doctor rules or intolerance answer: Luna decided to offer (Captain 2026-11-09, Luna
-    decides and Graf helps). None when the age is unknown or the data has no product row
-    for these facts."""
+    """The data's offer for one complaint and the facts known now, without Graf's questions
+    or doctor rules: Luna decided to offer (Captain 2026-11-09, Luna decides and Graf helps).
+    The instruction prohibitions stay on the server (Captain 2026-11-09, "Запреты по
+    инструкции оставить на сервере"): an intolerance gives the answer without a product
+    name; diarrhea words route to the diarrhea offer (no magnesium); for a woman of 18 to 60
+    whose pregnancy changes the product, the sex or pregnancy is asked first (the same
+    product gets the pregnancy note). None when the age is unknown or the data has no
+    product row for these facts."""
     if facts.age is None or situation not in COMPLAINTS:
         return None
+    if facts.intolerance or any(facts.hit(text, INTOLERANCE) for text in facts.texts):
+        return Outcome("intolerance", situation, "intolerance.answer_no_name")
+    magniy = False
+    if situation != "diarrhea" and any(facts.hit(text, DIARRHEA) for text in facts.texts):
+        magniy = GROUP.get(situation) == "magniy"
+        situation = "diarrhea"
+    outcome = routed_offer(situation, facts, magniy)
+    if outcome is None:
+        return None
+    spec = SITUATION[situation]
+    sex = facts.person_sex(spec.get("implied_sex"))
+    if (
+        spec.get("pregnancy_question") == "ask"
+        and 18 <= facts.age <= 60
+        and facts.pregnant is None
+        and sex != "male"
+    ):
+        pregnant = routed_offer(situation, replace(facts, sex="female", pregnant=True), magniy)
+        same = pregnant is not None and [i["product"] for i in pregnant.offer] == [
+            i["product"] for i in outcome.offer
+        ]
+        if not same:
+            return Outcome("question", situation, "ask.sex" if sex is None else "ask.pregnancy")
+        if "note_pregnancy" not in outcome.notes:
+            outcome = replace(outcome, notes=(*outcome.notes, "note_pregnancy"))
+    return outcome
+
+
+def routed_offer(situation: str, facts: Facts, magniy: bool) -> Outcome | None:
+    """The data's routing row for the facts as an offer, or None (no row, no offer row,
+    or every product dropped by age)."""
+    assert facts.age is not None
     for _ in range(len(SITUATION)):
         spec = SITUATION[situation]
         if spec.get("requires_word") and not facts.preg():
@@ -1182,7 +1218,7 @@ def offer_for(situation: str, facts: Facts) -> Outcome | None:
             continue
         if kind != "offer":
             return None
-        outcome = offer(situation, row, facts, False)
+        outcome = offer(situation, row, facts, magniy)
         return outcome if outcome.kind == "offer" else None
     return None
 

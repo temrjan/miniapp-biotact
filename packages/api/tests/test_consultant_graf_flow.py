@@ -890,3 +890,32 @@ async def test_logs_carry_situation_and_outcome_but_no_customer_text(caplog):
     assert lines == ["graf turn situation=immunity outcome=offer"]
     assert "сын" not in caplog.text
     assert "5" not in "".join(lines)
+
+
+@pytest.mark.parametrize(
+    ("situation", "text", "sex", "kind", "result"),
+    [
+        # Diarrhea: no magnesium by the instructions; the diarrhea offer instead.
+        ("muscle_cramps", "судороги в ногах и понос, мне 40", "male", "offer", "diarrhea"),
+        # Intolerance: the answer without a product name.
+        ("skin_allergy", "аллергия на капсулы, сыпь, мне 30", "male", "intolerance", None),
+        # Pregnancy changes the product (immunity): ask first.
+        ("immunity", "часто болею, мне 30", "female", "question", "ask.pregnancy"),
+        ("immunity", "часто болею, мне 30", None, "question", "ask.sex"),
+        # The same product either way (cold): offer with the pregnancy note, no question.
+        ("acute_cold", "простыл, мне 45", None, "offer", "note_pregnancy"),
+    ],
+)
+def test_luna_offer_keeps_the_instruction_prohibitions(situation, text, sex, kind, result):
+    facts = graf.Facts(texts=[text], sex=sex)
+    facts.absorb(text)
+    outcome = graf.offer_for(situation, facts)
+    assert outcome is not None
+    assert outcome.kind == kind
+    if kind == "question":
+        assert outcome.template == result
+    elif result == "note_pregnancy":
+        assert "note_pregnancy" in outcome.notes
+    elif result is not None:
+        assert outcome.situation == result
+        assert not any("magniy" in i["product"] for i in outcome.offer)

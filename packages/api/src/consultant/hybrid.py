@@ -979,14 +979,23 @@ class HybridTurn:
                 "rows": rows,
             }
             offer = offer_for(situation, facts)
-            reply = self.render(prepared.request, offer, facts) if offer is not None else None
+            kind = offer.kind if offer is not None else None
+            reply = (
+                self.render(prepared.request, offer, facts) if offer and kind == "offer" else None
+            )
             if reply is not None:
                 item["offer_text"] = reply.answer
                 item["offer_products"] = [p["name"] for p in reply.products]
             else:
                 item["offer_text"] = None
                 item["why_no_offer_text"] = (
-                    "age unknown" if facts.age is None else "no product row for these facts"
+                    "age unknown"
+                    if facts.age is None
+                    else "intolerance: by the instructions no product is named"
+                    if kind == "intolerance"
+                    else "by the instructions the sex or pregnancy must be asked first"
+                    if kind == "question"
+                    else "no product row for these facts"
                 )
             options.append(item)
             rules.append(
@@ -1346,6 +1355,15 @@ class HybridTurn:
         situation = situation or graf.situation or prepared.brief.outcome.situation
         if action == "offer":
             outcome = offer_for(situation, facts) if situation is not None else None
+            if outcome is not None and outcome.kind == "question":
+                # An instruction prohibition needs the sex or the pregnancy first.
+                self.record.luna_part()["decision"]["served"] = "pregnancy_question"
+                held = (
+                    self.graf.brief(prepared.request, outcome, facts, brief.origin).flow
+                    if brief.origin is not None
+                    else None
+                )
+                return outcome, held
             if outcome is not None:
                 return outcome, None
             self.counters.add("decision.offer_unavailable")
