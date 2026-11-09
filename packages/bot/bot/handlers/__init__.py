@@ -2,7 +2,7 @@
 
 from aiogram import Router
 
-from bot.handlers import auth, common, employee_referrals, loyalty, web_login
+from bot.handlers import auth, common, employee_referrals, event_promotions, loyalty, web_login
 
 # Main router
 router = Router(name="main")
@@ -13,6 +13,8 @@ router.include_routers(
     web_login.router,
     employee_referrals.router,
     loyalty.router,
+    # Before auth: its generic deep-link handler consumes every unknown deep link.
+    event_promotions.router,
     auth.router,
     common.router,
 )

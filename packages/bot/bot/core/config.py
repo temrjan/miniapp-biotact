@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     employee_referral_entry_enabled: bool = False
     buyer_telegram_auth_enabled: bool = False
     buyer_telegram_api_url: str = "https://app.biotact.uz/api/v1/bot/buyer/telegram"
+    # Event QR discount entry (spec event-qr-discount R-01). Switched ON and OFF together with
+    # the API flag of the same name; while off, /start ev_<code> behaves as a plain /start.
+    event_promotions_enabled: bool = False
 
     # Debug
     debug: bool = False

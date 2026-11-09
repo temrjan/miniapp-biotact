@@ -11,6 +11,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, Update
 
+from bot.event_entry import EVENT_KEY
 from bot.handlers import web_login
 from bot.referral_entry import INTENT_KEY
 
@@ -72,8 +73,10 @@ class ReferralEntryMiddleware(BaseMiddleware):
             if event.message and event.message.chat.type == "private":
                 command = await CommandStart()(event.message, data["bot"])
                 if command and not web:
-                    # Every namespace retires a pending ref; its specific route may install a new one.
+                    # Every namespace retires a pending ref and event intent; its specific route
+                    # may install a new one.
                     pending.pop(INTENT_KEY, None)
+                    pending.pop(EVENT_KEY, None)
                     await state.set_data(pending)
         data["private_referral_entry"] = private
         scope_token = private_scope.set(private)
