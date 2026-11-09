@@ -147,6 +147,7 @@ async def test_quote_line_is_best_of_catalogue_and_promotion(
 
 
 async def test_no_grant_keeps_base_quote(client, maker, enabled):
+    """R-10: a buyer without a grant keeps the base quote."""
     await _seed_user(maker, BUYER)
     await _promotion(maker)
     pid = await _product(maker, "100000")
@@ -342,6 +343,7 @@ async def test_referral_attribution_and_discount_both_apply(checkout, monkeypatc
 
 
 async def test_my_discount_read_and_first_opening(client, maker, enabled):
+    """R-20 each response and the 401; R-21 the first opening is kept."""
     ends = (NOW + timedelta(days=30)).replace(microsecond=0)
     unauthenticated = await client.get(ME)
     assert unauthenticated.status_code == 401
@@ -384,6 +386,7 @@ async def _promotions(maker) -> list[tuple]:
 
 
 async def test_operator_create_and_dates_store_exact_tashkent_bounds(maker):
+    """R-04 create and D13 dates: exact UTC bounds of Tashkent days."""
     async with maker() as db, db.begin():
         await operator.create(
             db,
@@ -439,6 +442,7 @@ CREATE = {
     ],
 )
 async def test_operator_create_refusals_write_nothing(maker, change):
+    """R-04: each create refusal writes nothing."""
     async with maker() as db, db.begin():
         await operator.create(db, **(CREATE | {"code": "existing"}))
     before = await _promotions(maker)
@@ -465,6 +469,7 @@ async def test_operator_create_refusals_write_nothing(maker, change):
     ],
 )
 async def test_operator_dates_and_end_refusals_write_nothing(maker, command):
+    """R-04, D13: dates and end refusals write nothing."""
     await _promotion(maker, code="running")
     await _promotion(maker, code="future", starts_at=NOW + timedelta(days=1))
     await _promotion(
@@ -478,6 +483,7 @@ async def test_operator_dates_and_end_refusals_write_nothing(maker, command):
 
 
 async def test_operator_end_closes_a_running_promotion_now(maker):
+    """R-04: end sets ends_at to now."""
     await _promotion(maker, code="running")
     at = datetime.now(UTC)
     async with maker() as db, db.begin():
