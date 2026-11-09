@@ -71,6 +71,9 @@ function readConflictQuote(data: unknown): OrderQuote | null {
     max_redeemable: quote.max_redeemable,
     points_to_apply: quote.points_to_apply,
     quote_fingerprint: quote.quote_fingerprint,
+    ...('promotion_discount' in quote && typeof quote.promotion_discount === 'string'
+      ? { promotion_discount: quote.promotion_discount }
+      : {}),
   };
 }
 

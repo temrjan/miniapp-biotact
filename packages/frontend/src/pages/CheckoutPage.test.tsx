@@ -525,6 +525,27 @@ describe('CheckoutPage — R-52 event discount quote', () => {
     expect(orders()[0]?.[1]).toMatchObject({ points_to_apply: 0, quote_fingerprint: 'quote-9500-0' });
   });
 
+  // D14 / R-52: the discount line takes its amount from the quote (700, not the cart's own 5% = 500).
+  it.each([
+    { discount: '700.00', line: 'Скидка гостя NUTRIFORUM 2026 5%: −700 сум' },
+    { discount: '0.00', line: null },
+    { discount: undefined, line: null },
+  ])('D14: confirm step discount line for quote promotion_discount $discount', async ({ discount, line }) => {
+    serverTotal = 9300;
+    const network = postMock.getMockImplementation();
+    if (!network) throw new Error('Missing POST fixture');
+    postMock.mockImplementation(async (url, data) =>
+      url === '/orders/quote'
+        ? { ...quote(), ...(discount === undefined ? {} : { promotion_discount: discount }) }
+        : network(url, data)
+    );
+    await walkToConfirmStep();
+    await waitFor(() => expect(payButton()).toBeEnabled());
+    expect(screen.getByText(ru.cart.total).parentElement).toHaveTextContent(/^Итого9\s300 сум$/);
+    if (line) expect(screen.getByText(line)).toBeInTheDocument();
+    else expect(screen.queryByText(/Скидка гостя/)).not.toBeInTheDocument();
+  });
+
   it('keeps pay disabled and shows the existing error after a failed quote', async () => {
     quoteFailure = new Error('offline');
     await walkToConfirmStep();

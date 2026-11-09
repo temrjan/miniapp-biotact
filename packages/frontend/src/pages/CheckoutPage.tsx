@@ -77,6 +77,8 @@ export function CheckoutPage() {
   // order being recovered pays its existing terms and needs no quote.
   const { data: promotion } = useEventPromotion();
   const awaitingQuote = !!promotion && !recovering && quote === null;
+  // D14: the confirm step also names the discount, in the cart's wording, with the quote's amount.
+  const quoteDiscount = typeof quote?.promotion_discount === 'string' ? Number(quote.promotion_discount) : 0;
   const { address, openModal, isModalOpen } = useLocationStore();
 
   const [step, setStep] = useState<CheckoutStep>('phone');
@@ -535,6 +537,15 @@ export function CheckoutPage() {
                     </div>
                   )}
                   <hr className="border-[var(--border)]" />
+                  {promotion && quoteDiscount > 0 && (
+                    <p className="text-sm font-medium text-[var(--primary)]">
+                      {t('eventPromotion.cartDiscount', {
+                        title: promotion.title,
+                        p: promotion.percent,
+                        amount: formatPrice(quoteDiscount),
+                      })}
+                    </p>
+                  )}
                   <div className="flex justify-between font-bold text-lg">
                     <span>{t('cart.total')}</span>
                     {awaitingQuote ? (
