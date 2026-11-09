@@ -582,6 +582,76 @@
    ],
    "additionalProperties": false
   },
+  "decision": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "follow",
+      "ask",
+      "offer",
+      "doctor",
+      "no_product",
+      "emergency",
+      "check"
+     ]
+    },
+    "situation": {
+     "type": "string",
+     "enum": [
+      "immunity",
+      "acute_cold",
+      "ent",
+      "constipation",
+      "diarrhea",
+      "gut_upset",
+      "gut_after_surgery",
+      "helminths",
+      "skin_allergy",
+      "general_allergy",
+      "skin_hair",
+      "nails_only",
+      "nails_skin_hair",
+      "eyes",
+      "after_eye_surgery",
+      "adult_stress_sleep",
+      "pms_menopause",
+      "muscle_cramps",
+      "child_memory_attention",
+      "child_hyperactive_sleep",
+      "child_nervous_unspecified",
+      "sport_endurance",
+      "sport_muscles",
+      "sport_joints",
+      "sport_nutrition",
+      "sport_mass",
+      "sport_general",
+      "pregnancy_general",
+      "pregnancy_tone_cramps",
+      "pregnancy_teeth_bones",
+      "child_low_weight",
+      "child_poor_appetite",
+      "child_growth_slow",
+      "child_bones_teeth",
+      "premature_low_birth_weight",
+      "recovery_after_illness",
+      "recovery_injury_dental",
+      "child_nervous_recovery",
+      "fertility_mens_health",
+      "bones_50plus",
+      "womens_health_bare",
+      "elderly_bare",
+      "none"
+     ]
+    }
+   },
+   "required": [
+    "action",
+    "situation"
+   ],
+   "additionalProperties": false
+  },
   "text": {
    "type": "object",
    "properties": {
@@ -607,6 +677,7 @@
  },
  "required": [
   "reading",
+  "decision",
   "text"
  ],
  "additionalProperties": false

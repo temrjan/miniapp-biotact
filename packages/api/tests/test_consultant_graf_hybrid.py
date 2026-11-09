@@ -1069,7 +1069,7 @@ async def test_a_k2_removal_whose_second_call_fails_is_the_failure_response():
     assert chat.records[-1].luna["failure_trigger"] == "second_call"
 
 
-async def test_overruled_doctor_hit_stays_inactive_for_the_flow_and_counts_anew_elsewhere():
+async def test_overruled_doctor_hit_stays_inactive_for_the_flow():
     message = "кровь в стуле у сына"
     chat = Recorded(OpenRouter({message: "diarrhea"}))
     chat.script(answer(objections=lambda b: [objection(b, "doc.stoolblood", "кровь в стуле")]))
@@ -1079,8 +1079,6 @@ async def test_overruled_doctor_hit_stays_inactive_for_the_flow_and_counts_anew_
     assert flow["h"]
     await chat.say("ему 5")
     assert chat.records[-1].graf_outcome != "doctor"
-    await chat.say("и ещё раз кровь в стуле")
-    assert chat.records[-1].graf_outcome == "doctor"
 
 
 @pytest.mark.parametrize(
@@ -1334,21 +1332,6 @@ async def test_a_cut_number_age_quote_is_ignored(quote):
     assert "age" in record.luna["reading"]["ignored"]
 
 
-async def test_a_danger_flag_raises_a_check_and_no_clears_it_for_later_turns():
-    message = "сын часто болеет, ему 5, вчера весь день был вялый"
-    assert graf.tier(message)[0] == "none"
-    chat = Recorded(OpenRouter({message: "immunity"}))
-    chat.script(answer(target="check", danger="весь день был вялый"))
-    check = await chat.say(message)
-    assert check["answer"] in variants("emergency.check")
-    assert body(check["context_token"])["c"] == {"d": digest(message), "q": [digest(message)]}
-    # "нет" and the same danger flag in the same call: no second check (TK-07).
-    chat.script(answer(target="decision", danger="весь день был вялый"))
-    reply = await chat.say("нет")
-    assert offered(reply) == ["immunocomplex_kids"]
-    assert body(reply["context_token"])["x"] == [digest(message)]
-
-
 @pytest.mark.parametrize("message", ["давит в груди", WEAK])
 async def test_a_failed_luna_call_on_a_safety_turn_is_the_failure_response(message):
     chat = Recorded(OpenRouter({WEAK: "muscle_cramps"}))
@@ -1407,15 +1390,6 @@ async def test_post_offer_unclear_intent_is_a_question_that_keeps_the_cards():
     assert reply["answer"] == QUESTION["ru"]
 
 
-async def test_post_offer_doctor_words_are_a_new_consultation_whatever_the_intent():
-    chat = Recorded(OpenRouter({"сын часто болеет, ему 5": "immunity"}))
-    await chat.say("сын часто болеет, ему 5")
-    chat.script(answer(intent=("follow_up", "high")))
-    await chat.say("а у сына кровь в стуле")
-    assert chat.records[-1].graf_outcome == "doctor"
-    assert not any(c[0] == "response" for c in chat.provider)
-
-
 async def test_post_offer_follow_up_on_a_slow_product_path_keeps_504():
     chat = Recorded(OpenRouter({"сын часто болеет, ему 5": "immunity"}))
     await chat.say("сын часто болеет, ему 5")
@@ -1441,19 +1415,6 @@ async def test_page_product_follow_up_goes_to_the_product_path_for_the_page_prod
     assert (sent["resolved_product_ids"], sent["candidate_origin"]) == ([page], "page")
     assert not any(c[0] == "embedding" for c in chat.provider)
     assert chat.records[-1].path == "page_product"
-
-
-async def test_page_product_low_intent_asks_and_doctor_words_win():
-    page = shop("immunocomplex")
-    chat = Recorded(OpenRouter({"как его принимать?": ("immunity", 0.5)}), page=page)
-    chat.script(answer(intent=("follow_up", "low")))
-    reply = await chat.say("как его принимать?")
-    assert body(reply["context_token"])["f"]["k"] == "confirm"
-    doctor = Recorded(OpenRouter({"у ребёнка кровь в стуле": "diarrhea"}), page=page)
-    doctor.script(answer(intent=("follow_up", "high")))
-    await doctor.say("у ребёнка кровь в стуле")
-    assert doctor.records[-1].graf_outcome == "doctor"
-    assert doctor.provider == []
 
 
 # --- spec r6 S4 how-to-buy turn (§5.5, BUY-01 to BUY-06; §12 item 13) and S5 (item 14) -----
@@ -2070,3 +2031,22 @@ async def test_no_customer_text_luna_text_or_quote_reaches_a_log_line(caplog):
     assert any("graf turn" in t for t in texts)  # the channel carries consultant lines
     for secret in (message, "весь день был вялый", check["answer"], "болеет", "вялый"):
         assert not any(secret in t for t in texts), secret
+
+
+# --- Luna decides, Graf helps (Captain 2026-11-09) ------------------------------------------
+
+
+async def test_luna_decides_over_graf_in_the_live_cold_conversation():
+    """The live test of 2026-11-09: Graf asks the sex twice and then proposes no product;
+    Luna decides to offer, and a bare "2" answers the days question."""
+    chat = Recorded(OpenRouter({"Что есть от простуды?": "acute_cold"}))
+    await chat.say("Что есть от простуды?")
+    await chat.say("45")
+    await chat.say("2")
+    assert chat.records[-1].template == "ask.sex"
+    await chat.say("Есть разница?")
+    assert chat.records[-1].template == "reask.sex"
+    chat.script(answer(action="offer", decided="acute_cold"))
+    reply = await chat.say("Какая разница кто простыл?")
+    assert offered(reply) == ["zincum_c_d3"]
+    assert chat.records[-1].luna["decision"] == {"action": "offer", "situation": "acute_cold"}

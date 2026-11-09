@@ -275,6 +275,8 @@ NUM = (
     + "|".join(re.escape(w) for w in sorted(NUMBER_WORDS, key=len, reverse=True))
     + ")"
 )
+# A reply that is only a number ("2", "два", "3."): read in the unit the question asked.
+BARE_NUMBER = re.compile(r"\s*" + NUM + r"\s*[.!]?\s*")
 LEFT = r"(?<![0-9a-zа-яёўқғҳ'])"
 RIGHT = r"(?![0-9a-zа-яёўқғҳ'])"
 AGE = PARSERS["age"]
@@ -607,6 +609,9 @@ class Facts:
         elif slot == "duration":
             age, spans = parse_age(text)
             duration = parse_duration(text, spans)
+            if duration is None and (bare := BARE_NUMBER.fullmatch(norm(text))):
+                # The question asks for days: a bare number is that many days.
+                duration = number(bare[1]) or None
             if duration is not None:
                 self.duration, self.origin["duration"], parsed = duration, "confirmed", True
         elif slot == "temperature":
@@ -1154,6 +1159,32 @@ def offer(situation: str, row: dict[str, Any], facts: Facts, magniy: bool) -> Ou
     if facts.disease or (situation in TOPIC_DISEASE and TOPIC_DISEASE[situation] & facts.topics):
         notes.append("note_disease")
     return Outcome("offer", situation, None, tuple(items[:2]), tuple(dict.fromkeys(notes)), magniy)
+
+
+def offer_for(situation: str, facts: Facts) -> Outcome | None:
+    """The data's offer for one complaint and the facts known now, without Graf's questions,
+    doctor rules or intolerance answer: Luna decided to offer (Captain 2026-11-09, Luna
+    decides and Graf helps). None when the age is unknown or the data has no product row
+    for these facts."""
+    if facts.age is None or situation not in COMPLAINTS:
+        return None
+    for _ in range(len(SITUATION)):
+        spec = SITUATION[situation]
+        if spec.get("requires_word") and not facts.preg():
+            situation = spec["without_pregnancy_word"]
+            continue
+        row = next((r["then"] for r in spec["routing"] if when_ok(r["when"], facts)), None)
+        if row is None:
+            return None
+        kind = row.get("outcome", "offer")
+        if kind == "reroute":
+            situation = row["to"]
+            continue
+        if kind != "offer":
+            return None
+        outcome = offer(situation, row, facts, False)
+        return outcome if outcome.kind == "offer" else None
+    return None
 
 
 # Reason by topic for the two situations whose notes in situations.json name it.

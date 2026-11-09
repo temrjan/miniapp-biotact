@@ -26,11 +26,14 @@ from src.consultant.checks import check as check_text
 from src.consultant.context import FACT_TYPES, Check, Context, FlowState, Subject, digest, resolve
 from src.consultant.contracts import Fault, Turn
 from src.consultant.graf import (
+    COMPLAINTS,
+    DOCTOR_CONDITIONS,
     DURATION,
     ENTRY,
     PRODUCT,
     QUESTION_KINDS,
     QUESTION_SLOT,
+    SITUATION,
     SITUATION_LEVEL,
     STATUS,
     Attempt,
@@ -47,11 +50,13 @@ from src.consultant.graf import (
     hit_words,
     listing,
     norm,
+    offer_for,
     parse_age,
     repeats,
     signature,
     tokens,
 )
+from src.consultant.graf import doctor as doctor_rule
 from src.consultant.knowledge import Evidence
 from src.consultant.record import Counters, TurnRecord
 
@@ -922,6 +927,7 @@ class HybridTurn:
             if prepared.route.page is not None:
                 brief["page_product"] = self.evidence.products[prepared.route.page]["name"]
             brief["ambiguous_age"] = prepared.ambiguous
+            brief["options"], brief["doctor_rules"] = self.helpers(prepared, outcome, facts)
         brief["hits"] = [
             {"id": h.id, "kind": h.kind, "sign": h.sign, "result": h.result, "message": h.index}
             for h in hits
@@ -930,6 +936,69 @@ class HybridTurn:
         if second is not None:
             brief["second_call"] = second
         return brief
+
+    def candidates(self, prepared: Prepared, outcome: Outcome) -> list[str]:
+        """The complaints Luna most likely decides about: Graf's, the flow's and Jev's."""
+        found = [outcome.situation, prepared.brief.outcome.situation, *outcome.options]
+        if prepared.route.flow is not None:
+            found.append(prepared.route.flow.situation)
+        attempt = next(iter(self.memo.values()), None)
+        if attempt is not None and attempt.choice is not None:
+            second = attempt.choice.second()
+            found += [attempt.choice.situation, second[0] if second else None]
+        return [s for s in dict.fromkeys(found) if s is not None and s in COMPLAINTS]
+
+    def helpers(
+        self, prepared: Prepared, outcome: Outcome, facts: Facts
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Graf as Luna's helper (Captain 2026-11-09): the data's offer of each likely
+        complaint with its approved text for the facts known now, its routing rows, and its
+        doctor rules. Luna decides; the server keeps her text to these products and doses."""
+        options: list[dict[str, Any]] = []
+        rules: list[dict[str, Any]] = []
+        for situation in self.candidates(prepared, outcome):
+            spec = SITUATION[situation]
+            rows = [
+                {
+                    "when": row["when"],
+                    "products": [
+                        PRODUCT[i["product"]]["shop_name"]
+                        if i["product"] in PRODUCT
+                        else i["product"]  # a family: the product depends on age and form
+                        for i in row["then"].get("offer", [])
+                    ],
+                    "outcome": row["then"].get("outcome", "offer"),
+                }
+                for row in spec["routing"]
+            ]
+            item: dict[str, Any] = {
+                "situation": situation,
+                "needs": list(spec.get("required_slots", [])),
+                "pregnancy_question": spec.get("pregnancy_question"),
+                "rows": rows,
+            }
+            offer = offer_for(situation, facts)
+            reply = self.render(prepared.request, offer, facts) if offer is not None else None
+            if reply is not None:
+                item["offer_text"] = reply.answer
+                item["offer_products"] = [p["name"] for p in reply.products]
+            else:
+                item["offer_text"] = None
+                item["why_no_offer_text"] = (
+                    "age unknown" if facts.age is None else "no product row for these facts"
+                )
+            options.append(item)
+            rules.append(
+                {
+                    "situation": situation,
+                    "doctor_checks": [
+                        {"rule": r, "when": DOCTOR_CONDITIONS.get(r, "doctor words in a message")}
+                        for r in spec.get("doctor_checks", [])
+                    ],
+                    "graf_doctor_now": doctor_rule(facts, situation),
+                }
+            )
+        return options, rules
 
     # -- reading -------------------------------------------------------------------------------
 
@@ -1160,63 +1229,66 @@ class HybridTurn:
             self.counters.add("overrule.K2" if k2 else "overrule.K1")
 
     async def conclude(
-        self, prepared: Prepared | None, reading: Reading, text: luna.Text, stage: Stage | None
+        self,
+        prepared: Prepared | None,
+        reading: Reading,
+        text: luna.Text,
+        stage: Stage | None,
+        decision: luna.Decision,
     ) -> dict[str, Any]:
-        """The normal outcome of a message: SF-05, post-offer (PO-03), page product (PP-03),
-        then the re-decision and its text."""
-        danger = tuple(d for d in reading.danger if d not in self.carry.cleared)
-        if danger:
-            # SF-05: a danger quote raises the check, never 103.
-            asked = digest(self.request.question)
-            return await self.safety_outcome(CHECK, text, Check(asked, danger), prepared, stage)
+        """The normal outcome of a message, decided by Luna (Captain 2026-11-09: "Луна
+        принимает решения и составляет ответ", "Граф - это инструмент, он не должен вообще
+        решать"): her 103 or danger check, post-offer (PO-03), page product (PP-03), then
+        Graf's re-decision as her helper and her own decision over it."""
+        current = digest(self.request.question)
+        if decision.action == "emergency":
+            return await self.safety_outcome(GENERAL, text, None, prepared, stage)
+        if decision.action == "check":
+            danger = tuple(d for d in reading.danger if d not in self.carry.cleared)
+            check = Check(current, danger or (current,))
+            return await self.safety_outcome(CHECK, text, check, prepared, stage)
         if prepared is None:
             raise AssertionError("a product-path message is concluded by the caller")
         target = prepared.route
-        current = len(prepared.request.history)
-        in_force = [
-            h
-            for h in prepared.hits
-            if h.kind == "K2" and h.index == current and h not in reading.accepted
-        ]
         intent, confidence = reading.intent
         strict = stage is not None
-        if target.kind == "post_offer" and not in_force:
+        if target.kind == "post_offer":
             if intent == "follow_up" and confidence == "high":
                 return await self.product(prepared.request, target.subject, strict)
             if not (intent == "new_complaint" and confidence == "high"):
                 return await self.post_offer(prepared, text, stage)
-        if (
-            target.page is not None
-            and not in_force
-            and (intent, confidence)
-            == (
-                "follow_up",
-                "high",
-            )
-        ):
+        if target.page is not None and (intent, confidence) == ("follow_up", "high"):
             subject = Subject([target.page], False, False, target.subject.open_intent)
             return await self.product(prepared.request, subject, strict)
         brief, lens = await self.redecide(prepared, reading)
-        final = brief.outcome
+        final, flow = brief.outcome, brief.flow
+        chosen = self.chosen(decision, prepared, brief)
+        if chosen is not None:
+            final, flow = chosen
         self.count_overrules(prepared, reading, final)
         reply = self.render(prepared.request, final, brief.facts)
         before = self.render(prepared.request, prepared.brief.outcome, prepared.brief.facts)
         question = prepared.question
-        # HR-07 (a): the same decision, including the approved text it renders (a changed
-        # relation word makes another text, so Luna writes again).
-        usable = (
-            text.target == "decision"
-            and final.kind not in SITUATION_LEVEL
-            and signature(final) == signature(prepared.brief.outcome)
-            and reply is not None
-            and before is not None
-            and reply.answer == before.answer
-        ) or (
-            text.target == "question"
-            and question is not None
-            and final.kind in QUESTION_KINDS
-            and signature(final) == signature(question)
-        )
+        if chosen is None:
+            # HR-07 (a): Luna follows Graf; the same decision, including the approved text it
+            # renders (a changed relation word makes another text, so Luna writes again).
+            usable = (
+                text.target == "decision"
+                and final.kind not in SITUATION_LEVEL
+                and signature(final) == signature(prepared.brief.outcome)
+                and reply is not None
+                and before is not None
+                and reply.answer == before.answer
+            ) or (
+                text.target == "question"
+                and question is not None
+                and final.kind in QUESTION_KINDS
+                and signature(final) == signature(question)
+            )
+        else:
+            # Luna's own decision: her text stands when it was written for it and passes
+            # the checks (products and doses of the approved offer text).
+            usable = text.target == target_of(final)
         ambiguous = prepared.ambiguous or len(reading.candidates) >= 2
         named = named_age(prepared, brief, reading) if ambiguous else None
         self.record_decision(final, brief, lens, reply)
@@ -1232,7 +1304,7 @@ class HybridTurn:
         pg = self.carry.pg or (
             facts.pregnant is True and facts.origin.get("pregnant") in {"confirmed", "luna"}
         )
-        carry = replace(self.carry, pg=pg, flow=brief.flow, check=None)
+        carry = replace(self.carry, pg=pg, flow=flow, check=None)
         if reply is None:
             return self.c.envelope(
                 self.request, carry, [], "clarification", delivered, [], [], None, []
@@ -1248,6 +1320,50 @@ class HybridTurn:
             None,
             reply.cautions,
         )
+
+    def chosen(
+        self, decision: luna.Decision, prepared: Prepared, brief: Brief
+    ) -> tuple[Outcome, FlowState | None] | None:
+        """Luna's decision as the delivered outcome and the flow state the token carries;
+        None when she follows Graf's proposal. Graf only renders the data: products and
+        doses of an offer, the doctor and no-product texts."""
+        action = decision.action
+        self.counters.add("decision." + action)
+        self.record.luna_part()["decision"] = {
+            "action": action,
+            "situation": decision.situation,
+        }
+        if action == "follow":
+            return None
+        facts, graf = brief.facts, brief.outcome
+        situation = decision.situation if decision.situation != "none" else None
+        situation = situation or graf.situation or prepared.brief.outcome.situation
+        if action == "offer":
+            outcome = offer_for(situation, facts) if situation is not None else None
+            if outcome is not None:
+                return outcome, None
+            self.counters.add("decision.offer_unavailable")
+            self.record.luna_part()["decision"]["served"] = "ask"
+            action = "ask"  # no age or no product row: Luna asks (her text is written again)
+        if action == "ask":
+            if graf.kind == "question" or graf.kind in QUESTION_KINDS:
+                flow = brief.flow  # Graf's pending question helps read the reply
+            else:
+                hold = (
+                    Outcome("confirm", None, None, options=(situation,))
+                    if situation is not None and situation in COMPLAINTS
+                    else Outcome("clarify")
+                )
+                flow = (
+                    self.graf.brief(prepared.request, hold, facts, brief.origin).flow
+                    if brief.origin is not None
+                    else None
+                )
+            return Outcome("clarify"), flow
+        if action == "doctor":
+            template = (doctor_rule(facts, situation) if situation else None) or "doctor.general"
+            return Outcome("doctor", situation, template), None
+        return Outcome("no_product", situation, "no_product.general"), None
 
     async def post_offer(
         self, prepared: Prepared, text: luna.Text, stage: Stage | None
@@ -1299,7 +1415,9 @@ class HybridTurn:
         if parsed.answer is None:
             raise Failure("luna")
         reading = self.validate(parsed.answer, prepared.hits, prepared.brief.facts)
-        return await self.conclude(prepared, reading, parsed.answer.text, None)
+        return await self.conclude(
+            prepared, reading, parsed.answer.text, None, parsed.answer.decision
+        )
 
     def info_brief(
         self, outcome: Outcome, reply: Reply, post: bool, second: dict[str, Any] | None = None
@@ -1338,9 +1456,17 @@ class HybridTurn:
             raise Failure("luna")
         reading = self.validate(parsed.answer, [], None)
         text = parsed.answer.text
-        danger = tuple(d for d in reading.danger if d not in self.carry.cleared)
-        if danger:
-            check = Check(digest(self.request.question), danger)
+        action = parsed.answer.decision.action
+        self.record.luna_part()["decision"] = {
+            "action": action,
+            "situation": parsed.answer.decision.situation,
+        }
+        if action == "emergency":
+            return await self.safety_outcome(GENERAL, text, None, None, None, again=again)
+        if action == "check":
+            current = digest(self.request.question)
+            danger = tuple(d for d in reading.danger if d not in self.carry.cleared)
+            check = Check(current, danger or (current,))
             return await self.safety_outcome(CHECK, text, check, None, None, again=again)
         delivered = await self.text_for(outcome, reply, text, text.target == "decision", again)
         self.graf.log(None, outcome.kind)
@@ -1367,19 +1493,39 @@ class HybridTurn:
         hits = k3 + (prepared.hits if prepared else [])
         reading = self.validate(parsed.answer, hits, prepared.brief.facts if prepared else None)
         text = parsed.answer.text
+        decision = parsed.answer.decision
+        action = decision.action
         current = digest(self.request.question)
+        self.record.luna_part()["decision"] = {"action": action, "situation": decision.situation}
+        # Luna decides on every ambulance stage (Captain 2026-11-09: "Все луне, Все!"); the
+        # word list is her helper. "follow" keeps the word list's proposal with her
+        # objections as before; another action dismisses the stage.
+        if action == "emergency":
+            primary = stage.outcome if stage.level == "strong" and stage.outcome else GENERAL
+            return await self.safety_outcome(primary, text, None, prepared, stage)
+        if action == "check":
+            check = stage.check if stage.level == "weak" and stage.check else None
+            check = check or Check(current, (current,))
+            harm = self_harm(stage)
+            return await self.safety_outcome(CHECK, text, check, prepared, stage, harm)
+        dismissed = action != "follow"
         if stage.level == "strong":
             assert stage.outcome is not None
-            strong = [h for h in k3 if h.kind == "K3-strong" and h.result == "hit"]
-            if strong and all(h in reading.accepted for h in strong):
-                # BO-07: a strong hit goes down one level only, to the danger check.
-                self.counters.add("overrule.K3-strong")
-                check = Check(current, (current,))
-                harm = self_harm(stage)
-                return await self.safety_outcome(CHECK, text, check, prepared, stage, harm)
-            return await self.safety_outcome(stage.outcome, text, None, prepared, stage)
-        if stage.level == "weak":
-            if not (k3 and all(h in reading.accepted for h in k3)):
+            if not dismissed:
+                strong = [h for h in k3 if h.kind == "K3-strong" and h.result == "hit"]
+                if strong and all(h in reading.accepted for h in strong):
+                    # BO-07: a strong hit goes down one level only, to the danger check.
+                    self.counters.add("overrule.K3-strong")
+                    check = Check(current, (current,))
+                    harm = self_harm(stage)
+                    return await self.safety_outcome(CHECK, text, check, prepared, stage, harm)
+                return await self.safety_outcome(stage.outcome, text, None, prepared, stage)
+            self.counters.add("overrule.K3-strong")
+            self.carry = replace(
+                self.carry, cleared=tuple(dict.fromkeys((*self.carry.cleared, current)))
+            )
+        elif stage.level == "weak":
+            if not dismissed and not (k3 and all(h in reading.accepted for h in k3)):
                 return await self.safety_outcome(CHECK, text, stage.check, prepared, stage)
             # BO-06: dismissed; the message is processed normally and cleared (TK-07).
             self.counters.add("overrule.K3-weak")
@@ -1388,7 +1534,9 @@ class HybridTurn:
             )
         else:
             proceed = stage.outcome is None
-            if stage.checked is None or reading.check_reply == "yes":
+            if dismissed:
+                proceed = True
+            elif stage.checked is None or reading.check_reply == "yes":
                 proceed = False
             elif reading.check_reply == "no":
                 if not proceed:
@@ -1401,13 +1549,8 @@ class HybridTurn:
         assert normal is not None
         assert target is not None
         if prepared is None:
-            danger = tuple(d for d in reading.danger if d not in self.carry.cleared)
-            if danger:
-                return await self.safety_outcome(
-                    CHECK, text, Check(current, danger), prepared, stage
-                )
             return await self.product(normal, target.subject, True)
-        return await self.conclude(prepared, reading, text, stage)
+        return await self.conclude(prepared, reading, text, stage, decision)
 
     def finish(self) -> None:
         """Record Jev (spec r2 OP-03; TR-03)."""
