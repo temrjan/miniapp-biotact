@@ -13,6 +13,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.callbacks import LanguageCallback
+from bot.event_entry import EVENT_KEY, event_welcome, first_step_prefix
 from bot.keyboards.inline import (
     get_back_keyboard,
     get_cancel_order_keyboard,
@@ -26,8 +27,10 @@ from bot.keyboards.inline import (
     get_skip_phone_keyboard,
     get_webapp_keyboard,
 )
+from bot.models.user import User
 from bot.referral_entry import INTENT_KEY, launch_keyboard
 from bot.services.crm import sync_customer_full, sync_customer_to_crm
+from bot.services.event_promotions import PromotionView
 from bot.services.user import UserService
 
 logger = logging.getLogger(__name__)
@@ -185,23 +188,38 @@ async def cmd_start(
     session: AsyncSession,
     state: FSMContext,
     referral_intent: dict[str, str] | None = None,
+    resolved_user: tuple[User, bool] | None = None,
+    promotion_intent: PromotionView | None = None,
 ) -> None:
-    """Handle /start command."""
+    """Handle /start command.
+
+    ``resolved_user`` is the ``(user, is_new)`` an entry handler already resolved for this
+    update, so the user is resolved once (event R-32). ``promotion_intent`` installs the event
+    intent after the clear, as ``referral_intent`` does (R-33).
+    """
     await state.clear()
     if referral_intent is not None:
         await state.update_data(
             **{INTENT_KEY: referral_intent, "referral_generation": time.time_ns()}
         )
-    user_service = UserService(session)
-    user, is_new = await user_service.get_or_create(message.from_user)
+    if promotion_intent is not None:
+        await state.update_data(**{EVENT_KEY: promotion_intent.id})
+    if resolved_user is None:
+        user_service = UserService(session)
+        user, is_new = await user_service.get_or_create(message.from_user)
+    else:
+        user, is_new = resolved_user
     # Sync to CRM (fire and forget)
     asyncio.create_task(sync_customer_to_crm(message.from_user))
 
     if is_new:
         await state.update_data(registration_language=True)
         # New user - show language selection first
+        prompt = "🌐 Tilni tanlang / Выберите язык:"
+        if promotion_intent is not None:
+            prompt = first_step_prefix(promotion_intent) + "\n\n" + prompt
         await message.answer(
-            "🌐 Tilni tanlang / Выберите язык:",
+            prompt,
             reply_markup=get_language_keyboard(),
         )
     elif not user.phone:
@@ -224,11 +242,15 @@ async def cmd_start(
         )
     else:
         # Existing user with phone - show welcome
-        await message.answer(
-            t(user.language_code, "welcome").format(name=message.from_user.first_name),
-            reply_markup=await launch_keyboard(state, user.language_code),
+        event = await event_welcome(
+            session, await state.get_data(), message.from_user, user.language_code
         )
-        if referral_intent is not None:
+        text, keyboard = event or (
+            t(user.language_code, "welcome").format(name=message.from_user.first_name),
+            await launch_keyboard(state, user.language_code),
+        )
+        await message.answer(text, reply_markup=keyboard)
+        if referral_intent is not None or promotion_intent is not None:
             await state.clear()
 
 
@@ -267,7 +289,7 @@ async def callback_language(
 ) -> None:
     """Handle language selection callback."""
     data = await state.get_data()
-    if INTENT_KEY in data and not data.get("registration_language"):
+    if (INTENT_KEY in data or EVENT_KEY in data) and not data.get("registration_language"):
         await callback.answer()
         return
     lang = callback_data.code
@@ -283,10 +305,12 @@ async def callback_language(
         # Check if user already has phone
         if user.phone:
             # Already has phone, show welcome
-            await callback.message.answer(
+            event = await event_welcome(session, data, callback.from_user, lang)
+            text, keyboard = event or (
                 t(lang, "welcome").format(name=callback.from_user.first_name),
-                reply_markup=await launch_keyboard(state, lang),
+                await launch_keyboard(state, lang),
             )
+            await callback.message.answer(text, reply_markup=keyboard)
             await state.clear()
         else:
             # Ask for phone number
@@ -351,10 +375,9 @@ async def handle_contact_received(
         success_text.get(lang, success_text["ru"]),
         reply_markup=get_remove_keyboard(),
     )
-    await message.answer(
-        t(lang, "welcome").format(name=message.from_user.first_name),
-        reply_markup=keyboard,
-    )
+    event = await event_welcome(session, data, message.from_user, lang)
+    text, markup = event or (t(lang, "welcome").format(name=message.from_user.first_name), keyboard)
+    await message.answer(text, reply_markup=markup)
 
 
 @router.callback_query(F.data == "skip_phone")
@@ -386,10 +409,12 @@ async def callback_skip_phone(
         pass
     # Remove reply keyboard, then show welcome with webapp button
     await callback.message.answer("⏭️", reply_markup=get_remove_keyboard())
-    await callback.message.answer(
+    event = await event_welcome(session, data, callback.from_user, lang)
+    text, markup = event or (
         t(lang, "welcome").format(name=callback.from_user.first_name),
-        reply_markup=keyboard,
+        keyboard,
     )
+    await callback.message.answer(text, reply_markup=markup)
     await callback.answer()
 
 
