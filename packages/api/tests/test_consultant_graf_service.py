@@ -159,7 +159,8 @@ async def runs(consultant):
 )
 async def test_danger_bypass_branches_reach_103_through_luna(test_db, message):
     # The ambulance tier is computed before register (SF-02); the strong turn is then
-    # registered and Luna writes its 103 text (HR-03). No product path, no Jev.
+    # registered and Luna writes its 103 text (HR-03). No product path; Graf and Jev may
+    # prepare the message as Luna's helpers (Captain 2026-11-09, "Все луне").
     await seed(test_db)
     router = OpenRouter({"часто болею": "immunity"})
     consultant = bot(test_db, router)
@@ -167,7 +168,6 @@ async def test_danger_bypass_branches_reach_103_through_luna(test_db, message):
     assert reply.answer in variants("emergency.general")
     assert (reply.status, reply.products, reply.sources) == ("limited", [], [])
     assert consultant.provider.calls == []
-    assert router.calls == []
     assert len(consultant.provider.luna) == 1
     assert consultant.provider.briefs[0]["safety"]["primary"] == "emergency"
     assert await runs(consultant) == 1
