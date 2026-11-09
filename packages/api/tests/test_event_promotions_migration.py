@@ -59,6 +59,9 @@ def test_constraints_refuse_invalid_rows(scratch):
             scratch.execute(PROMOTION, row)
     with pytest.raises(psycopg2.errors.UniqueViolation):
         scratch.execute(PROMOTION, (7, "nutriforum2026", "T", 5, START, END))
+    # The inclusive limits are accepted: percent 1 and 90, a code of 40, a title of 60.
+    scratch.execute(PROMOTION, (8, "a" * 40, "x" * 60, 1, START, END))
+    scratch.execute(PROMOTION, (9, "p90", "T", 90, START, END))
 
     grant = (
         "INSERT INTO event_promotion_grants (promotion_id,user_id,is_new_user) VALUES (1,701,true)"
@@ -70,6 +73,6 @@ def test_constraints_refuse_invalid_rows(scratch):
         scratch.execute(
             "INSERT INTO event_promotion_scans (promotion_id,user_id,outcome) VALUES (1,701,'x')"
         )
-    assert scratch.execute("SELECT count(*) FROM event_promotions") == [(1,)]
+    assert scratch.execute("SELECT count(*) FROM event_promotions") == [(3,)]
     assert scratch.execute("SELECT count(*) FROM event_promotion_grants") == [(1,)]
     assert scratch.execute("SELECT count(*) FROM event_promotion_scans") == [(0,)]
