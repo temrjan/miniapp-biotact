@@ -64,13 +64,18 @@ def echo(brief: dict[str, Any]) -> dict[str, Any]:
     body = texts.get(kind) if kind != "question" else QUESTION[brief["language"]]
     if body is None:
         body = QUESTION[brief["language"]]
-    return {"reading": neutral(), "text": {"target": kind, "body": body}}
+    return {
+        "reading": neutral(),
+        "decision": {"action": "follow", "situation": "none"},
+        "text": {"target": kind, "body": body},
+    }
 
 
 def answer(**change: Any) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """A step that starts from the echo and changes parts of it. Keys: target, body,
     situation, confidence, facts (merged per fact), objections (a list or a callable over
-    the brief), check_reply, intent, danger, topic_change, candidates."""
+    the brief), check_reply, intent, danger, topic_change, candidates, action (Luna's
+    decision; default "follow", "check" with danger), decided (its situation)."""
 
     def step(brief: dict[str, Any]) -> dict[str, Any]:
         out = copy.deepcopy(echo(brief))
@@ -97,6 +102,11 @@ def answer(**change: Any) -> Callable[[dict[str, Any]], dict[str, Any]]:
             reading["intent"] = {"value": value, "confidence": confidence}
         if "danger" in change:
             reading["facts"]["danger"] = {"present": True, "quote": change["danger"]}
+            out["decision"]["action"] = "check"
+        if "action" in change:
+            out["decision"]["action"] = change["action"]
+        if "decided" in change:
+            out["decision"]["situation"] = change["decided"]
         if "topic_change" in change:
             reading["facts"]["topic_change"] = {"present": True, "quote": change["topic_change"]}
         if "candidates" in change:

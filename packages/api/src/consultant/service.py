@@ -260,7 +260,9 @@ class Consultant:
         assert self.graf is not None
         request, record = work.request, work.record
         if stage.safety:
-            normal = request if stage.level == "weak" else stage.checked
+            # A strong or weak hit still has its own message: Luna may decide that it is no
+            # danger and answer it normally (Captain 2026-11-09, "Все луне").
+            normal = request if stage.level in {"weak", "strong"} else stage.checked
             target = None
             if normal is not None:
                 if normal is not request and work.context.version == 1:
