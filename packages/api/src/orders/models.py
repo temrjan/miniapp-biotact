@@ -100,6 +100,10 @@ class Order(Base):
         Boolean, server_default="false", default=False
     )
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The event promotion that discounted at least one line of this order; NULL otherwise (R-12).
+    promotion_id: Mapped[int | None] = mapped_column(
+        ForeignKey("event_promotions.id", ondelete="RESTRICT"), index=True
+    )
     legacy_vest_creation_token: Mapped[str | None] = mapped_column(String(36))
 
     # Totals
@@ -206,6 +210,10 @@ class OrderItem(Base):
     size_id: Mapped[int | None] = mapped_column(ForeignKey("product_sizes.id", ondelete="RESTRICT"))
     allocated_quantity: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
     restored_quantity: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    # Whole-line amount the event promotion took off the catalogue effective price (R-10).
+    promotion_discount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, server_default="0", default=Decimal("0")
+    )
 
     # Relationships
     order: Mapped["Order"] = relationship(back_populates="items")

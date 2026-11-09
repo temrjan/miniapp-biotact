@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # Feature flags
     # Biotact Club loyalty: gates loyalty routers/UI; stays dark on prod until ready.
     loyalty_enabled: bool = False
+    # Event QR discount (event-qr-discount R-01); switch ON and OFF together with the bot's.
+    event_promotions_enabled: bool = False
     employee_referral_k1_enabled: bool = False
     employee_referral_k1_key: SecretStr = SecretStr("")
     employee_referral_capture_enabled: bool = False

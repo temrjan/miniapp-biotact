@@ -18,6 +18,8 @@ from tests.test_buyer_auth_native import check_parity
 scratch = migration.scratch
 PREVIOUS = "8d1b1791159b"
 REVISION = "b4f4c51eb14a"
+# The event promotion revision follows G1; these tests target G1 itself, not the moving head.
+SUCCESSOR = "87688cb444f4"
 NEW_COLUMNS = (
     "guest_access_digest",
     "guest_idempotency_digest",
@@ -93,14 +95,14 @@ def test_single_head_parent_and_upgrade_preserves_existing_rows(scratch):
     cfg = Config(str(migration.API_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(migration.API_ROOT / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == [REVISION]
+    assert script.get_revision(SUCCESSOR).down_revision == REVISION
     assert script.get_revision(REVISION).down_revision == PREVIOUS
 
     scratch.migrate(target=PREVIOUS)
     seed(scratch)
     before = values(scratch)
     constraints, indexes = definitions(scratch)
-    scratch.migrate(target="head")
+    scratch.migrate(target=REVISION)
     assert scratch.marker() == REVISION
     assert values(scratch) == before
     assert scratch.execute(
@@ -129,7 +131,7 @@ def test_single_head_parent_and_upgrade_preserves_existing_rows(scratch):
 
 
 def test_owner_check_and_unique_digests(scratch):
-    scratch.migrate(target="head")
+    scratch.migrate(target=REVISION)
     seed(scratch)
     scratch.execute(GUEST_INSERT, (801, "G1-guest-1", 0, *COMPLETE))
     # A guest row without an idempotency digest and owned rows: NULL digests coexist.
@@ -155,7 +157,7 @@ def test_owner_check_and_unique_digests(scratch):
 
 @pytest.mark.parametrize("state", ["guest", *NEW_COLUMNS])
 def test_populated_downgrade_refuses_before_any_change(scratch, state):
-    scratch.migrate(target="head")
+    scratch.migrate(target=REVISION)
     seed(scratch)
     if state == "guest":
         scratch.execute(GUEST_INSERT, (801, "G1-guest-1", 0, *COMPLETE))
@@ -172,11 +174,11 @@ def test_empty_downgrade_restores_predecessor_then_reupgrades(scratch):
     scratch.migrate(target=PREVIOUS)
     seed(scratch)
     predecessor = scratch.snapshot()
-    scratch.migrate(target="head")
+    scratch.migrate(target=REVISION)
     scratch.migrate("downgrade", PREVIOUS)
     assert scratch.marker() == PREVIOUS
     assert scratch.snapshot() == predecessor
-    scratch.migrate(target="head")
+    scratch.migrate(target=REVISION)
     assert scratch.marker() == REVISION
     check_parity(scratch)
 
@@ -187,7 +189,7 @@ def test_lock_timeout_leaves_no_partial_schema(scratch):
     with migration.blocker(scratch) as blocker, ThreadPoolExecutor(max_workers=1) as pool:
         with blocker.cursor() as cur:
             cur.execute("LOCK TABLE orders IN ACCESS SHARE MODE")
-        output = pool.submit(scratch.migrate, target="head", success=False).result(timeout=60)
+        output = pool.submit(scratch.migrate, target=REVISION, success=False).result(timeout=60)
     assert "lock timeout" in output
     assert scratch.marker() == PREVIOUS
     assert scratch.snapshot() == before

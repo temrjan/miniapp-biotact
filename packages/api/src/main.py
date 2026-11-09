@@ -61,6 +61,7 @@ from src.employee_referrals.privacy import K1_PATH, K1PrivacyMiddleware
 from src.employee_referrals.return_privacy import ReturnPrivacyMiddleware
 from src.employee_referrals.return_router import router as referral_returns_router
 from src.employee_referrals.router import router as employee_referrals_router
+from src.event_promotions.router import router as event_promotions_router
 from src.guest.router import router as guest_router
 from src.journal.writer import runtime as journal_runtime
 from src.loyalty.admin_router import router as admin_lottery_router
@@ -221,6 +222,11 @@ def create_app() -> FastAPI:
         orders_router,
         prefix=f"{settings.api_v1_prefix}/orders",
         tags=["orders"],
+    )
+    app.include_router(
+        event_promotions_router,
+        prefix=f"{settings.api_v1_prefix}/event-promotions",
+        tags=["event-promotions"],
     )
 
     # Payments router

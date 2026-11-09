@@ -15,6 +15,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from src.employee_referrals.capture import capture_order, capture_requested
 from src.employee_referrals.paid import record_paid
+from src.event_promotions.service import ActivePromotion, active_promotion, promotion_unit_price
 from src.loyalty import service as loyalty_service
 from src.orders.models import Order, OrderItem, OrderStatus
 from src.orders.schemas import (
@@ -197,12 +198,18 @@ async def _price_lines(
     lines: list[OrderItemCreate],
     *,
     allocate: bool = False,
+    promotion: ActivePromotion | None = None,
 ) -> tuple[list[OrderItem], Decimal, bool]:
     """Turn requested (product_id, quantity) lines into priced ``OrderItem`` rows + the subtotal.
 
     Every money value is read from ``products`` in a single query — the client's numbers never
     reach the database, so a tampered ``product_price`` cannot become a Multicard invoice. Name and
     price are snapshotted onto the line, so a later catalogue edit does not rewrite past orders.
+
+    ``promotion`` is the buyer's selected event grant (event-qr-discount R-10): each line costs the
+    lower of its catalogue effective price and the promotion unit price, and records the difference
+    in ``promotion_discount`` only when the promotion price is strictly lower. The website guest
+    path never passes one (R-11).
     """
     product_ids = {line.product_id for line in lines}
     products = (
@@ -272,12 +279,19 @@ async def _price_lines(
             raise size_error("invalid_size", product.id, line.size)
         price = product.sale_price if product.is_sale else product.price
         assert price is not None  # products_sale_ck guarantees a price for active sales.
+        discount = Decimal("0")
+        if promotion is not None:
+            promoted = promotion_unit_price(product.price, promotion.percent)
+            if promoted < price:
+                discount = (price - promoted) * line.quantity
+                price = promoted
         line_total = price * line.quantity
         subtotal += line_total
         if size_row is not None and (product.id, size_row.size) in grouped:
             item = grouped[(product.id, size_row.size)]
             item.quantity += line.quantity
             item.total += line_total
+            item.promotion_discount += discount
             continue
         item = OrderItem(
             product_id=product.id,
@@ -291,6 +305,7 @@ async def _price_lines(
             size_id=size_row.id if size_row is not None else None,
             allocated_quantity=0,
             restored_quantity=0,
+            promotion_discount=discount,
         )
         items.append(item)
         if size_row is not None:
@@ -315,10 +330,23 @@ class QuoteAgreementError(Exception):
         super().__init__(code)
 
 
+def _promotion_discount(items: list[OrderItem]) -> Decimal:
+    return sum((item.promotion_discount for item in items), Decimal("0"))
+
+
 def _quote_from_priced(
-    items: list[OrderItem], subtotal: Decimal, *, balance: int, points: int
+    items: list[OrderItem],
+    subtotal: Decimal,
+    *,
+    balance: int,
+    points: int,
+    promotion: ActivePromotion | None = None,
 ) -> OrderQuote:
     total = subtotal + DELIVERY_FEE
+    # The fingerprint covers the event discount through each line's unit price and total (R-13):
+    # a grant that ends between quote and order changes them. Quotes without a discounted line
+    # keep their base fingerprint.
+    discount = _promotion_discount(items)
     lines = []
     for item in items:
         assert item.product_id is not None  # Newly priced lines all originate in the catalogue.
@@ -358,11 +386,15 @@ def _quote_from_priced(
         max_redeemable=ceiling,
         points_to_apply=points,
         quote_fingerprint=fingerprint,
+        promotion_discount=discount if promotion is not None else None,
+        promotion_percent=promotion.percent if promotion is not None else None,
+        promotion_ends_at=promotion.ends_at if promotion is not None else None,
     )
 
 
 async def build_quote(db: AsyncSession, order_data: OrderCreate, user_id: int) -> OrderQuote:
-    items, subtotal, _ = await _price_lines(db, order_data.items)
+    promotion = await active_promotion(db, user_id)
+    items, subtotal, _ = await _price_lines(db, order_data.items, promotion=promotion)
     balance = await loyalty_service.get_quote_balance(db, user_id)
     if order_data.points_to_apply > 0:
         _validate_redeem_amount(
@@ -371,7 +403,9 @@ async def build_quote(db: AsyncSession, order_data: OrderCreate, user_id: int) -
             subtotal=subtotal,
             total=subtotal + DELIVERY_FEE,
         )
-    return _quote_from_priced(items, subtotal, balance=balance, points=order_data.points_to_apply)
+    return _quote_from_priced(
+        items, subtotal, balance=balance, points=order_data.points_to_apply, promotion=promotion
+    )
 
 
 async def create_order(
@@ -411,15 +445,22 @@ async def create_order(
     )
     db.add(order)
     await db.flush()
-    items, subtotal, has_sale = await _price_lines(db, order_data.items, allocate=True)
+    promotion = await active_promotion(db, user_id)
+    items, subtotal, has_sale = await _price_lines(
+        db, order_data.items, allocate=True, promotion=promotion
+    )
     total = subtotal + DELIVERY_FEE
+    # A promotion-discounted line needs the buyer's agreement exactly as a sale line does (R-13).
+    discounted = _promotion_discount(items) > 0
 
     points = order_data.points_to_apply
     balance = 0
-    if points > 0 or order_data.quote_fingerprint is not None or has_sale:
+    if points > 0 or order_data.quote_fingerprint is not None or has_sale or discounted:
         balance = await loyalty_service.get_quote_balance(db, user_id)
-    if order_data.quote_fingerprint is not None or has_sale:
-        quote = _quote_from_priced(items, subtotal, balance=balance, points=points)
+    if order_data.quote_fingerprint is not None or has_sale or discounted:
+        quote = _quote_from_priced(
+            items, subtotal, balance=balance, points=points, promotion=promotion
+        )
         if order_data.quote_fingerprint is None:
             raise QuoteAgreementError("quote_required", quote)
         if order_data.quote_fingerprint != quote.quote_fingerprint:
@@ -429,6 +470,9 @@ async def create_order(
 
     order.subtotal = subtotal
     order.total = total
+    if discounted:
+        assert promotion is not None  # Only a selected grant discounts a line.
+        order.promotion_id = promotion.promotion_id  # R-12
     is_full = points > 0 and total - points == 0
     if any(item.size_id is not None for item in items):
         order.size_stock_protocol = "size_stock_v1"

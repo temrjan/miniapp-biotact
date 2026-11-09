@@ -12,7 +12,7 @@ from tests.test_buyer_auth_native import check_parity
 scratch = migration.scratch
 OLD = "c4f2a91e8d63"
 TG1 = "d8a14f90bc21"
-HEAD = "b4f4c51eb14a"  # G1 guest orders, the current single head after TG1.
+HEAD = "87688cb444f4"  # Event promotions, the current single head after TG1 and G1.
 
 
 def test_s3_preserved_tg1_native_constraints_and_populated_refusal(scratch):
