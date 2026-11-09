@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import bot.handlers
 import bot.middlewares.database
 import bot.services.event_promotions
-from bot.core.config import settings
+from bot.core.config import Settings, settings
 from bot.event_entry import EVENT_KEY
 from bot.handlers import auth, common, employee_referrals, event_promotions, loyalty, web_login
 from bot.middlewares.database import DatabaseMiddleware
@@ -370,6 +370,23 @@ async def test_r30_r01_ordinary_welcome_without_event_behavior(ev, monkeypatch, 
     assert await ev.sql("SELECT count(*) FROM event_promotion_grants") == [(0,)]
 
 
+@pytest.mark.parametrize("now", [STARTS - timedelta(microseconds=1), ENDS])
+async def test_r30_r31_new_user_outside_window_gets_plain_language_step(ev, now):
+    """A new user scanning before the window opens or at its end gets no event line (spec §7.3)."""
+    await ev.promotion()
+    ev.clock.values = [now]
+    await ev.feed("/start ev_" + CODE)
+    assert [call.text for call in ev.sent()] == [LANG_PROMPT]
+    assert await ev.scans() == ["outside_window"]
+    assert await ev.grants() == []
+    assert EVENT_KEY not in await ev.state().get_data()
+
+
+def test_r01_bot_switch_is_off_by_default():
+    """R-01, spec §7 step 1: the bot deploys with its switch OFF, like the API."""
+    assert Settings.model_fields["event_promotions_enabled"].default is False
+
+
 async def test_r30_new_user_with_unknown_code_gets_language_step(ev):
     await ev.feed("/start ev_unknown")
     assert [call.text for call in ev.sent()] == [LANG_PROMPT]
@@ -555,7 +572,8 @@ async def test_r41_report_figures(ev):
             n=new,
             o=opened,
         )
-    # Promotion orders: three paid, one refunded, one unpaid.
+    # Promotion orders: three paid, one refunded, one unpaid. Points on the refunded and unpaid
+    # orders must not count: points used are summed over paid orders only (R-41).
     await seed_order(
         ev,
         "EV-1",
@@ -592,12 +610,30 @@ async def test_r41_report_figures(ev):
         discounts=(1000,),
     )
     await seed_order(
-        ev, "EV-4", nameless, "refunded", 10000, promotion=promo, created=at(9), discounts=(500,)
+        ev,
+        "EV-4",
+        nameless,
+        "refunded",
+        10000,
+        promotion=promo,
+        points=3000,
+        created=at(9),
+        discounts=(500,),
     )
     await seed_order(
-        ev, "EV-5", ali, "unpaid", 20000, promotion=promo, created=at(9), discounts=(1000,)
+        ev,
+        "EV-5",
+        ali,
+        "unpaid",
+        20000,
+        promotion=promo,
+        points=2000,
+        created=at(9),
+        discounts=(1000,),
     )
-    # Ordinary orders: only Ali's paid order after his scan and before the end counts.
+    # Ordinary orders: Ali's paid order after his scan and Bek's paid order at the very instant
+    # of his grant count (granted_at <= created_at < ends_at); the others do not.
+    await seed_order(ev, "OR-6", bek, "paid", 30000, created=at(4), paid=at(4))
     await seed_order(ev, "OR-1", ali, "paid", 30000, created=at(10), paid=at(10))
     await seed_order(ev, "OR-2", ali, "paid", 30000, created=at(2), paid=at(2))
     await seed_order(ev, "OR-3", bek, "paid", 30000, created=ENDS, paid=ENDS)
@@ -614,7 +650,7 @@ async def test_r41_report_figures(ev):
     assert item.paid_amount == Decimal("161500")
     assert item.points_used == 5000
     assert item.discount_given == Decimal("8500")
-    assert item.holders_other_paid == 1
+    assert item.holders_other_paid == 2
     assert [(b.name, b.username, b.order_number, b.total) for b in item.buyers] == [
         ("Ali Valiev", "ali", "EV-1", Decimal("95000")),
         ("Bek", None, "EV-2", Decimal("47500")),
@@ -640,7 +676,7 @@ async def test_r41_report_figures(ev):
         "Заказы со скидкой: создано 5, оплачено 3, возвращено 1",
         "Оплачено: 161 500 сум, баллами: 5 000",
         "Скидка дана: 8 500 сум",
-        "Оплаченные заказы держателей без скидки: 1",
+        "Оплаченные заказы держателей без скидки: 2",
         "• Ali Valiev @ali — №EV-1, 95 000 сум, 06.12.2026 15:00",
         "• Bek — №EV-2, 47 500 сум, 07.12.2026 16:00",
         "• Dilnoza D. — №EV-3, 19 000 сум, 08.12.2026 17:00",
@@ -649,9 +685,18 @@ async def test_r41_report_figures(ev):
     assert report.index("nutriforum2026 —") < report.index("old — OLD")
 
 
-async def test_r41_long_report_is_split_at_line_boundaries(ev):
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [
+        ("Б" * 100, "Ж" * 100),
+        # Astral characters take two UTF-16 units each; Telegram counts units (R-41).
+        ("😀" * 100, "Ж" * 100),
+    ],
+    ids=["cyrillic", "astral"],
+)
+async def test_r41_long_report_is_split_at_line_boundaries(ev, first, last):
     promo = await ev.promotion()
-    buyer = await ev.user(201, first="Б" * 100, last="Ж" * 100, username="u" * 32)
+    buyer = await ev.user(201, first=first, last=last, username="u" * 32)
     for number in range(60):
         await seed_order(
             ev, f"EV-{number:04d}", buyer, "paid", 95000, promotion=promo, created=at(6), paid=at(6)
