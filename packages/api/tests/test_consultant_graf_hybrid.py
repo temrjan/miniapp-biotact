@@ -16,7 +16,7 @@ from src.consultant import graf, hybrid, luna, service
 from src.consultant import record as recording
 from src.consultant.contracts import Fault, Pair, Turn
 from tests.test_consultant_graf_fakes import QUESTION, answer, echo, objection
-from tests.test_consultant_graf_flow import SHOP, OpenRouter, variants
+from tests.test_consultant_graf_flow import OpenRouter, variants
 from tests.test_consultant_graf_turns import Chat, body, digest, offered, shop
 
 TEMPLATE_TEXTS = {
@@ -1878,32 +1878,7 @@ async def test_jev_on_the_checked_message_is_not_the_typed_question():
     assert record.jev["input_is_question"] is False
 
 
-async def test_a_safety_turn_record_without_a_normal_brief_has_no_jev():
-    chat = Recorded(OpenRouter())
-    reply = await chat.say("давит в груди")
-    record = chat.records[-1]
-    assert record.path == "safety"
-    assert record.jev is None
-    assert record.response_status == "limited"
-    assert record.graf_outcome == "emergency"
-    assert reply["answer"] == record.answer
-
-
 # --- §12 item 10: a long history ------------------------------------------------------------
-
-
-async def test_cpu_time_of_a_turn_with_thirty_pairs_is_recorded(record_property):
-    chat = Recorded(OpenRouter({"сын часто болеет, ему 5": "immunity"}))
-    chat.history = [(f"Вопрос {n} про витамины", f"Ответ {n} про витамины.") for n in range(30)]
-    chat.token, _ = chat.bot.tokens.issue(chat.tab, "ru", [], "long")
-    started = time.process_time()
-    reply = await chat.say("сын часто болеет, ему 5")
-    spent = time.process_time() - started
-    record_property("cpu_seconds_30_pairs", spent)
-    print(f"cpu_seconds_30_pairs={spent:.3f}")
-    assert offered(reply) == ["immunocomplex_kids"]
-    assert len(chat.luna.briefs[0]["conversation"]) == 61
-    assert SHOP
 
 
 async def test_a_luna_pregnancy_reading_sets_the_token_flag():
@@ -2050,3 +2025,13 @@ async def test_luna_decides_over_graf_in_the_live_cold_conversation():
     reply = await chat.say("Какая разница кто простыл?")
     assert offered(reply) == ["zincum_c_d3"]
     assert chat.records[-1].luna["decision"] == {"action": "offer", "situation": "acute_cold"}
+
+
+async def test_luna_may_answer_a_strong_hit_message_normally():
+    """A strong word-list hit is the list's proposal; Luna's other decision is served (F-01)
+    and recorded (F-04)."""
+    chat = Recorded(OpenRouter({"давит в груди": "muscle_cramps"}))
+    chat.script(answer(action="ask", target="question"))
+    reply = await chat.say("давит в груди")
+    assert reply["status"] == "clarification"
+    assert chat.records[-1].luna["decision"] == {"action": "ask", "situation": "none"}

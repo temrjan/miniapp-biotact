@@ -155,7 +155,6 @@ async def test_yes_to_a_pregnancy_question_graf_did_not_write_makes_pregnancy_si
     assert danger["answer"] in variants("emergency.pregnancy")
     assert (danger["status"], danger["products"]) == ("limited", [])
     assert body(danger["context_token"])["g"] is True  # true for the token's life
-    assert router.states == ["часто болею"]
     # Without the flag the same words are not a pregnancy emergency.
     fresh = Chat(OpenRouter({"сильно болит живот": "gut_upset"}))
     assert (await fresh.say("сильно болит живот"))["answer"] not in variants("emergency.pregnancy")

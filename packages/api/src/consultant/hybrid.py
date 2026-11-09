@@ -664,7 +664,7 @@ class Prepared:
         return self.brief.outcome if self.brief.outcome.kind in QUESTION_KINDS else None
 
 
-def named_age(prepared: Prepared, brief: Brief, reading: Reading) -> float | None:
+def named_age(prepared: Prepared, brief: Brief, reading: Reading, final: Outcome) -> float | None:
     """The age number a text must name in the ambiguous case (MR-05, TC-08, spec r5 AN-01 to
     AN-03), or None. It applies when the merged age of D1 has origin 'luna'. A text that is
     not a question always names it (AN-01); a question names it when it is the first text
@@ -673,8 +673,9 @@ def named_age(prepared: Prepared, brief: Brief, reading: Reading) -> float | Non
     Luna's own on this turn when she read the age sure, so a months age is named in months.
     Otherwise it is the merged value, which the flow state keeps in years only: a whole
     number of years is named as such; a fraction (an age given in months or weeks) has no
-    number a customer text would show, so it is not checked."""
-    facts, final, flow = brief.facts, brief.outcome, prepared.route.flow
+    number a customer text would show, so it is not checked. `final` is the delivered
+    decision (Luna's own, or Graf's when she follows it)."""
+    facts, flow = brief.facts, prepared.route.flow
     if facts.age is None or facts.origin.get("age") != "luna":
         return None
     if (
@@ -1290,7 +1291,7 @@ class HybridTurn:
             # the checks (products and doses of the approved offer text).
             usable = text.target == target_of(final)
         ambiguous = prepared.ambiguous or len(reading.candidates) >= 2
-        named = named_age(prepared, brief, reading) if ambiguous else None
+        named = named_age(prepared, brief, reading, final) if ambiguous else None
         self.record_decision(final, brief, lens, reply)
         delivered = await self.text_for(
             final,
@@ -1321,6 +1322,16 @@ class HybridTurn:
             reply.cautions,
         )
 
+    def note(self, decision: luna.Decision) -> str:
+        """Record Luna's decision of the turn in the journal and the counters (every turn
+        kind: normal, safety, how-to-buy and conditions)."""
+        self.counters.add("decision." + decision.action)
+        self.record.luna_part()["decision"] = {
+            "action": decision.action,
+            "situation": decision.situation,
+        }
+        return decision.action
+
     def chosen(
         self, decision: luna.Decision, prepared: Prepared, brief: Brief
     ) -> tuple[Outcome, FlowState | None] | None:
@@ -1328,11 +1339,6 @@ class HybridTurn:
         None when she follows Graf's proposal. Graf only renders the data: products and
         doses of an offer, the doctor and no-product texts."""
         action = decision.action
-        self.counters.add("decision." + action)
-        self.record.luna_part()["decision"] = {
-            "action": action,
-            "situation": decision.situation,
-        }
         if action == "follow":
             return None
         facts, graf = brief.facts, brief.outcome
@@ -1415,6 +1421,7 @@ class HybridTurn:
         if parsed.answer is None:
             raise Failure("luna")
         reading = self.validate(parsed.answer, prepared.hits, prepared.brief.facts)
+        self.note(parsed.answer.decision)
         return await self.conclude(
             prepared, reading, parsed.answer.text, None, parsed.answer.decision
         )
@@ -1456,11 +1463,7 @@ class HybridTurn:
             raise Failure("luna")
         reading = self.validate(parsed.answer, [], None)
         text = parsed.answer.text
-        action = parsed.answer.decision.action
-        self.record.luna_part()["decision"] = {
-            "action": action,
-            "situation": parsed.answer.decision.situation,
-        }
+        action = self.note(parsed.answer.decision)
         if action == "emergency":
             return await self.safety_outcome(GENERAL, text, None, None, None, again=again)
         if action == "check":
@@ -1494,9 +1497,8 @@ class HybridTurn:
         reading = self.validate(parsed.answer, hits, prepared.brief.facts if prepared else None)
         text = parsed.answer.text
         decision = parsed.answer.decision
-        action = decision.action
+        action = self.note(decision)
         current = digest(self.request.question)
-        self.record.luna_part()["decision"] = {"action": action, "situation": decision.situation}
         # Luna decides on every ambulance stage (Captain 2026-11-09: "Все луне, Все!"); the
         # word list is her helper. "follow" keeps the word list's proposal with her
         # objections as before; another action dismisses the stage.
