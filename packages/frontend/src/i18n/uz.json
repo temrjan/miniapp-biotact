@@ -61,6 +61,11 @@
     "clear": "Tozalash",
     "goToCatalog": "Katalogga o'tish"
   },
+  "eventPromotion": {
+    "banner": "🎁 {title}: {date} gacha {p}% chegirmangiz — savatchada qo'llaniladi",
+    "cartDiscount": "{title} mehmoni chegirmasi {p}%: −{amount}",
+    "cartHint": "O'z chegirmasi bor mahsulotlarga qo'shimcha chegirma qo'llanilmaydi"
+  },
   "checkout": {
     "priceChanged": "Narx o'zgardi. Yangi summa: {total}. Xaridni tasdiqlaysizmi?",
     "quoteChanged": "Buyurtma shartlari o'zgardi. Yangi summa: {total}. Ballarni tekshiring va to'lov tugmasini yana bosing.",

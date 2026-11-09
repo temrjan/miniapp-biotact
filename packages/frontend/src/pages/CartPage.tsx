@@ -8,6 +8,8 @@ import { useTranslation } from '@/i18n';
 import { cartLineKey, isSizedPurchaseBlocked, needsSizeChoice } from '@/utils/size';
 import { SizeSelector } from '@/components/features/SizeSelector';
 import { usePendingOrderStore } from '@/stores/pendingOrderStore';
+import { useEventPromotion } from '@hooks/useEventPromotion';
+import { cartDiscount } from '@/utils/eventPromotion';
 import {
   useCartStore,
   useCartItems,
@@ -25,7 +27,11 @@ export function CartPage() {
   const { t } = useTranslation();
   const items = useCartItems();
   useRefreshCartPrices();
-  const totalAmount = useCartTotalAmount();
+  const cartTotal = useCartTotalAmount();
+  // Event discount (R-51): the cart mirrors the server's R-10 rule for the same catalogue prices.
+  const { data: promotion } = useEventPromotion();
+  const promoted = promotion ? cartDiscount(items, promotion.percent) : null;
+  const totalAmount = promoted && promoted.discount > 0 ? promoted.total : cartTotal;
   const { updateQuantity, removeItem, clearCart, chooseSize } = useCartStore();
   const recovering = usePendingOrderStore((state) => state.creationUnknown || state.pending?.stockManaged === true);
   const blocked = !recovering && items.some((item) => needsSizeChoice(item) || isSizedPurchaseBlocked(item.product));
@@ -167,6 +173,18 @@ export function CartPage() {
 
       {/* Total */}
       <Card className="p-4">
+        {promotion && promoted && promoted.discount > 0 && (
+          <p className="mb-2 text-sm font-medium text-[var(--primary)]">
+            {t('eventPromotion.cartDiscount', {
+              title: promotion.title,
+              p: promotion.percent,
+              amount: formatPrice(promoted.discount),
+            })}
+          </p>
+        )}
+        {promoted?.hasUndiscounted && (
+          <p className="mb-2 text-xs text-[var(--text-muted)]">{t('eventPromotion.cartHint')}</p>
+        )}
         <div className="flex items-center justify-between mb-4">
           <span className="text-[var(--text-secondary)]">{t('cart.total')}:</span>
           <span className="text-xl font-bold text-[var(--primary)]">
