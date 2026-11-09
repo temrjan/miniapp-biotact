@@ -200,6 +200,10 @@ class QuoteLine(BaseModel):
         return f"{value:.2f}"
 
 
+def _absent(value: object) -> bool:
+    return value is None
+
+
 class OrderQuote(BaseModel):
     lines: list[QuoteLine]
     subtotal: Decimal
@@ -208,7 +212,17 @@ class OrderQuote(BaseModel):
     max_redeemable: int
     points_to_apply: int
     quote_fingerprint: str
+    # Event discount (event-qr-discount R-13): the total amount it takes off, its percent and its
+    # end, present only while the buyer holds an active grant. Absent otherwise, so quotes without
+    # a grant, and every website guest quote, keep their base shape.
+    promotion_discount: Decimal | None = Field(None, exclude_if=_absent)
+    promotion_percent: int | None = Field(None, exclude_if=_absent)
+    promotion_ends_at: datetime | None = Field(None, exclude_if=_absent)
 
     @field_serializer("subtotal", "delivery_fee", "total")
     def serialize_money(self, value: Decimal) -> str:
         return f"{value:.2f}"
+
+    @field_serializer("promotion_discount")
+    def serialize_promotion_discount(self, value: Decimal | None) -> str | None:
+        return None if value is None else f"{value:.2f}"
