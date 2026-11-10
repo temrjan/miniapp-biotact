@@ -17,6 +17,9 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from src.consultant.context import Tokens
 from src.consultant.contracts import Cancel, Fault, Refresh, Turn
 from src.consultant.control import Controls
+from src.consultant.enigma.cards import ITEM_PRODUCTS, item_cards
+from src.consultant.enigma.jev import Jev as EnigmaJev
+from src.consultant.enigma.turn import Enigma
 from src.consultant.graf import Graf, Jev
 from src.consultant.knowledge import Knowledge
 from src.consultant.provider import Provider
@@ -99,13 +102,16 @@ async def dispatch(request: Request, kind: str) -> Response:
         else:
             refresh = Refresh.model_validate_json(raw)
             evidence = await service.knowledge.snapshot(refresh.language)
+            cards = dict(evidence.products)
+            if service.enigma is not None and ITEM_PRODUCTS.intersection(refresh.product_ids):
+                # consultant-v2 SW-06: an item product is refreshed from the catalogue.
+                async with service.knowledge.sessions() as db:
+                    cards.update(await item_cards(db, refresh.product_ids, refresh.language))
             from datetime import UTC, datetime
 
             result = {
-                "products": [
-                    evidence.products[i] for i in refresh.product_ids if i in evidence.products
-                ],
-                "unavailable_ids": [i for i in refresh.product_ids if i not in evidence.products],
+                "products": [cards[i] for i in refresh.product_ids if i in cards],
+                "unavailable_ids": [i for i in refresh.product_ids if i not in cards],
                 "checked_at": datetime.now(UTC).isoformat(),
             }
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
@@ -165,6 +171,9 @@ async def runtime(app: Any, config: Any, sessions: Any) -> AsyncIterator[None]:
             Tokens(config.consultant_protection_key.get_secret_value()),
             Graf(Jev(client, graf_key)) if graf_key else None,
             config.consultant_hybrid,
+            Enigma(EnigmaJev(client, graf_key))
+            if getattr(config, "consultant_engine", "graf") == "enigma" and graf_key
+            else None,
         )
         app.state.consultant_origins = config.consultant_origins
         cleanup = asyncio.create_task(cleaner(controls))

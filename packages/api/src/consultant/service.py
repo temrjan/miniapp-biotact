@@ -6,7 +6,7 @@ import logging
 import re
 from collections.abc import Coroutine
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, TypeVar
 
@@ -25,6 +25,11 @@ from src.consultant.context import (
 )
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
+from src.consultant.enigma.cards import ITEM_PRODUCTS, item_cards
+from src.consultant.enigma.data import DATA as ENIGMA_DATA
+from src.consultant.enigma.nets import Ambulance
+from src.consultant.enigma.turn import Enigma, EnigmaTurn, Named
+from src.consultant.enigma.turn import Failure as EnigmaFailure
 from src.consultant.graf import Graf, Stage
 from src.consultant.hybrid import (
     HOW_TO_BUY,
@@ -83,6 +88,7 @@ class Consultant:
         tokens: Tokens,
         graf: Graf | None = None,
         hybrid: bool = True,
+        enigma: Enigma | None = None,
     ) -> None:
         self.controls, self.knowledge, self.provider, self.tokens = (
             controls,
@@ -94,6 +100,9 @@ class Consultant:
         self.graf = graf
         # spec r2 OP-01: off makes every hybrid turn end with the failure response.
         self.hybrid = hybrid
+        # consultant-v2 spec r2 SW-01: Enigma answers beside Graf only when it is selected,
+        # the Graf key is configured and the hybrid switch is on.
+        self.enigma = enigma if graf is not None and hybrid else None
         self.counters = Counters()
         # spec r2 OP-03: called once per turn after the SENSITIVE filter (PR-5 replaces it).
         self.recorder: Recorder = noop
@@ -166,7 +175,13 @@ class Consultant:
         carry = Carry(context.epoch, context.pg, context.cleared)
         owned, flow = context.flow is not None, context.flow
         stage = Stage("none")
-        if self.graf is not None:
+        ambulance: Ambulance | None = None
+        if self.enigma is not None:
+            # consultant-v2 SW-02: Enigma's ambulance list on the current message; Graf's
+            # adoption and stage do not run.
+            record.versions.update(engine="enigma", enigma_data=ENIGMA_DATA)
+            ambulance = self.enigma.ambulance(request, context)
+        elif self.graf is not None:
             if context.version == 1:
                 owned, flow = self.graf.adopt(request)
             # Step 3: the ambulance list runs before register and snapshot (SF-02).
@@ -195,9 +210,25 @@ class Consultant:
                         raise self.failure(record, "snapshot") from None
                     raise
                 record.versions["knowledge"] = evidence.release
-                if any(i not in evidence.products for i in selection):
+                if any(
+                    i not in evidence.products
+                    and not (self.enigma is not None and i in ITEM_PRODUCTS)
+                    for i in selection
+                ):
                     selection = []
-                if self.graf is None:
+                if self.enigma is not None:
+                    response = await self.enigma_routed(
+                        request,
+                        context,
+                        record,
+                        owner,
+                        deadline,
+                        evidence,
+                        carry,
+                        selection,
+                        ambulance,
+                    )
+                elif self.graf is None:
                     record.path = "product"
                     subject = resolve(
                         request.question,
@@ -227,17 +258,19 @@ class Consultant:
                     response = await self.routed(work, stage, owned, flow)
                 await self.controls.alive(owner)
                 return response
-        except Failure as failure:
+        except (Failure, EnigmaFailure) as failure:
             raise self.failure(record, failure.trigger, failure.check) from None
         except TimeoutError:
             # FR-01: the deadline on a hybrid turn is the failure response; the product path
             # keeps its 504 (PO-05).
-            if self.hybrid_turn(work, stage, record):
+            if self.hybrid_turn(work, stage, record) or self.enigma_turn(record):
                 raise self.failure(record, "deadline") from None
             raise Fault("timeout", 504) from None
         except Fault as fault:
             # The same 60 s deadline seen by the control layer.
-            if fault.code == "timeout" and self.hybrid_turn(work, stage, record):
+            if fault.code == "timeout" and (
+                self.hybrid_turn(work, stage, record) or self.enigma_turn(record)
+            ):
                 raise self.failure(record, "deadline") from None
             raise
         finally:
@@ -253,6 +286,73 @@ class Consultant:
         if work is None:
             return stage.safety
         return work.hybrid and record.path != "product"
+
+    def enigma_turn(self, record: TurnRecord) -> bool:
+        """Enigma is on and the turn has a route other than the named-product path."""
+        return self.enigma is not None and record.path not in ("failure", "product")
+
+    async def enigma_routed(
+        self,
+        request: Turn,
+        context: Context,
+        record: TurnRecord,
+        owner: str,
+        deadline: float,
+        evidence: Evidence,
+        carry: Carry,
+        selection: list[int],
+        ambulance: Ambulance | None,
+    ) -> dict[str, Any]:
+        """consultant-v2 spec r2 SW-03: an ambulance hit is an Enigma turn; a named product
+        keeps the product path; how-to-buy and shop conditions keep their turn; everything
+        else is an Enigma turn. The existing paths see only the selection's supplements."""
+        assert self.enigma is not None
+        known = [i for i in selection if i in evidence.products]
+        if ambulance is None:
+            target = route(request, selection, evidence, False, None)
+            if target.kind == "product":
+                # A reply about a shown item card ('первый') stays with Enigma.
+                if all(i in evidence.products for i in target.subject.ids):
+                    record.path = "product"
+                    return await self.product(
+                        request, owner, carry, known, target.subject, evidence
+                    )
+            else:
+                buy = buying(request.question)
+                shop = () if buy else conditions(request.question)
+                if buy or shop:
+                    # The existing turn keeps the displayed cards; item cards are added to
+                    # what it sees, because the knowledge snapshot holds supplements only.
+                    shown, cards = known, evidence
+                    if len(known) != len(selection):
+                        async with self.knowledge.sessions() as db:
+                            items = await item_cards(db, selection, request.language)
+                        shown = [i for i in selection if i in evidence.products or i in items]
+                        cards = replace(evidence, products={**evidence.products, **items})
+                    work = HybridTurn(
+                        self, request, context, record, owner, deadline, cards, carry, shown, None
+                    )
+                    record.path = "post_offer" if target.kind == "post_offer" else "hybrid"
+                    return await work.info(target, HOW_TO_BUY if buy else conditions_outcome(shop))
+        turn = EnigmaTurn(
+            self,
+            self.enigma,
+            request,
+            record,
+            owner,
+            deadline,
+            evidence,
+            carry,
+            selection,
+            ambulance,
+        )
+        try:
+            return await turn.run()
+        except Named as named:
+            # SW-04: only a supplement is named; the named-product path answers.
+            record.path = "product"
+            subject = Subject(named.ids, True, False, False)
+            return await self.product(request, owner, carry, known, subject, evidence)
 
     async def routed(
         self, work: HybridTurn, stage: Stage, owned: bool, flow: FlowState | None
