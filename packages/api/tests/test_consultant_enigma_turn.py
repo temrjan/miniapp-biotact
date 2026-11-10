@@ -131,8 +131,13 @@ def shown(consultant: Consultant, ids: list[int]) -> tuple[Any, str]:
 # --- SW-01: the switch -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("engine", "on"), [(None, False), ("graf", False), ("enigma", True)])
-async def test_sw01_setting_selects_the_engine(test_db: Any, engine: str | None, on: bool) -> None:
+@pytest.mark.parametrize(
+    ("engine", "hybrid", "on"),
+    [(None, True, False), ("graf", True, False), ("enigma", True, True), ("enigma", False, False)],
+)
+async def test_sw01_setting_selects_the_engine(
+    test_db: Any, engine: str | None, hybrid: bool, on: bool
+) -> None:
     assert Settings.model_fields["consultant_engine"].default == "graf"
     secret = SimpleNamespace(get_secret_value=lambda: KEY)
     config = SimpleNamespace(
@@ -140,7 +145,7 @@ async def test_sw01_setting_selects_the_engine(test_db: Any, engine: str | None,
         consultant_protection_key=secret,
         consultant_graf_key=secret,
         consultant_origins=[],
-        consultant_hybrid=True,
+        consultant_hybrid=hybrid,
     )
     if engine is not None:
         config.consultant_engine = engine
@@ -264,6 +269,12 @@ async def test_ft05_an_item_offer_shows_the_item_card(test_db: Any) -> None:
     tab, token = shown(keep, [36, 37])
     kept = await keep.turn(turn("а он большой?", token, tab))
     assert (kept["status"], [p["id"] for p in kept["products"]]) == ("clarification", [36, 37])
+    # SW-03 (c): a how-to-buy turn after item cards keeps them too.
+    buy = bot(test_db, JevDouble(answer("unclear")))
+    tab, token = shown(buy, [36, 37])
+    bought = await buy.turn(turn("как оформить заказ?", token, tab))
+    assert [p["id"] for p in bought["products"]] == [36, 37]
+    assert buy.tokens.read(turn("x", bought["context_token"], tab)).ids == [36, 37]
 
 
 # --- SW-06: refresh of an item product ---------------------------------------------------------
@@ -294,7 +305,7 @@ async def test_sw06_refresh_of_an_item_product(test_db: Any, engine: bool) -> No
     [
         httpx.Response(500),
         httpx.ReadTimeout("slow"),
-        httpx.Response(200, content=b" " * 70000),
+        httpx.Response(200, content=json.dumps(answer("magniy")).encode() + b" " * 70000),
         httpx.Response(200, json=[]),
         {"model": "typesafe/jev-1.14", "answers": {"unit": {"type": "refusal"}}},
         {**answer("magniy"), "model": "typesafe/jev-2"},
@@ -390,6 +401,7 @@ UZ = RULES.instruction_sentence.uz
         ("doctor", "С этим стоит обратиться к врачу.", [], None),
         ("emergency", "Примите IMMUNOCOMPLEX® и звоните 103.", [7], "V-02"),
         ("ask", "Принимайте по 2 капсулы.", [], "V-03"),
+        ("ask", "Принимайте по 1капсуле 2раза в день.", [], "V-03"),
         ("uz ask", "Kuniga ikki mahal iching.", [], "V-03"),
         ("ask", "Он есть в капсулах и стиках.", [], None),
         ("offer", "Термос KD-775, 600 мл. хорошо держит тепло. " + SENTENCE, [59], None),
@@ -399,6 +411,7 @@ UZ = RULES.instruction_sentence.uz
         ("offer", "IMMUNOCOMPLEX® поддерживает иммунитет.", [7], "V-05"),
         ("uz offer", "IMMUNOCOMPLEX® immunitetni qo'llab-quvvatlaydi. " + UZ, [7], None),
         ("ask", "Это вылечит простуду.", [], "V-06"),
+        ("ask", "Подходит после лечения кариеса.", [], None),
         ("doctor", RULES.phrases["disease"].ru, [], None),
         ("ask", "Сколько лет ребёнку?", [], "V-07"),
         ("ask", "Вы беременны?", [], "V-07"),
@@ -414,7 +427,7 @@ def test_v01_v07_text_checks(
         frozenset(allowed),
         frozenset(allowed),
         frozenset(),
-        (RULES.phrases["disease"].ru,),
+        (RULES.phrases["disease"].ru, "Взрослые – после лечения кариеса."),
     )
     assert checks.check(text, subject, NAMES) == expected
 

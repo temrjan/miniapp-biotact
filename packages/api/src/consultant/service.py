@@ -6,7 +6,7 @@ import logging
 import re
 from collections.abc import Coroutine
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, TypeVar
 
@@ -25,7 +25,7 @@ from src.consultant.context import (
 )
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
-from src.consultant.enigma.cards import ITEM_PRODUCTS
+from src.consultant.enigma.cards import ITEM_PRODUCTS, item_cards
 from src.consultant.enigma.data import DATA as ENIGMA_DATA
 from src.consultant.enigma.nets import Ambulance
 from src.consultant.enigma.turn import Enigma, EnigmaTurn, Named
@@ -321,17 +321,16 @@ class Consultant:
                 buy = buying(request.question)
                 shop = () if buy else conditions(request.question)
                 if buy or shop:
+                    # The existing turn keeps the displayed cards; item cards are added to
+                    # what it sees, because the knowledge snapshot holds supplements only.
+                    shown, cards = known, evidence
+                    if len(known) != len(selection):
+                        async with self.knowledge.sessions() as db:
+                            items = await item_cards(db, selection, request.language)
+                        shown = [i for i in selection if i in evidence.products or i in items]
+                        cards = replace(evidence, products={**evidence.products, **items})
                     work = HybridTurn(
-                        self,
-                        request,
-                        context,
-                        record,
-                        owner,
-                        deadline,
-                        evidence,
-                        carry,
-                        known,
-                        None,
+                        self, request, context, record, owner, deadline, cards, carry, shown, None
                     )
                     record.path = "post_offer" if target.kind == "post_offer" else "hybrid"
                     return await work.info(target, HOW_TO_BUY if buy else conditions_outcome(shop))

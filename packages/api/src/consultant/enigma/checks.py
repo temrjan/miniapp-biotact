@@ -27,6 +27,8 @@ RUSSIAN_PROSE = re.compile(
 )
 NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 SENTENCE = re.compile(r"[^.!?]*[.!?]")
+# A digit written together with a word ('1капсуле'): read as two words by the dose check.
+GLUED = re.compile(r"(\d)([^\W\d])")
 EMERGENCY_NUMBER = "103"
 
 
@@ -167,7 +169,7 @@ def check(text: str, subject: Subject, names: Names) -> str | None:
     if not _names(named, subject):
         return "V-02"
     toks = tokens(masked)
-    if not _dose(toks):
+    if not _dose(tokens(GLUED.sub(r"\1 \2", masked))):
         return "V-03"
     if not _numbers(masked, subject):
         return "V-04"

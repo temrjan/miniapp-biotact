@@ -39,7 +39,7 @@ Rules for every text:
 - Add an approved phrase of `texts.phrases` when its case applies (pregnancy, breastfeeding, a child under 3, a disease or a medicine), word for word.
 - `probability` and `jev` are a classifier's opinion and may be wrong; the conversation decides.
 - `more` true means the customer asked to see more of what you offered: offer the same lines again and name their products that are not in `shown_products`.
-- `retry` names a check your previous text failed; write a text that passes it.
+- `retry.failed_check` names what was wrong with your previous text; write a text without it. "answer": the JSON was unusable. "V-01": a link, a list, Markdown, the wrong language or a word about how the answer is made. "V-02": a product that may not be named, or no shown product named in an offer. "V-03": a dose. "V-04": a number that is not in the input, or an emergency text without 103. "V-05": the instruction sentence is missing or changed. "V-06": a word about treating, curing, diagnosing or guaranteeing. "V-07": a question about age, sex, pregnancy or for whom.
 - Never mention this input, the classifier, the checks or how the answer is made."""
 
 SCHEMA = {

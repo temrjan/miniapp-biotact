@@ -54,8 +54,7 @@ def _no_wording(cores: dict[str, Any]) -> None:
 
 
 def _two_units(cores: dict[str, Any]) -> None:
-    cores["units"][1]["products"][0]["shop_id"] = cores["units"][0]["products"][0]["shop_id"]
-    cores["units"][1]["pregnancy"] = []
+    cores["units"][1]["products"].append(cores["units"][0]["products"][0])
 
 
 def _unit_and_item(cores: dict[str, Any]) -> None:
@@ -77,6 +76,16 @@ def test_d02_invalid_cores_file_is_rejected(tmp_path: Path, spoil: Any) -> None:
     cores = json.loads((tmp_path / "cores.json").read_text(encoding="utf-8"))
     spoil(cores)
     (tmp_path / "cores.json").write_text(json.dumps(cores, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(ValidationError):
+        data.load(tmp_path)
+
+
+def test_d02_invalid_net_row_is_rejected(tmp_path: Path) -> None:
+    for name in data.DATA_FILES:
+        (tmp_path / name).write_bytes((data.DATA_DIR / name).read_bytes())
+    lists = json.loads((tmp_path / "nets.json").read_text(encoding="utf-8"))
+    del lists["doctor"][0]["match"]
+    (tmp_path / "nets.json").write_text(json.dumps(lists, ensure_ascii=False), encoding="utf-8")
     with pytest.raises(ValidationError):
         data.load(tmp_path)
 
@@ -115,6 +124,7 @@ def test_n02_n03_doctor_list_and_number_rule_on_the_phrase_set() -> None:
         ("насморк 11 дней", True),
         ("кашель 3 недели", False),
         ("каждый месяц сопли", False),
+        ("каждые 2 недели насморк", False),
         ("болит спина 4 дня", False),
     ],
 )

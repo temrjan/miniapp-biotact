@@ -187,6 +187,39 @@ class Thresholds(Model):
     cough_days: int
 
 
+class Row(Model):
+    """One list row in the shape of graf_data/safety.json: the keys nets.py reads and the
+    descriptive keys of the source."""
+
+    id: str
+    class_: str = Field(alias="class")
+    sign: str
+    lang: str
+    match: Literal["stem", "word"]
+    action: str
+    terms: list[str] | None = None
+    near: list[list[str]] | None = None
+    window: int | None = None
+    tier: Literal["strong", "weak"] | None = None
+    template: str | None = None
+    negation: bool = True
+    not_prefix: list[str] = []
+    unless_any: list[str] = []
+    requires_any: list[str] = []
+    requires_slot: str | None = None
+    slot: str | None = None
+    value: bool | None = None
+    note: str | None = None
+    note_template: str | None = None
+    uz_uncertain: bool | None = None
+
+    @model_validator(mode="after")
+    def matchable(self) -> "Row":
+        if (self.terms is None) == (self.near is None) or (self.near and self.window is None):
+            raise ValueError(f"row {self.id}: terms, or near with a window")
+        return self
+
+
 class Nets(Model):
     """The list rows keep the shape of graf_data/safety.json, from which they are copied
     unchanged (C-34); nets.py reads them."""
@@ -205,6 +238,15 @@ class Nets(Model):
     temperature: list[str]
     frequency: list[str]
     thresholds: Thresholds
+
+    @model_validator(mode="after")
+    def rows(self) -> "Nets":
+        for row in self.ambulance:
+            if Row.model_validate(row).tier is None or "template" not in row:
+                raise ValueError(f"ambulance row {row.get('id')}: tier and template")
+        for row in (*self.doctor, *self.intolerance, *self.diarrhea, *self.pregnancy):
+            Row.model_validate(row)
+        return self
 
 
 def load(directory: Path = DATA_DIR) -> tuple[Cores, Rules, Nets, str]:
