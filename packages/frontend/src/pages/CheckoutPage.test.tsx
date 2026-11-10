@@ -474,3 +474,87 @@ describe('CheckoutPage — delayed catalog regressions', () => {
     expect(orders()[0]?.[1]).toMatchObject({ items: [{ product_id: 1, quantity: 2 }], quote_fingerprint: 'quote-16000-0' });
   });
 });
+
+// event-qr-discount R-52: with an active grant the confirm step shows the server quote before the
+// stepper and pay(). The cart prices the product at 10 000; the server's discounted quote is 9 500
+// (5% grant), so any use of the cart's own sum shows up as 10 000 or as a lower points ceiling.
+describe('CheckoutPage — R-52 event discount quote', () => {
+  beforeEach(() => {
+    serverTotal = 9500;
+    serverMax = 9500;
+    const network = vi.mocked(api.get).getMockImplementation();
+    if (!network) throw new Error('Missing GET fixture');
+    vi.mocked(api.get).mockImplementation(async (url) =>
+      url === '/event-promotions/me'
+        ? { active: true, title: 'NUTRIFORUM 2026', percent: 5, ends_at: '2026-12-31T19:00:00Z' }
+        : network(url)
+    );
+  });
+
+  it('keeps pay disabled until the quote loads, then shows and pays its reduced terms', async () => {
+    let resolveQuote: ((value: ReturnType<typeof quote>) => void) | undefined;
+    const network = postMock.getMockImplementation();
+    if (!network) throw new Error('Missing POST fixture');
+    postMock.mockImplementation((url, data) =>
+      url === '/orders/quote' && !resolveQuote
+        ? new Promise((resolve) => {
+            resolveQuote = resolve;
+          })
+        : network(url, data)
+    );
+    await walkToConfirmStep();
+    await waitFor(() => expect(quotes()).toHaveLength(1));
+    expect(quotes()[0]?.[1]).toMatchObject({ items: [{ product_id: 1, quantity: 1 }], points_to_apply: 0 });
+    expect(payButton()).toBeDisabled();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    expect(screen.queryByText('10 000 сум')).not.toBeInTheDocument();
+    expect(screen.getByText(ru.cart.total).parentElement).toHaveTextContent(/^Итого$/);
+
+    await act(async () => {
+      resolveQuote?.(quote());
+    });
+    expect(screen.getByText(ru.cart.total).parentElement).toHaveTextContent(/^Итого9\s500 сум$/);
+    expect(screen.getByRole('slider')).toHaveAttribute('max', '9500');
+    expect(payButton()).toBeEnabled();
+    expect(payButton()).toHaveTextContent('Оплатить 9 500 сум');
+
+    fireEvent.click(payButton());
+    await waitFor(() => expect(WebApp.openLink).toHaveBeenCalled());
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(orders()).toHaveLength(1);
+    expect(orders()[0]?.[1]).toMatchObject({ points_to_apply: 0, quote_fingerprint: 'quote-9500-0' });
+  });
+
+  // D14 / R-52: the discount line takes its amount from the quote (700, not the cart's own 5% = 500).
+  it.each([
+    { discount: '700.00', line: 'Скидка гостя NUTRIFORUM 2026 5%: −700 сум' },
+    { discount: '0.00', line: null },
+    { discount: undefined, line: null },
+  ])('D14: confirm step discount line for quote promotion_discount $discount', async ({ discount, line }) => {
+    serverTotal = 9300;
+    const network = postMock.getMockImplementation();
+    if (!network) throw new Error('Missing POST fixture');
+    postMock.mockImplementation(async (url, data) =>
+      url === '/orders/quote'
+        ? { ...quote(), ...(discount === undefined ? {} : { promotion_discount: discount }) }
+        : network(url, data)
+    );
+    await walkToConfirmStep();
+    await waitFor(() => expect(payButton()).toBeEnabled());
+    expect(screen.getByText(ru.cart.total).parentElement).toHaveTextContent(/^Итого9\s300 сум$/);
+    if (line) expect(screen.getByText(line)).toBeInTheDocument();
+    else expect(screen.queryByText(/Скидка гостя/)).not.toBeInTheDocument();
+  });
+
+  it('keeps pay disabled and shows the existing error after a failed quote', async () => {
+    quoteFailure = new Error('offline');
+    await walkToConfirmStep();
+    await waitFor(() => expect(window.alert).toHaveBeenCalledOnce());
+    expect(quotes()).toHaveLength(1);
+    expect(payButton()).toBeDisabled();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    fireEvent.click(payButton());
+    expect(orders()).toHaveLength(0);
+    expect(quotes()).toHaveLength(1);
+  });
+});

@@ -4,6 +4,7 @@ import { cn } from '@utils/cn';
 import { usePlatform } from '@hooks/useTelegram';
 import { ROUTES } from '@utils/constants';
 import { InteractiveMenu } from '@components/ui/InteractiveMenu';
+import { EventPromotionBanner } from '@components/features/EventPromotionBanner';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -37,6 +38,9 @@ export function MainLayout({ children }: MainLayoutProps) {
           />
         </div>
       </header>
+
+      {/* Event discount notice (event-qr-discount R-50): every page, only with an active grant */}
+      <EventPromotionBanner />
 
       {/* Main Content - scrollable area */}
       <main

@@ -13,6 +13,7 @@ import { useCartItems, useCartTotalAmount, useRefreshCartPrices } from '@stores/
 import { useLocationStore, getDisplayAddress } from '@stores/locationStore';
 import { useLoyalty } from '@hooks/useLoyalty';
 import { usePayment } from '@hooks/usePayment';
+import { useEventPromotion } from '@hooks/useEventPromotion';
 import { RedeemStepper } from '@components/features/RedeemStepper';
 import { RedeemReserveNotice } from '@components/features/RedeemReserveNotice';
 import type { OrderQuote } from '@/utils/order';
@@ -71,6 +72,13 @@ export function CheckoutPage() {
   const quote = quoted?.items === items ? quoted.quote : null;
   const totalAmount = quote ? Number(quote.total) : cartTotal;
   const subtotal = quote ? Number(quote.subtotal) : cartTotal;
+  // Event discount (R-52): with an active grant the confirm step waits for the server quote — the
+  // stepper, the totals and the pay button use its reduced terms, never the cart's own sum. A pending
+  // order being recovered pays its existing terms and needs no quote.
+  const { data: promotion } = useEventPromotion();
+  const awaitingQuote = !!promotion && !recovering && quote === null;
+  // D14: the confirm step also names the discount, in the cart's wording, with the quote's amount.
+  const quoteDiscount = typeof quote?.promotion_discount === 'string' ? Number(quote.promotion_discount) : 0;
   const { address, openModal, isModalOpen } = useLocationStore();
 
   const [step, setStep] = useState<CheckoutStep>('phone');
@@ -192,6 +200,7 @@ export function CheckoutPage() {
     displayedTotal: totalAmount,
     onQuote: handleQuote,
     onInvalidAmount: handleInvalidAmount,
+    prefetchQuote: awaitingQuote && step === 'confirm' && !sizeBlocked,
   });
 
   const getMainButtonConfig = useCallback(() => {
@@ -222,14 +231,15 @@ export function CheckoutPage() {
           isActive: !!address?.street && !!address?.house,
         };
       case 'confirm': {
-        const payText =
-          redeemPoints >= totalAmount
+        const payText = awaitingQuote
+          ? t('checkout.payment')
+          : redeemPoints >= totalAmount
             ? t('checkout.redeem.payWithPoints')
             : t('checkout.payment') + ' ' + formatPrice(amountDue);
         return {
           text: isProcessing ? t('checkout.processing') : payText,
           onClick: pay,
-          isActive: !isProcessing && !sizeBlocked,
+          isActive: !isProcessing && !sizeBlocked && !awaitingQuote,
         };
       }
       default:
@@ -245,6 +255,7 @@ export function CheckoutPage() {
     redeemPoints,
     isProcessing,
     sizeBlocked,
+    awaitingQuote,
     haptic,
     pay,
     handlePhoneContinue,
@@ -475,7 +486,7 @@ export function CheckoutPage() {
             >
               <h2 className="font-bold text-lg">{t('checkout.orderConfirmation')}</h2>
 
-              {canRedeem && (
+              {canRedeem && !awaitingQuote && (
                 <RedeemStepper
                   balance={balance}
                   available={available}
@@ -526,9 +537,22 @@ export function CheckoutPage() {
                     </div>
                   )}
                   <hr className="border-[var(--border)]" />
+                  {promotion && quoteDiscount > 0 && (
+                    <p className="text-sm font-medium text-[var(--primary)]">
+                      {t('eventPromotion.cartDiscount', {
+                        title: promotion.title,
+                        p: promotion.percent,
+                        amount: formatPrice(quoteDiscount),
+                      })}
+                    </p>
+                  )}
                   <div className="flex justify-between font-bold text-lg">
                     <span>{t('cart.total')}</span>
-                    <span className="text-[var(--primary)]">{formatPrice(totalAmount)}</span>
+                    {awaitingQuote ? (
+                      <Loader2 size={20} className="animate-spin text-[var(--primary)]" />
+                    ) : (
+                      <span className="text-[var(--primary)]">{formatPrice(totalAmount)}</span>
+                    )}
                   </div>
                   {/* Акцепт Условий продажи (п. 3.1 Условий: доступ к тексту ДО оформления) —
                       строка живёт в видимом блоке итога: нативная MainButton вне DOM.

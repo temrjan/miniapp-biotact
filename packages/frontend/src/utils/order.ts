@@ -52,6 +52,8 @@ export interface OrderQuote {
   max_redeemable: number;
   points_to_apply: number;
   quote_fingerprint: string;
+  /** Event discount taken off this quote (event-qr-discount R-13); present only with an active grant. */
+  promotion_discount?: string;
 }
 
 export interface DeliveryDetails {

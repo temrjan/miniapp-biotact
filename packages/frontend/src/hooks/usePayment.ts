@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 import WebApp from '@twa-dev/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -71,6 +71,9 @@ function readConflictQuote(data: unknown): OrderQuote | null {
     max_redeemable: quote.max_redeemable,
     points_to_apply: quote.points_to_apply,
     quote_fingerprint: quote.quote_fingerprint,
+    ...('promotion_discount' in quote && typeof quote.promotion_discount === 'string'
+      ? { promotion_discount: quote.promotion_discount }
+      : {}),
   };
 }
 
@@ -85,6 +88,12 @@ interface UsePaymentOptions {
   onQuote: (quote: OrderQuote) => void;
   /** Called with the server's ``max_redeemable`` when a 422 clamps the amount (null if unreadable). */
   onInvalidAmount: (max: number | null) => void;
+  /**
+   * Request the server quote now, without paying (event-qr-discount R-52): the caller sets it while
+   * an active event grant needs server terms on screen before the stepper and ``pay()``. The result
+   * goes to ``onQuote``; a failure gets the same handling as a failed ``pay()``.
+   */
+  prefetchQuote?: boolean;
 }
 
 /**
@@ -106,6 +115,7 @@ export function usePayment({
   displayedTotal,
   onQuote,
   onInvalidAmount,
+  prefetchQuote = false,
 }: UsePaymentOptions) {
   const navigate = useNavigate();
   const haptic = useHaptic();
@@ -124,6 +134,71 @@ export function usePayment({
   }, [requestKey]);
   const rememberOrder = usePendingOrderStore((state) => state.rememberOrder);
 
+  const formatQuoteTotal = useCallback(
+    (quote: OrderQuote) =>
+      Number(quote.total).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) +
+      ' ' +
+      t('currency.sum'),
+    [t]
+  );
+
+  // The buyer-facing outcome of a failed quote/order/payment request, shared by ``pay()`` and the
+  // R-52 quote prefetch so both show the existing error handling.
+  const reportFailure = useCallback(
+    async (error: unknown) => {
+      haptic.error();
+      const pending = usePendingOrderStore.getState().pending;
+      if (error instanceof ApiError && error.status === 400 && pending?.stockManaged) {
+        try {
+          const order = await api.get<OrderResponse>(`/orders/${pending.orderId}`);
+          if (order.payment_status === 'paid') {
+            if (cartMatchesOrder(items, order.items)) navigate(`${ROUTES.PAYMENT_SUCCESS}?order_id=${order.order_number}&id=${order.id}`);
+            else { usePendingOrderStore.getState().forgetOrder(); navigate('/orders'); }
+            return;
+          }
+        } catch { /* Keep the reference when the follow-up read is unavailable. */ }
+      }
+      if (error instanceof ApiError && typeof error.data === 'object' && error.data !== null && 'detail' in error.data) {
+        const detail = error.data.detail;
+        if (typeof detail === 'object' && detail !== null && 'code' in detail && typeof detail.code === 'string') {
+          const code = detail.code;
+          if (['size_required', 'invalid_size', 'size_unavailable', 'size_cutover_pending'].includes(code)) {
+            alert(t('checkout.sizeUnavailable'));
+            navigate('/cart');
+            return;
+          }
+          if (['payment_processing', 'payment_outcome_unknown', 'payment_cancellation_pending', 'order_payment_closed'].includes(code)) {
+            alert(t(`checkout.${code}`));
+            return;
+          }
+        }
+      }
+      // 422 = the amount broke a redeem rule (e.g. balance drained since the form read): clamp the
+      // stepper to the server's max so the customer can retry. 409 = live-balance shortfall.
+      if (error instanceof ApiError && error.status === 422) {
+        onInvalidAmount(readMaxRedeemable(error.data));
+        alert(t('checkout.redeem.invalidAmount'));
+        return;
+      }
+      if (error instanceof ApiError && error.status === 409) {
+        const freshQuote = readConflictQuote(error.data);
+        if (freshQuote) {
+          onQuote(freshQuote);
+          alert(t('checkout.quoteChanged', { total: formatQuoteTotal(freshQuote) }));
+          return;
+        }
+        // The server refused against a reserve-aware balance the cache does not know about — refresh
+        // so the stepper clamps to the truth and the reserve notice appears instead of a bare alert.
+        void queryClient.invalidateQueries({ queryKey: LOYALTY_ME_KEY });
+        alert(t('checkout.redeem.insufficient'));
+        return;
+      }
+      console.error('Payment request failed');
+      alert(!isReferralEntryEnabled() && error instanceof Error ? error.message : t('common.error'));
+    },
+    [items, onQuote, onInvalidAmount, navigate, haptic, queryClient, t, formatQuoteTotal]
+  );
+
   const pay = useCallback(async () => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
@@ -132,10 +207,6 @@ export function usePayment({
     const version = requestVersion.current;
     let settled = false;
     let submittingSizedOrder = false;
-    const formatQuoteTotal = (quote: OrderQuote) =>
-      Number(quote.total).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) +
-      ' ' +
-      t('currency.sum');
     try {
       const orderRequest = buildOrderRequest(items, { deliveryAddress, phone, name }, redeemPoints);
       const orderKey = JSON.stringify(orderRequest);
@@ -233,55 +304,7 @@ export function usePayment({
         }
       }
       if (version !== requestVersion.current) return;
-      haptic.error();
-      const pending = usePendingOrderStore.getState().pending;
-      if (error instanceof ApiError && error.status === 400 && pending?.stockManaged) {
-        try {
-          const order = await api.get<OrderResponse>(`/orders/${pending.orderId}`);
-          if (order.payment_status === 'paid') {
-            if (cartMatchesOrder(items, order.items)) navigate(`${ROUTES.PAYMENT_SUCCESS}?order_id=${order.order_number}&id=${order.id}`);
-            else { usePendingOrderStore.getState().forgetOrder(); navigate('/orders'); }
-            return;
-          }
-        } catch { /* Keep the reference when the follow-up read is unavailable. */ }
-      }
-      if (error instanceof ApiError && typeof error.data === 'object' && error.data !== null && 'detail' in error.data) {
-        const detail = error.data.detail;
-        if (typeof detail === 'object' && detail !== null && 'code' in detail && typeof detail.code === 'string') {
-          const code = detail.code;
-          if (['size_required', 'invalid_size', 'size_unavailable', 'size_cutover_pending'].includes(code)) {
-            alert(t('checkout.sizeUnavailable'));
-            navigate('/cart');
-            return;
-          }
-          if (['payment_processing', 'payment_outcome_unknown', 'payment_cancellation_pending', 'order_payment_closed'].includes(code)) {
-            alert(t(`checkout.${code}`));
-            return;
-          }
-        }
-      }
-      // 422 = the amount broke a redeem rule (e.g. balance drained since the form read): clamp the
-      // stepper to the server's max so the customer can retry. 409 = live-balance shortfall.
-      if (error instanceof ApiError && error.status === 422) {
-        onInvalidAmount(readMaxRedeemable(error.data));
-        alert(t('checkout.redeem.invalidAmount'));
-        return;
-      }
-      if (error instanceof ApiError && error.status === 409) {
-        const freshQuote = readConflictQuote(error.data);
-        if (freshQuote) {
-          onQuote(freshQuote);
-          alert(t('checkout.quoteChanged', { total: formatQuoteTotal(freshQuote) }));
-          return;
-        }
-        // The server refused against a reserve-aware balance the cache does not know about — refresh
-        // so the stepper clamps to the truth and the reserve notice appears instead of a bare alert.
-        void queryClient.invalidateQueries({ queryKey: LOYALTY_ME_KEY });
-        alert(t('checkout.redeem.insufficient'));
-        return;
-      }
-      console.error('Payment request failed');
-      alert(!isReferralEntryEnabled() && error instanceof Error ? error.message : t('common.error'));
+      await reportFailure(error);
     } finally {
       if (!settled) {
         isProcessingRef.current = false;
@@ -296,13 +319,39 @@ export function usePayment({
     redeemPoints,
     displayedTotal,
     onQuote,
-    onInvalidAmount,
     navigate,
     haptic,
     queryClient,
     rememberOrder,
     t,
+    formatQuoteTotal,
+    reportFailure,
   ]);
+
+  // R-52 quote prefetch. A change of the cart or delivery details while the request is in flight
+  // discards its outcome and requests again; after a failure no retry runs until one of them, or
+  // ``prefetchQuote``, changes.
+  const onPrefetched = useEffectEvent((quote: OrderQuote) => onQuote(quote));
+  const onPrefetchFailed = useEffectEvent((error: unknown) => {
+    void reportFailure(error);
+  });
+  useEffect(() => {
+    if (!prefetchQuote) return;
+    let current = true;
+    api
+      .post<OrderQuote>('/orders/quote', buildOrderRequest(items, { deliveryAddress, phone, name }, 0))
+      .then(
+        (quote) => {
+          if (current) onPrefetched(quote);
+        },
+        (error: unknown) => {
+          if (current) onPrefetchFailed(error);
+        }
+      );
+    return () => {
+      current = false;
+    };
+  }, [prefetchQuote, items, deliveryAddress, phone, name]);
 
   return { pay, isProcessing };
 }
