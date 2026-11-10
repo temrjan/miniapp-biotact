@@ -3,6 +3,7 @@
 import re
 from functools import lru_cache
 from ipaddress import ip_network
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr, model_validator
@@ -62,6 +63,9 @@ class Settings(BaseSettings):
     # Luna-first hybrid while Graf is on; false answers hybrid turns with the failure
     # response (named-product questions still work).
     consultant_hybrid: bool = True
+    # The engine of complaint turns: "graf" (default), or "enigma" (consultant v2) while the
+    # Graf key is set and the hybrid switch is on.
+    consultant_engine: Literal["graf", "enigma"] = "graf"
     # The consultant journal (spec.opyt r2 JN-04, JG-01); read at startup, off by default.
     consultant_journal: bool = False
 

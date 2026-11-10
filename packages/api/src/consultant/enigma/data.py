@@ -142,13 +142,19 @@ class Dose(Model):
     words: list[str]
 
 
+class Emergency(Model):
+    general: Text
+    pregnancy: Text
+    self_harm: Text
+
+
 class Rules(Model):
     version: str
     wording_rules: list[str]
     offer_rules: list[str]
     phrases: dict[str, Text]
     instruction_sentence: Text
-    emergency: dict[Literal["general", "pregnancy", "self_harm"], Text]
+    emergency: Emergency
     opening_question: Text
     no_offer_topics: list[str]
     dose: Dose

@@ -16,8 +16,9 @@ APOSTROPHES = str.maketrans(dict.fromkeys("‘’ʻʼ`´", "'"))
 TOKEN = re.compile(r"[0-9a-zа-яёўқғҳ']+")
 CLAUSE = re.compile(r"[,.;:!?\n—–]+|\s-\s")
 NEGATION = NETS.negation
-# The emergency text of a hit, strongest first; a 'check' row has no text of its own.
-TEMPLATES = ("emergency.self_harm", "emergency.pregnancy", "emergency.general")
+# The emergency text of a hit (a key of rules.json `emergency`), strongest first; a 'check'
+# row has no text of its own.
+TEMPLATES = ("self_harm", "pregnancy", "general")
 
 
 def norm(text: str) -> str:
@@ -158,7 +159,7 @@ def ambulance(text: str, pregnant: bool) -> Ambulance | None:
     if not found:
         return None
     strong = [e for e, r in found if r == "hit" and e["tier"] == "strong"]
-    templates = {e["template"] for e in strong or [e for e, _ in found]}
+    templates = {e["template"].removeprefix("emergency.") for e in strong or [e for e, _ in found]}
     template = next((t for t in TEMPLATES if t in templates), TEMPLATES[-1])
     return Ambulance("strong" if strong else "weak", template)
 

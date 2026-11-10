@@ -994,6 +994,8 @@ def test_every_template_variant_passes_against_its_family():
 def test_every_consultant_module_is_in_the_profile():
     folder = Path(graf.__file__).parent
     files = {p.name for p in folder.glob("*.py")} - {"__init__.py"}
+    # consultant-v2 spec r2 D-04: the modules of the enigma subpackage are in the profile.
+    files |= {"enigma/" + p.name for p in (folder / "enigma").glob("*.py")} - {"enigma/__init__.py"}
     assert set(IMPLEMENTATION) == files
     assert len(IMPLEMENTATION) == len(set(IMPLEMENTATION))
 

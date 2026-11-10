@@ -29,7 +29,8 @@ FORMAT = {
     "strict": True,
     "schema": Proposal.model_json_schema(),
 }
-# Every module of this package except __init__.py (spec r2 OP-04).
+# Every module of this package except __init__.py (spec r2 OP-04), and every module of the
+# enigma subpackage (consultant-v2 spec r2 D-04); Enigma's data files are not part of it.
 IMPLEMENTATION = (
     "provider.py",
     "context.py",
@@ -45,6 +46,14 @@ IMPLEMENTATION = (
     "checks.py",
     "hybrid.py",
     "record.py",
+    "enigma/cards.py",
+    "enigma/checks.py",
+    "enigma/data.py",
+    "enigma/jev.py",
+    "enigma/luna.py",
+    "enigma/nets.py",
+    "enigma/rules.py",
+    "enigma/turn.py",
 )
 PROFILE = hashlib.sha256(
     json.dumps(
@@ -57,7 +66,7 @@ PROFILE = hashlib.sha256(
             "embedding": EMBEDDING_PROFILE,
             "guard": "s2-v1",
             "implementation": {
-                name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+                name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
                 for name in IMPLEMENTATION
             },
             # Graf data is part of the knowledge release (plan r4 section 2).
