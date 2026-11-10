@@ -1,0 +1,143 @@
+{
+ "version": "compliance r2 (2026-11-10)",
+ "wording_rules": [
+  "No promise or statement that a product cures, treats or removes a disease («вылечит», «излечивает», «лечение», «избавит от болезни»).",
+  "No diagnosis.",
+  "No guarantee and no categorical promise.",
+  "No frightening and no pressure to buy.",
+  "No advice to stop or replace medicines or a doctor's treatment.",
+  "No normalising of alcohol, tobacco, fast food or sugar.",
+  "Soft wording: «может способствовать», «поддерживает», «возможно, вам подойдёт»; the product is support, not a miracle solution.",
+  "No doses and no regimen.",
+  "No question about age, sex, pregnancy or for whom the product is.",
+  "An offer ends with the instruction sentence, word for word."
+ ],
+ "offer_rules": [
+  "Emergency words, blood in stool, urine or sputum, severe acute pain, difficulty breathing or fainting: name no product; tell the customer to see a doctor; for an emergency use the approved emergency text with 103.",
+  "A stated temperature above 38.5, a fever for more than 3 days, a cold for more than 10 days or a cough for more than 3 weeks: name no product; tell the customer to see a doctor. Use only numbers the customer states; never ask how many days.",
+  "A stated intolerance of a product's components: name no product.",
+  "A child under 1 year: BIFOLAK® ZINCUM is not named.",
+  "The customer writes that she is pregnant or breastfeeding: offer only the products given to you, and add the pregnancy or the breastfeeding phrase.",
+  "The customer writes that the child is under 3 years: offer a product whose for-whom line covers that age, and add the child phrase.",
+  "The customer names a chronic disease, a medicine, or a current illness that is not a red flag: offer the product and add the disease phrase word for word."
+ ],
+ "phrases": {
+  "pregnancy": {
+   "ru": "При беременности согласуйте приём с врачом, который вас ведёт.",
+   "uz": "Homiladorlik davrida qabul qilishni sizni kuzatayotgan shifokor bilan kelishing."
+  },
+  "breastfeeding": {
+   "ru": "При кормлении грудью согласуйте приём с врачом.",
+   "uz": "Emizish davrida qabul qilishni shifokor bilan kelishing."
+  },
+  "child_under_3": {
+   "ru": "Детям до 3 лет — после консультации педиатра.",
+   "uz": "3 yoshgacha bo'lgan bolalarga — pediatr maslahatidan so'ng."
+  },
+  "disease": {
+   "ru": "При приеме лекарств или наличии заболеваний – проконсультируйтесь с врачом.",
+   "uz": "Dori qabul qilayotganda yoki biror kasallikka chalingan bo‘lsangiz, albatta shifokor bilan maslahatlashing."
+  }
+ },
+ "instruction_sentence": {
+  "ru": "Перед покупкой ознакомьтесь с инструкцией: состав, способ применения, возрастные и прочие ограничения.",
+  "uz": "Xarid qilishdan oldin yo'riqnoma bilan tanishib chiqing: tarkibi, qo'llash usuli, yosh bo'yicha va boshqa cheklovlar."
+ },
+ "emergency": {
+  "general": {
+   "ru": "Это может быть опасно. Пожалуйста, сразу звоните в скорую помощь: 103.",
+   "uz": "Bu xavfli bo'lishi mumkin. Iltimos, darhol tez yordamga qo'ng'iroq qiling: 103."
+  },
+  "pregnancy": {
+   "ru": "При беременности это может быть опасно. Пожалуйста, сразу звоните в скорую: 103.",
+   "uz": "Homiladorlikda bu xavfli bo'lishi mumkin. Iltimos, darhol tez yordamga qo'ng'iroq qiling: 103."
+  },
+  "self_harm": {
+   "ru": "Мне очень жаль, что вам сейчас так тяжело. Пожалуйста, не оставайтесь с этим одни: позвоните прямо сейчас 103 или попросите близкого человека побыть рядом.",
+   "uz": "Hozir sizga shunchalik og'irligidan juda afsusdaman. Iltimos, bu bilan yolg'iz qolmang: hoziroq 103 ga qo'ng'iroq qiling yoki yaqin odamingizdan yoningizda bo'lishini so'rang."
+  }
+ },
+ "opening_question": {
+  "ru": "Что именно вас беспокоит?",
+  "uz": "Aynan nima bezovta qilyapti?"
+ },
+ "no_offer_topics": [],
+ "dose": {
+  "stems": [
+   "капсул",
+   "стик",
+   "таблет",
+   "kapsul",
+   "stik"
+  ],
+  "words": [
+   "раз",
+   "раза",
+   "marta",
+   "марта",
+   "мг",
+   "mg",
+   "mahal",
+   "маҳал"
+  ]
+ },
+ "treatment_stems": [
+  "лечи",
+  "леча",
+  "лечат",
+  "лечен",
+  "лечебн",
+  "вылеч",
+  "излеч",
+  "назнач",
+  "диагноз",
+  "davola",
+  "даво",
+  "tashxis",
+  "ташхис",
+  "гарант",
+  "навсегда",
+  "доказан",
+  "клиничес",
+  "без вред",
+  "kafolat",
+  "butunlay",
+  "isbotlangan"
+ ],
+ "question_stems": [
+  "сколько лет",
+  "возраст",
+  "для кого",
+  "кому",
+  "беремен",
+  "кормите",
+  "yosh",
+  "kim uchun",
+  "homilador",
+  "emiz",
+  "ёш",
+  "ким учун",
+  "ҳомиладор",
+  "эмиз"
+ ],
+ "more_replies": [
+  "да",
+  "ещё",
+  "еще",
+  "покажи ещё",
+  "покажи еще",
+  "давай",
+  "ha",
+  "yana",
+  "ҳа",
+  "яна"
+ ],
+ "internal_words": [
+  "graf",
+  "граф",
+  "jev",
+  "джев",
+  "enigma",
+  "энигма"
+ ]
+}
