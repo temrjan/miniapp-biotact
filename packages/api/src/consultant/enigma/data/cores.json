@@ -1,0 +1,5018 @@
+{
+ "units": [
+  {
+   "id": "immunocomplex",
+   "title": {
+    "ru": "Иммунитет: IMMUNOCOMPLEX",
+    "uz": "Immunitet: IMMUNOCOMPLEX"
+   },
+   "products": [
+    {
+     "shop_id": 7,
+     "name": "IMMUNOCOMPLEX®",
+     "form": "capsule",
+     "for_whom": {
+      "ru": "Для детей с 7 лет и взрослых",
+      "uz": "7 yoshdan boshlab bolalar va kattalar uchun"
+     }
+    },
+    {
+     "shop_id": 14,
+     "name": "IMMUNOCOMPLEX® KIDS",
+     "form": "stick",
+     "for_whom": {
+      "ru": "Для детей",
+      "uz": "Bolalar uchun"
+     }
+    }
+   ],
+   "pair_line": {
+    "ru": "IMMUNOCOMPLEX® KIDS в стиках — для детей (приём в инструкции расписан до 7 лет), IMMUNOCOMPLEX® в капсулах — для детей с 7 лет и взрослых.",
+    "uz": "IMMUNOCOMPLEX® KIDS stiklarda — bolalar uchun (yo'riqnomada qabul qilish 7 yoshgacha yozilgan), IMMUNOCOMPLEX® kapsulalarda — 7 yoshdan boshlab bolalar va kattalar uchun."
+   },
+   "problems": [
+    {
+     "id": "weak_immunity",
+     "line": {
+      "ru": "Ослабленный иммунитет.",
+      "uz": "Immunitet zaiflashganda."
+     },
+     "phrases": {
+      "ru": [
+       "слабый иммунитет",
+       "иммунитет упал",
+       "иммунитет никакой",
+       "часто болею",
+       "ребенок постоянно болеет",
+       "болеет каждый месяц",
+       "пошел в сад и начал болеть",
+       "все время простужаюсь"
+      ],
+      "uz_latn": [
+       "immunitet zaif",
+       "immunitet tushib ketdi",
+       "immunitet umuman yo'q",
+       "tez-tez kasal bo'laman",
+       "bolam doim kasal bo'ladi",
+       "har oy kasal bo'ladi",
+       "bog'chaga borgach kasal bo'la boshladi",
+       "doim shamollayman"
+      ],
+      "uz_cyrl": [
+       "иммунитет заиф",
+       "иммунитет тушиб кетди",
+       "иммунитет умуман йўқ",
+       "тез-тез касал бўламан",
+       "болам доим касал бўлади",
+       "ҳар ой касал бўлади",
+       "боғчага боргач касал бўла бошлади",
+       "доим шамоллайман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "immunity_support",
+     "line": {
+      "ru": "Комплекс антиоксидантов, витаминов, минералов и пробиотиков для надежной поддержки иммунной системы.",
+      "uz": "Immunitet tizimini ishonchli qo‘llab-quvvatlash uchun antioksidantlar, vitaminlar, minerallar va probiotiklar majmuasi."
+     },
+     "phrases": {
+      "ru": [
+       "поддержать иммунитет",
+       "поднять иммунитет",
+       "укрепить иммунитет",
+       "что попить для иммунитета",
+       "витамины для иммунитета",
+       "ребенку для иммунитета что дать"
+      ],
+      "uz_latn": [
+       "immunitetni qo'llab-quvvatlash",
+       "immunitetni ko'tarish kerak",
+       "immunitetni mustahkamlash",
+       "immunitet uchun nima ichsa bo'ladi",
+       "immunitet uchun vitamin",
+       "bolaga immunitet uchun nima bersam bo'ladi"
+      ],
+      "uz_cyrl": [
+       "иммунитетни қўллаб-қувватлаш",
+       "иммунитетни кўтариш керак",
+       "иммунитетни мустаҳкамлаш",
+       "иммунитет учун нима ичса бўлади",
+       "иммунитет учун витамин",
+       "болага иммунитет учун нима берсам бўлади"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "season_support",
+     "line": {
+      "ru": "Поддержка иммунитета в сезон простуд, вирусов и кишечной инфекции.",
+      "uz": "Shamollash, viruslar va ichak infeksiyalari mavsumida immunitetni qo‘llab-quvvatlash uchun."
+     },
+     "phrases": {
+      "ru": [
+       "сезон простуд начался",
+       "поддержать иммунитет зимой",
+       "поддержать иммунитет осенью",
+       "все вокруг болеют",
+       "в классе все болеют",
+       "перед школой поддержать иммунитет",
+       "осенью всегда болею",
+       "вирусы ходят",
+       "сезон кишечных инфекций",
+       "летом кишечные инфекции ходят"
+      ],
+      "uz_latn": [
+       "shamollash mavsumi boshlandi",
+       "qishda immunitetni qo'llab-quvvatlash",
+       "kuzda immunitetni qo'llab-quvvatlash",
+       "atrofda hamma kasal",
+       "sinfda hamma kasal",
+       "maktabdan oldin immunitetni qo'llab-quvvatlash",
+       "kuzda doim kasal bo'laman",
+       "virus tarqalgan",
+       "ichak infeksiyalari mavsumi",
+       "yozda ichak infeksiyalari tarqalgan"
+      ],
+      "uz_cyrl": [
+       "шамоллаш мавсуми бошланди",
+       "қишда иммунитетни қўллаб-қувватлаш",
+       "кузда иммунитетни қўллаб-қувватлаш",
+       "атрофда ҳамма касал",
+       "синфда ҳамма касал",
+       "мактабдан олдин иммунитетни қўллаб-қувватлаш",
+       "кузда доим касал бўламан",
+       "вирус тарқалган",
+       "ичак инфекциялари мавсуми",
+       "ёзда ичак инфекциялари тарқалган"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "respiratory_infection",
+     "line": {
+      "ru": "Инфекции дыхательных путей, ЛОР-органов, мочевыводящих путей, вирусные гепатиты, гельминтозы и другие инфекции.",
+      "uz": "Nafas yo‘llari, LOR a’zolari, siydik chiqarish yo‘llari infeksiyalari, virusli gepatitlar, gelmintoz kasalliklari va boshqa yuqumli kasalliklar."
+     },
+     "phrases": {
+      "ru": [
+       "простыл",
+       "простудился",
+       "простуда",
+       "насморк",
+       "сопли",
+       "кашель",
+       "горло болит",
+       "першит в горле",
+       "ребенок засопливил",
+       "вирус подхватил"
+      ],
+      "uz_latn": [
+       "shamolladim",
+       "shamollab qoldim",
+       "shamollash",
+       "tumov",
+       "burni oqyapti",
+       "yo'tal",
+       "tomog'im og'riyapti",
+       "tomog'im qichiyapti",
+       "bolam tumov bo'lib qoldi",
+       "virus yuqdi"
+      ],
+      "uz_cyrl": [
+       "шамолладим",
+       "шамоллаб қолдим",
+       "шамоллаш",
+       "тумов",
+       "бурни оқяпти",
+       "йўтал",
+       "томоғим оғрияпти",
+       "томоғим қичияпти",
+       "болам тумов бўлиб қолди",
+       "вирус юқди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "орви",
+       "орз",
+       "грипп",
+       "бронхит",
+       "пневмония"
+      ],
+      "uz_latn": [
+       "o'rvi",
+       "o'tkir respirator kasallik",
+       "gripp",
+       "bronxit",
+       "pnevmoniya"
+      ],
+      "uz_cyrl": [
+       "ўрви",
+       "ўткир респиратор касаллик",
+       "грипп",
+       "бронхит",
+       "пневмония"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "ent_infection",
+     "line": {
+      "ru": "Инфекции дыхательных путей, ЛОР-органов, мочевыводящих путей, вирусные гепатиты, гельминтозы и другие инфекции.",
+      "uz": "Nafas yo‘llari, LOR a’zolari, siydik chiqarish yo‘llari infeksiyalari, virusli gepatitlar, gelmintoz kasalliklari va boshqa yuqumli kasalliklar."
+     },
+     "phrases": {
+      "ru": [
+       "ухо болит",
+       "уши болят у ребенка",
+       "горло часто воспаляется"
+      ],
+      "uz_latn": [
+       "qulog'im og'riyapti",
+       "bolamning qulog'i og'riyapti",
+       "tomog'im tez-tez yallig'lanadi"
+      ],
+      "uz_cyrl": [
+       "қулоғим оғрияпти",
+       "боламнинг қулоғи оғрияпти",
+       "томоғим тез-тез яллиғланади"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "отит",
+       "гайморит",
+       "синусит",
+       "ангина",
+       "тонзиллит",
+       "фарингит",
+       "аденоидит"
+      ],
+      "uz_latn": [
+       "otit",
+       "gaymorit",
+       "sinusit",
+       "angina",
+       "tonzillit",
+       "faringit",
+       "adenoidit"
+      ],
+      "uz_cyrl": [
+       "отит",
+       "гайморит",
+       "синусит",
+       "ангина",
+       "тонзиллит",
+       "фарингит",
+       "аденоидит"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "recovery_after_illness",
+     "line": {
+      "ru": "Восстановление после болезней и операций.",
+      "uz": "Kasalliklar va jarrohlik amaliyotlaridan so‘ng tiklanish"
+     },
+     "phrases": {
+      "ru": [
+       "после болезни слабость",
+       "восстановиться после болезни",
+       "после операции восстановление",
+       "переболел и никак не приду в себя",
+       "ребенок после болезни вялый",
+       "после больницы окрепнуть"
+      ],
+      "uz_latn": [
+       "kasallikdan keyin holsizlik",
+       "kasallikdan keyin tiklanish",
+       "operatsiyadan keyin tiklanish",
+       "kasal bo'lib o'zimga kelolmayapman",
+       "bolam kasallikdan keyin lanj",
+       "kasalxonadan keyin quvvatga kirish"
+      ],
+      "uz_cyrl": [
+       "касалликдан кейин ҳолсизлик",
+       "касалликдан кейин тикланиш",
+       "операциядан кейин тикланиш",
+       "касал бўлиб ўзимга келолмаяпман",
+       "болам касалликдан кейин ланж",
+       "касалхонадан кейин қувватга кириш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "после гриппа",
+       "после ковида",
+       "после пневмонии"
+      ],
+      "uz_latn": [
+       "grippdan keyin",
+       "koviddan keyin",
+       "pnevmoniyadan keyin"
+      ],
+      "uz_cyrl": [
+       "гриппдан кейин",
+       "ковиддан кейин",
+       "пневмониядан кейин"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "urinary_infection",
+     "line": {
+      "ru": "Инфекции дыхательных путей, ЛОР-органов, мочевыводящих путей, вирусные гепатиты, гельминтозы и другие инфекции.",
+      "uz": "Nafas yo‘llari, LOR a’zolari, siydik chiqarish yo‘llari infeksiyalari, virusli gepatitlar, gelmintoz kasalliklari va boshqa yuqumli kasalliklar."
+     },
+     "phrases": {
+      "ru": [
+       "инфекция мочевых путей",
+       "часто воспаление мочевого пузыря"
+      ],
+      "uz_latn": [
+       "siydik yo'llari infeksiyasi",
+       "siydik pufagi tez-tez yallig'lanadi"
+      ],
+      "uz_cyrl": [
+       "сийдик йўллари инфекцияси",
+       "сийдик пуфаги тез-тез яллиғланади"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "цистит",
+       "пиелонефрит"
+      ],
+      "uz_latn": [
+       "sistit",
+       "piyelonefrit"
+      ],
+      "uz_cyrl": [
+       "цистит",
+       "пиелонефрит"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "chronic_exacerbation",
+     "line": {
+      "ru": "Предотвращает обострение хронических заболеваний.",
+      "uz": "Surunkali kasalliklarning zo‘rayishini oldini oladi."
+     },
+     "phrases": {
+      "ru": [
+       "хроническое часто обостряется",
+       "чтобы реже были обострения",
+       "хроническая болячка обостряется осенью"
+      ],
+      "uz_latn": [
+       "surunkali kasalligim tez-tez qo'ziydi",
+       "kamroq qo'zishi uchun",
+       "surunkali kasalligim kuzda qo'ziydi"
+      ],
+      "uz_cyrl": [
+       "сурункали касаллигим тез-тез қўзийди",
+       "камроқ қўзиши учун",
+       "сурункали касаллигим кузда қўзийди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": [
+      7
+     ]
+    },
+    {
+     "id": "hepatitis_helminths",
+     "line": {
+      "ru": "Инфекции дыхательных путей, ЛОР-органов, мочевыводящих путей, вирусные гепатиты, гельминтозы и другие инфекции.",
+      "uz": "Nafas yo‘llari, LOR a’zolari, siydik chiqarish yo‘llari infeksiyalari, virusli gepatitlar, gelmintoz kasalliklari va boshqa yuqumli kasalliklar."
+     },
+     "phrases": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "diagnoses": {
+      "ru": [
+       "вирусный гепатит",
+       "глисты",
+       "гельминты"
+      ],
+      "uz_latn": [
+       "virusli gepatit",
+       "gijja",
+       "gelmint"
+      ],
+      "uz_cyrl": [
+       "вирусли гепатит",
+       "гижжа",
+       "гельминт"
+      ]
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Бета-глюкан, цинк, селен и витамин C активируют иммунные клетки, помогая бороться с инфекциями.",
+     "names": [
+      "beta_glucan",
+      "zinc",
+      "selenium",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Селен, цинк и витамин C активируют иммунные клетки, помогая бороться с инфекциями.",
+     "names": [
+      "zinc",
+      "selenium",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Бета-глюкан, цинк, селен и витамин C активируют иммунные клетки, стимулируют выработку антител и повышают защитные силы организма.",
+     "names": [
+      "beta_glucan",
+      "zinc",
+      "selenium",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Селен, цинк и витамин C активируют иммунные клетки, стимулируют выработку антител и повышают защитные силы организма.",
+     "names": [
+      "zinc",
+      "selenium",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Витамин C, ниацин и фолиевая кислота активируют клеточный метаболизм, повышает уровень энергии, способствуя быстрому восстановлению после болезней и операций.",
+     "names": [
+      "vitamin_c",
+      "niacin_b3",
+      "folic_acid_b9"
+     ]
+    },
+    {
+     "line": "Пробиотики укрепляют иммунитет, выводят токсины и очищают организм.",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Селен, цинк, витамин C и пробиотики укрепляют иммунную систему, помогая предотвратить рецидивы.",
+     "names": [
+      "selenium",
+      "zinc",
+      "vitamin_c",
+      "probiotics_8_strains"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "цинк и селен для иммунитета",
+     "витамин с с цинком",
+     "бета-глюкан",
+     "пробиотик для иммунитета"
+    ],
+    "uz_latn": [
+     "immunitet uchun sink va selen",
+     "s vitamini sink bilan",
+     "beta-glyukan",
+     "immunitet uchun probiotik"
+    ],
+    "uz_cyrl": [
+     "иммунитет учун цинк ва селен",
+     "с витамини цинк билан",
+     "бета-глюкан",
+     "иммунитет учун пробиотик"
+    ]
+   },
+   "pregnancy": [
+    7
+   ]
+  },
+  {
+   "id": "zincum_c_d3",
+   "title": {
+    "ru": "Цинк, витамины C и D3: BIFOLAK ZINCUM+C+D3",
+    "uz": "Sink, C va D3 vitaminlari: BIFOLAK ZINCUM+C+D3"
+   },
+   "products": [
+    {
+     "shop_id": 16,
+     "name": "BIFOLAK® ZINCUM+C+D3",
+     "form": "capsule",
+     "for_whom": {
+      "ru": "Для детей с 15 лет и взрослых",
+      "uz": "15 yoshdan boshlab bolalar va kattalar uchun"
+     }
+    }
+   ],
+   "pair_line": null,
+   "problems": [
+    {
+     "id": "respiratory_infection",
+     "line": {
+      "ru": "Инфекции дыхательных путей и простуда.",
+      "uz": "Nafas yo‘llari infeksiyalari va shamollash."
+     },
+     "phrases": {
+      "ru": [
+       "инфекция дыхательных путей",
+       "кашель",
+       "кашляю",
+       "горло болит",
+       "першит в горле",
+       "вирус подхватил",
+       "подхватил инфекцию"
+      ],
+      "uz_latn": [
+       "nafas yo'llari infeksiyasi",
+       "yo'tal",
+       "yo'talyapman",
+       "tomog'im og'riyapti",
+       "tomog'im qichiyapti",
+       "virus yuqdi",
+       "infeksiya yuqtirdim"
+      ],
+      "uz_cyrl": [
+       "нафас йўллари инфекцияси",
+       "йўтал",
+       "йўталяпман",
+       "томоғим оғрияпти",
+       "томоғим қичияпти",
+       "вирус юқди",
+       "инфекция юқтирдим"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "орви",
+       "орз",
+       "грипп",
+       "бронхит",
+       "пневмония"
+      ],
+      "uz_latn": [
+       "o'rvi",
+       "o'tkir respirator kasallik",
+       "gripp",
+       "bronxit",
+       "pnevmoniya"
+      ],
+      "uz_cyrl": [
+       "ўрви",
+       "ўткир респиратор касаллик",
+       "грипп",
+       "бронхит",
+       "пневмония"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "cold",
+     "line": {
+      "ru": "Инфекции дыхательных путей и простуда.",
+      "uz": "Nafas yo‘llari infeksiyalari va shamollash."
+     },
+     "phrases": {
+      "ru": [
+       "простуда",
+       "простыл",
+       "простудился",
+       "простуда началась",
+       "насморк",
+       "сопли",
+       "сильная простуда"
+      ],
+      "uz_latn": [
+       "shamollash",
+       "shamolladim",
+       "shamollab qoldim",
+       "shamollash boshlandi",
+       "tumov",
+       "burnim oqyapti",
+       "kuchli shamollash"
+      ],
+      "uz_cyrl": [
+       "шамоллаш",
+       "шамолладим",
+       "шамоллаб қолдим",
+       "шамоллаш бошланди",
+       "тумов",
+       "бурним оқяпти",
+       "кучли шамоллаш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "inflammation_women",
+     "line": {
+      "ru": "Воспалительные процессы у мужчин и женщин.",
+      "uz": "Erkaklarda va ayollarda yallig‘lanish jarayonlari."
+     },
+     "phrases": {
+      "ru": [
+       "воспаление по-женски",
+       "воспаление женских органов",
+       "по-женски часто воспаляется",
+       "гинеколог нашел воспаление",
+       "воспалительный процесс у женщины"
+      ],
+      "uz_latn": [
+       "ayollik tomondan yallig'lanish",
+       "ayollar a'zolari yallig'lanishi",
+       "ayollik tomondan tez-tez yallig'lanadi",
+       "ginekolog yallig'lanish topdi",
+       "ayolda yallig'lanish jarayoni"
+      ],
+      "uz_cyrl": [
+       "аёллик томондан яллиғланиш",
+       "аёллар аъзолари яллиғланиши",
+       "аёллик томондан тез-тез яллиғланади",
+       "гинеколог яллиғланиш топди",
+       "аёлда яллиғланиш жараёни"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "аднексит",
+       "воспаление придатков",
+       "кольпит",
+       "эндометрит"
+      ],
+      "uz_latn": [
+       "adneksit",
+       "bachadon ortiqlari yallig'lanishi",
+       "kolpit",
+       "endometrit"
+      ],
+      "uz_cyrl": [
+       "аднексит",
+       "бачадон ортиқлари яллиғланиши",
+       "кольпит",
+       "эндометрит"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "inflammation_men",
+     "line": {
+      "ru": "Воспалительные процессы у мужчин и женщин.",
+      "uz": "Erkaklarda va ayollarda yallig‘lanish jarayonlari."
+     },
+     "phrases": {
+      "ru": [
+       "воспаление по-мужски",
+       "воспаление мужских органов",
+       "по-мужски часто воспаляется",
+       "уролог нашел воспаление",
+       "воспалительный процесс у мужчины"
+      ],
+      "uz_latn": [
+       "erkaklik tomondan yallig'lanish",
+       "erkaklar a'zolari yallig'lanishi",
+       "erkaklik tomondan tez-tez yallig'lanadi",
+       "urolog yallig'lanish topdi",
+       "erkakda yallig'lanish jarayoni"
+      ],
+      "uz_cyrl": [
+       "эркаклик томондан яллиғланиш",
+       "эркаклар аъзолари яллиғланиши",
+       "эркаклик томондан тез-тез яллиғланади",
+       "уролог яллиғланиш топди",
+       "эркакда яллиғланиш жараёни"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "простатит",
+       "воспаление простаты"
+      ],
+      "uz_latn": [
+       "prostatit",
+       "prostata yallig'lanishi"
+      ],
+      "uz_cyrl": [
+       "простатит",
+       "простата яллиғланиши"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "fertility",
+     "line": {
+      "ru": "Улучшение мужской и женской фертильности.",
+      "uz": "Erkaklar va ayollar fertilligini yaxshilash."
+     },
+     "phrases": {
+      "ru": [
+       "не можем забеременеть",
+       "не получается зачать",
+       "планируем беременность",
+       "хотим ребенка",
+       "мужская фертильность",
+       "женская фертильность",
+       "плохая спермограмма"
+      ],
+      "uz_latn": [
+       "homilador bo'lolmayapmiz",
+       "farzand ko'rolmayapmiz",
+       "homiladorlikni rejalashtiryapmiz",
+       "farzand ko'rmoqchimiz",
+       "erkaklar fertilligi",
+       "ayollar fertilligi",
+       "spermogramma yomon"
+      ],
+      "uz_cyrl": [
+       "ҳомиладор бўлолмаяпмиз",
+       "фарзанд кўролмаяпмиз",
+       "ҳомиладорликни режалаштиряпмиз",
+       "фарзанд кўрмоқчимиз",
+       "эркаклар фертиллиги",
+       "аёллар фертиллиги",
+       "спермограмма ёмон"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "бесплодие",
+       "мужское бесплодие",
+       "женское бесплодие"
+      ],
+      "uz_latn": [
+       "bepushtlik",
+       "erkaklar bepushtligi",
+       "ayollar bepushtligi"
+      ],
+      "uz_cyrl": [
+       "бепуштлик",
+       "эркаклар бепуштлиги",
+       "аёллар бепуштлиги"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "pregnancy_protection",
+     "line": {
+      "ru": "Беременность – для защиты от инфекций и предотвращения осложнений.",
+      "uz": "Homiladorlik – infeksiyalardan himoyalanish va asoratlarning oldini olish uchun."
+     },
+     "phrases": {
+      "ru": [
+       "беременна что можно от инфекций",
+       "беременной чтобы не болеть",
+       "беременна боюсь заразиться",
+       "чтобы беременность прошла без осложнений",
+       "беременна боюсь осложнений"
+      ],
+      "uz_latn": [
+       "homiladorman infeksiyalardan nima mumkin",
+       "homilador ayol kasal bo'lmasligi uchun",
+       "homiladorman yuqtirib olishdan qo'rqaman",
+       "homiladorlik asoratsiz o'tishi uchun",
+       "homiladorman asoratlardan qo'rqaman"
+      ],
+      "uz_cyrl": [
+       "ҳомиладорман инфекциялардан нима мумкин",
+       "ҳомиладор аёл касал бўлмаслиги учун",
+       "ҳомиладорман юқтириб олишдан қўрқаман",
+       "ҳомиладорлик асоратсиз ўтиши учун",
+       "ҳомиладорман асоратлардан қўрқаман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "угроза выкидыша",
+       "диабет при беременности"
+      ],
+      "uz_latn": [
+       "homila tushish xavfi",
+       "homiladorlikda qandli diabet"
+      ],
+      "uz_cyrl": [
+       "ҳомила тушиш хавфи",
+       "ҳомиладорликда қандли диабет"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "sport_endurance",
+     "line": {
+      "ru": "Физические и спортивные нагрузки – для повышения силы и выносливости.",
+      "uz": "Jismoniy va sport mashg‘ulotlari – kuch va chidamlilikni oshirish uchun."
+     },
+     "phrases": {
+      "ru": [
+       "занимаюсь спортом",
+       "хожу в зал",
+       "для выносливости",
+       "повысить выносливость",
+       "чтобы было больше силы на тренировках",
+       "тяжелая физическая работа",
+       "большие физические нагрузки",
+       "спортсмену что пить"
+      ],
+      "uz_latn": [
+       "sport bilan shug'ullanaman",
+       "zalga qatnayman",
+       "chidamlilik uchun",
+       "chidamlilikni oshirish",
+       "mashg'ulotlarda kuch ko'proq bo'lishi uchun",
+       "og'ir jismoniy ish",
+       "katta jismoniy yuklama",
+       "sportchi uchun nima ichsa bo'ladi"
+      ],
+      "uz_cyrl": [
+       "спорт билан шуғулланаман",
+       "залга қатнайман",
+       "чидамлилик учун",
+       "чидамлиликни ошириш",
+       "машғулотларда куч кўпроқ бўлиши учун",
+       "оғир жисмоний иш",
+       "катта жисмоний юклама",
+       "спортчи учун нима ичса бўлади"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Цинк с витаминами C и D3 улучшает мужское здоровье и фертильность.",
+     "names": [
+      "zinc",
+      "vitamin_c",
+      "vitamin_d3"
+     ]
+    },
+    {
+     "line": "Сочетание антиоксидантов (цинк, витамины C и D3) усиливает иммунную защиту, уменьшает воспаление, защищает от повреждений, снижает риск осложнений со стороны легких.",
+     "names": [
+      "zinc",
+      "vitamin_c",
+      "vitamin_d3"
+     ]
+    },
+    {
+     "line": "Цинк, витамины C и D3 защищают женские органы от воспалений и инфекций.",
+     "names": [
+      "zinc",
+      "vitamin_c",
+      "vitamin_d3"
+     ]
+    },
+    {
+     "line": "Цинк, витамины C и D3 стимулируют выработку тестостерона, улучшая фертильность и половую сферу.",
+     "names": [
+      "zinc",
+      "vitamin_c",
+      "vitamin_d3"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "цинк с витамином с и д3",
+     "цинк и витамин д",
+     "цинк при простуде",
+     "цинк для мужчин",
+     "цинк с пробиотиками"
+    ],
+    "uz_latn": [
+     "sink c va d3 vitaminlari bilan",
+     "sink va d vitamini",
+     "shamollaganda sink",
+     "erkaklar uchun sink",
+     "sink probiotiklar bilan"
+    ],
+    "uz_cyrl": [
+     "синк c ва d3 витаминлари билан",
+     "синк ва d витамини",
+     "шамоллаганда синк",
+     "эркаклар учун синк",
+     "синк пробиотиклар билан"
+    ]
+   },
+   "pregnancy": [
+    16
+   ]
+  },
+  {
+   "id": "zincum",
+   "title": {
+    "ru": "Цинк в стиках: BIFOLAK ZINCUM",
+    "uz": "Sink stiklarda: BIFOLAK ZINCUM"
+   },
+   "products": [
+    {
+     "shop_id": 17,
+     "name": "BIFOLAK® ZINCUM",
+     "form": "stick",
+     "for_whom": {
+      "ru": "Для детей и взрослых",
+      "uz": "Bolalar va kattalar uchun"
+     }
+    }
+   ],
+   "pair_line": null,
+   "problems": [
+    {
+     "id": "underweight",
+     "line": {
+      "ru": "Недостаток массы тела.",
+      "uz": "Tana vazni yetarli bo‘lmaganda."
+     },
+     "phrases": {
+      "ru": [
+       "ребенок худой",
+       "не набирает вес",
+       "плохо набирает вес",
+       "маленький вес",
+       "вес ниже нормы",
+       "дефицит веса",
+       "худой не могу поправиться",
+       "ребенок мало весит"
+      ],
+      "uz_latn": [
+       "bolam ozg'in",
+       "vazn olmayapti",
+       "vazni yaxshi ko'tarilmayapti",
+       "tana vazni yetarli emas",
+       "vazni me'yordan past",
+       "vazn yetishmovchiligi",
+       "ozg'inman semira olmayapman",
+       "bolamning vazni kam"
+      ],
+      "uz_cyrl": [
+       "болам озғин",
+       "вазн олмаяпти",
+       "вазни яхши кўтарилмаяпти",
+       "тана вазни етарли эмас",
+       "вазни меъёрдан паст",
+       "вазн етишмовчилиги",
+       "озғинман семира олмаяпман",
+       "боламнинг вазни кам"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "гипотрофия"
+      ],
+      "uz_latn": [
+       "gipotrofiya"
+      ],
+      "uz_cyrl": [
+       "гипотрофия"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "growth_delay",
+     "line": {
+      "ru": "Отставание в росте (период активного развития).",
+      "uz": "O‘sishdan orqada qolishda (jadal rivojlanish davrida)."
+     },
+     "phrases": {
+      "ru": [
+       "ребенок плохо растет",
+       "отстает в росте",
+       "ниже сверстников",
+       "маленький рост у ребенка",
+       "самый маленький в классе",
+       "задержка роста",
+       "подросток не растет"
+      ],
+      "uz_latn": [
+       "bolam yaxshi o'smayapti",
+       "bo'yi o'sishdan orqada qolyapti",
+       "tengdoshlaridan past",
+       "bolamning bo'yi past",
+       "sinfdagi eng past bola",
+       "o'sish kechikishi",
+       "o'smir o'smayapti"
+      ],
+      "uz_cyrl": [
+       "болам яхши ўсмаяпти",
+       "бўйи ўсишдан орқада қоляпти",
+       "тенгдошларидан паст",
+       "боламнинг бўйи паст",
+       "синфдаги энг паст бола",
+       "ўсиш кечикиши",
+       "ўсмир ўсмаяпти"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "hormonal_balance_growth",
+     "line": {
+      "ru": "Поддержка гормонального баланса в период интенсивного роста.",
+      "uz": "Jadal o‘sish davrida gormonal muvozanatni saqlash."
+     },
+     "phrases": {
+      "ru": [
+       "гормоны в переходном возрасте",
+       "переходный возраст",
+       "подростковый возраст гормоны",
+       "гормональный баланс у подростка",
+       "гормональная перестройка у подростка"
+      ],
+      "uz_latn": [
+       "o'tish davrida gormonlar",
+       "o'tish davri",
+       "o'smirlik yoshida gormonlar",
+       "o'smirda gormonal muvozanat",
+       "o'smirda gormonal o'zgarishlar"
+      ],
+      "uz_cyrl": [
+       "ўтиш даврида гормонлар",
+       "ўтиш даври",
+       "ўсмирлик ёшида гормонлар",
+       "ўсмирда гормонал мувозанат",
+       "ўсмирда гормонал ўзгаришлар"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "diarrhea",
+     "line": {
+      "ru": "Диарея – восстановление кишечника и нормализация стула.",
+      "uz": "Diareya – ichak faoliyatini tiklash va axlat chiqishini me’yoriga keltirish."
+     },
+     "phrases": {
+      "ru": [
+       "понос",
+       "диарея",
+       "жидкий стул",
+       "понос у ребенка",
+       "расстройство кишечника",
+       "после поноса восстановить кишечник",
+       "нормализовать стул после поноса",
+       "вздутие при поносе"
+      ],
+      "uz_latn": [
+       "ich ketishi",
+       "diareya",
+       "suyuq axlat",
+       "bolamning ichi ketyapti",
+       "ichak buzilishi",
+       "ich ketishidan keyin ichakni tiklash",
+       "ich ketgandan keyin axlatni me'yorga keltirish",
+       "ich ketganda qorin dam bo'lishi"
+      ],
+      "uz_cyrl": [
+       "ич кетиши",
+       "диарея",
+       "суюқ ахлат",
+       "боламнинг ичи кетяпти",
+       "ичак бузилиши",
+       "ич кетишидан кейин ичакни тиклаш",
+       "ич кетгандан кейин ахлатни меъёрга келтириш",
+       "ич кетганда қорин дам бўлиши"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Цинк + пробиотики и пребиотики – для роста, набора веса, гормонального баланса, крепкого иммунитета и восстановления при диарее.",
+     "names": [
+      "zinc",
+      "probiotics_8_strains",
+      "prebiotics"
+     ]
+    },
+    {
+     "line": "Поддерживает гормон роста: цинк стимулирует развитие костей и мышц, способствует физическому развитию.",
+     "names": [
+      "zinc"
+     ]
+    },
+    {
+     "line": "Восстанавливает микрофлору: пробиотики помогают бороться с инфекциями и укрепляют кишечный иммунитет.",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "цинк для ребенка",
+     "цинк при диарее",
+     "цинк с пробиотиками",
+     "цинк для роста",
+     "детский цинк"
+    ],
+    "uz_latn": [
+     "bola uchun sink",
+     "diareyada sink",
+     "sink probiotiklar bilan",
+     "o'sish uchun sink",
+     "bolalar sinki"
+    ],
+    "uz_cyrl": [
+     "бола учун синк",
+     "диареяда синк",
+     "синк пробиотиклар билан",
+     "ўсиш учун синк",
+     "болалар синки"
+    ]
+   },
+   "pregnancy": [
+    17
+   ]
+  },
+  {
+   "id": "magniy",
+   "title": {
+    "ru": "Магний: BIFOLAK MAGNIY",
+    "uz": "Magniy: BIFOLAK MAGNIY"
+   },
+   "products": [
+    {
+     "shop_id": 18,
+     "name": "BIFOLAK® MAGNIY",
+     "form": "capsule",
+     "for_whom": {
+      "ru": "Для детей и взрослых",
+      "uz": "Bolalar va kattalar uchun"
+     }
+    },
+    {
+     "shop_id": 19,
+     "name": "BIFOLAK® MAGNIY",
+     "form": "stick",
+     "for_whom": {
+      "ru": "Для детей и взрослых",
+      "uz": "Bolalar va kattalar uchun"
+     }
+    }
+   ],
+   "pair_line": {
+    "ru": "BIFOLAK® MAGNIY в стиках — для детей и взрослых (приём в инструкции расписан и для детей до 1 года, содержимое размешивают в жидкости), BIFOLAK® MAGNIY в капсулах — для детей и взрослых (приём в инструкции расписан для взрослых и детей старше 7 лет).",
+    "uz": "BIFOLAK® MAGNIY stiklarda — bolalar va kattalar uchun (yo'riqnomada qabul qilish 1 yoshgacha bo'lgan bolalar uchun ham yozilgan, tarkibi suyuqlikka aralashtiriladi), BIFOLAK® MAGNIY kapsulalarda — bolalar va kattalar uchun (yo'riqnomada qabul qilish kattalar va 7 yoshdan katta bolalar uchun yozilgan)."
+   },
+   "problems": [
+    {
+     "id": "stress",
+     "line": {
+      "ru": "Стресс, усталость и нарушение сна.",
+      "uz": "Stress, charchoq va uyqu buzilganda."
+     },
+     "phrases": {
+      "ru": [
+       "стресс",
+       "стресс на работе",
+       "нервы шалят",
+       "постоянно нервничаю",
+       "быстро раздражаюсь",
+       "что-нибудь успокаивающее"
+      ],
+      "uz_latn": [
+       "stress",
+       "ishda stress",
+       "asablarim buzilgan",
+       "doim asabiylashaman",
+       "tez jahlim chiqadi",
+       "tinchlantiruvchi biror narsa"
+      ],
+      "uz_cyrl": [
+       "стресс",
+       "ишда стресс",
+       "асабларим бузилган",
+       "доим асабийлашаман",
+       "тез жаҳлим чиқади",
+       "тинчлантирувчи бирор нарса"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "fatigue",
+     "line": {
+      "ru": "Стресс, усталость и нарушение сна.",
+      "uz": "Stress, charchoq va uyqu buzilganda."
+     },
+     "phrases": {
+      "ru": [
+       "усталость",
+       "постоянно устаю",
+       "быстро устаю",
+       "нет сил",
+       "упадок сил",
+       "к вечеру без сил"
+      ],
+      "uz_latn": [
+       "charchoq",
+       "doim charchayman",
+       "tez charchayman",
+       "holsizman",
+       "madorim yo'q",
+       "kechqurun holdan toyaman"
+      ],
+      "uz_cyrl": [
+       "чарчоқ",
+       "доим чарчайман",
+       "тез чарчайман",
+       "ҳолсизман",
+       "мадорим йўқ",
+       "кечқурун ҳолдан тояман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "sleep_disorder",
+     "line": {
+      "ru": "Стресс, усталость и нарушение сна.",
+      "uz": "Stress, charchoq va uyqu buzilganda."
+     },
+     "phrases": {
+      "ru": [
+       "плохо сплю",
+       "не могу уснуть",
+       "бессонница",
+       "часто просыпаюсь ночью",
+       "беспокойный сон",
+       "ребенок плохо спит"
+      ],
+      "uz_latn": [
+       "yomon uxlayman",
+       "uxlay olmayapman",
+       "uyqusizlik",
+       "kechasi tez-tez uyg'onaman",
+       "uyqum notinch",
+       "bolam yomon uxlaydi"
+      ],
+      "uz_cyrl": [
+       "ёмон ухлайман",
+       "ухлай олмаяпман",
+       "уйқусизлик",
+       "кечаси тез-тез уйғонаман",
+       "уйқум нотинч",
+       "болам ёмон ухлайди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "hyperactivity_kids",
+     "line": {
+      "ru": "Гиперактивность у детей.",
+      "uz": "Bolalarda ortiqcha faollik."
+     },
+     "phrases": {
+      "ru": [
+       "гиперактивный ребенок",
+       "ребенок не сидит на месте",
+       "ребенок очень возбудимый",
+       "ребенок легко перевозбуждается",
+       "ребенок слишком активный"
+      ],
+      "uz_latn": [
+       "giperaktiv bola",
+       "bolam bir joyda o'tirmaydi",
+       "bolam juda qo'zg'aluvchan",
+       "bolam tez qo'zg'alib ketadi",
+       "bolamda ortiqcha faollik"
+      ],
+      "uz_cyrl": [
+       "гиперактив бола",
+       "болам бир жойда ўтирмайди",
+       "болам жуда қўзғалувчан",
+       "болам тез қўзғалиб кетади",
+       "боламда ортиқча фаоллик"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "сдвг"
+      ],
+      "uz_latn": [
+       "diqqat yetishmasligi va giperaktivlik sindromi"
+      ],
+      "uz_cyrl": [
+       "диққат етишмаслиги ва гиперактивлик синдроми"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "muscle_cramps",
+     "line": {
+      "ru": "Мышечное напряжение, спазмы и подергивания.",
+      "uz": "Mushaklar tarangligi, spazm va tirishishlarda."
+     },
+     "phrases": {
+      "ru": [
+       "мышцы напряжены",
+       "сводит ноги",
+       "судороги в ногах по ночам",
+       "дергается глаз",
+       "дергаются мышцы",
+       "спазмы в мышцах"
+      ],
+      "uz_latn": [
+       "mushaklarim tarang",
+       "oyog'im tortishib qoladi",
+       "kechasi oyog'im tirishadi",
+       "ko'zim uchyapti",
+       "mushaklarim uchib turadi",
+       "mushaklarda spazm"
+      ],
+      "uz_cyrl": [
+       "мушакларим таранг",
+       "оёғим тортишиб қолади",
+       "кечаси оёғим тиришади",
+       "кўзим учяпти",
+       "мушакларим учиб туради",
+       "мушакларда спазм"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "physical_load",
+     "line": {
+      "ru": "Физические нагрузки – защита сердца, снятие мышечного дискомфорта.",
+      "uz": "Jismoniy faoliyat – yurakni asrash, mushak noqulayliklarini bartaraf etish."
+     },
+     "phrases": {
+      "ru": [
+       "мышцы болят после тренировки",
+       "после спорта ноют мышцы",
+       "крепатура",
+       "защитить сердце при тренировках",
+       "после тяжелой работы ломит тело"
+      ],
+      "uz_latn": [
+       "mashg'ulotdan keyin mushaklarim og'riydi",
+       "sportdan keyin mushaklarim zirqiraydi",
+       "krepatura",
+       "mashg'ulotlarda yurakni asrash",
+       "og'ir ishdan keyin badanim zirqiraydi"
+      ],
+      "uz_cyrl": [
+       "машғулотдан кейин мушакларим оғрийди",
+       "спортдан кейин мушакларим зирқирайди",
+       "крепатура",
+       "машғулотларда юракни асраш",
+       "оғир ишдан кейин баданим зирқирайди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "constipation",
+     "line": {
+      "ru": "Запор – нормализация стула.",
+      "uz": "Qabziyat – ich kelishining me’yorlashishi."
+     },
+     "phrases": {
+      "ru": [
+       "запор",
+       "не могу сходить в туалет",
+       "твердый стул",
+       "стул раз в несколько дней",
+       "у ребенка запор",
+       "ребенок тужится и не может покакать"
+      ],
+      "uz_latn": [
+       "qabziyat",
+       "hojatxonaga chiqolmayapman",
+       "axlat qattiq",
+       "bir necha kunda bir marta ich keladi",
+       "bolamda qabziyat",
+       "bolam kuchanadi, ichi kelmaydi"
+      ],
+      "uz_cyrl": [
+       "қабзият",
+       "ҳожатхонага чиқолмаяпман",
+       "ахлат қаттиқ",
+       "бир неча кунда бир марта ич келади",
+       "боламда қабзият",
+       "болам кучанади, ичи келмайди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "pms",
+     "line": {
+      "ru": "ПМС и климакс.",
+      "uz": "Hayz oldi holati va klimaks."
+     },
+     "phrases": {
+      "ru": [
+       "пмс",
+       "предменструальный синдром",
+       "перед месячными раздражительная",
+       "перед месячными плохое настроение",
+       "перед месячными плохо сплю"
+      ],
+      "uz_latn": [
+       "pms",
+       "hayz oldi sindromi",
+       "hayzdan oldin jahldor bo'lib qolaman",
+       "hayzdan oldin kayfiyatim yomon",
+       "hayzdan oldin yomon uxlayman"
+      ],
+      "uz_cyrl": [
+       "пмс",
+       "ҳайз олди синдроми",
+       "ҳайздан олдин жаҳлдор бўлиб қоламан",
+       "ҳайздан олдин кайфиятим ёмон",
+       "ҳайздан олдин ёмон ухлайман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "menopause",
+     "line": {
+      "ru": "ПМС и климакс.",
+      "uz": "Hayz oldi holati va klimaks."
+     },
+     "phrases": {
+      "ru": [
+       "климакс",
+       "менопауза",
+       "начался климакс",
+       "в климаксе стала нервной",
+       "в климаксе плохо сплю"
+      ],
+      "uz_latn": [
+       "klimaks",
+       "menopauza",
+       "klimaks boshlandi",
+       "klimaksda asabiy bo'lib qoldim",
+       "klimaksda yomon uxlayman"
+      ],
+      "uz_cyrl": [
+       "климакс",
+       "менопауза",
+       "климакс бошланди",
+       "климаксда асабий бўлиб қолдим",
+       "климаксда ёмон ухлайман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "pregnancy",
+     "line": {
+      "ru": "Беременность – снижение тонуса матки, тревожности, спазма икроножных мышц, улучшение сна.",
+      "uz": "Homiladorlik – bachadon tonusining pasayishi, xavotirlanish kamayishi, boldir mushaklari tirishishining yo‘qolishi, uyquning yaxshilanishi."
+     },
+     "phrases": {
+      "ru": [
+       "тонус матки при беременности",
+       "беременна и сводит икры",
+       "при беременности судороги в ногах",
+       "беременна и тревожно",
+       "беременна и плохо сплю"
+      ],
+      "uz_latn": [
+       "homiladorlikda bachadon tonusi",
+       "homiladorman, boldirim tirishadi",
+       "homiladorlikda oyoqlarim tortishadi",
+       "homiladorman, xavotirdaman",
+       "homiladorman, yomon uxlayman"
+      ],
+      "uz_cyrl": [
+       "ҳомиладорликда бачадон тонуси",
+       "ҳомиладорман, болдирим тиришади",
+       "ҳомиладорликда оёқларим тортишади",
+       "ҳомиладорман, хавотирдаман",
+       "ҳомиладорман, ёмон ухлайман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "elderly_heart",
+     "line": {
+      "ru": "Пожилые люди – поддержка сердца и сосудов, снижение риска инфаркта и инсульта.",
+      "uz": "Keksalar – yurak va qon tomirlarini qo‘llab-quvvatlash, yurak xuruji va insult xavfini kamaytirish."
+     },
+     "phrases": {
+      "ru": [
+       "пожилому для сердца",
+       "маме 70 лет, для сердца",
+       "поддержать сердце и сосуды в возрасте",
+       "дедушке для сосудов",
+       "снизить риск инфаркта и инсульта"
+      ],
+      "uz_latn": [
+       "keksa odamga yurak uchun",
+       "onam 70 yoshda, yurak uchun",
+       "yoshi kattalarda yurak va qon tomirlarini qo'llab-quvvatlash",
+       "bobomga qon tomirlari uchun",
+       "yurak xuruji va insult xavfini kamaytirish"
+      ],
+      "uz_cyrl": [
+       "кекса одамга юрак учун",
+       "онам 70 ёшда, юрак учун",
+       "ёши катталарда юрак ва қон томирларини қўллаб-қувватлаш",
+       "бобомга қон томирлари учун",
+       "юрак хуружи ва инсульт хавфини камайтириш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "гипертония",
+       "после инфаркта",
+       "после инсульта"
+      ],
+      "uz_latn": [
+       "gipertoniya",
+       "infarktdan keyin",
+       "insultdan keyin"
+      ],
+      "uz_cyrl": [
+       "гипертония",
+       "инфарктдан кейин",
+       "инсультдан кейин"
+      ]
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Магний + витамины B-группы и пробиотики – для спокойствия, расслабления мышц, здоровья сердца, женского здоровья и нормального стула.",
+     "names": [
+      "magnesium",
+      "b_group_vitamins",
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Снимает стресс и расслабляет: магний и витамины B-группы (B1, B2, B6, B9) успокаивают, улучшают сон и настроение, повышают уровень серотонина – «гормона счастья».",
+     "names": [
+      "magnesium",
+      "thiamine_b1",
+      "riboflavin_b2",
+      "pyridoxine_b6",
+      "folic_acid_b9"
+     ]
+    },
+    {
+     "line": "Пробиотики поддерживают его синтез в кишечнике, где образуется до 95% серотонина.",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Витамины B-группы и пробиотики улучшают всасывание и накопление магния в нервной системе, мышцах, сердце и сосудах.",
+     "names": [
+      "b_group_vitamins",
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Способствует выведению излишнего холестерина (пробиотики).",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Улучшает усвоение белков, витаминов и минералов, важных для здоровья матери и ребенка (пробиотики).",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "магний",
+     "магний б6",
+     "магний для нервов",
+     "магний для сна",
+     "магний для детей",
+     "магний цитрат"
+    ],
+    "uz_latn": [
+     "magniy",
+     "magniy b6",
+     "asab uchun magniy",
+     "uyqu uchun magniy",
+     "bolalar uchun magniy",
+     "magniy sitrat"
+    ],
+    "uz_cyrl": [
+     "магний",
+     "магний б6",
+     "асаб учун магний",
+     "уйқу учун магний",
+     "болалар учун магний",
+     "магний цитрат"
+    ]
+   },
+   "pregnancy": [
+    18,
+    19
+   ]
+  },
+  {
+   "id": "active",
+   "title": {
+    "ru": "Пробиотики для кишечника: BIFOLAK ACTIVE",
+    "uz": "Ichak uchun probiotiklar: BIFOLAK ACTIVE"
+   },
+   "products": [
+    {
+     "shop_id": 20,
+     "name": "BIFOLAK® ACTIVE",
+     "form": "capsule",
+     "for_whom": {
+      "ru": "Для детей и взрослых",
+      "uz": "Bolalar va kattalar uchun"
+     }
+    },
+    {
+     "shop_id": 21,
+     "name": "BIFOLAK® ACTIVE",
+     "form": "stick",
+     "for_whom": {
+      "ru": "Для детей и взрослых",
+      "uz": "Bolalar va kattalar uchun"
+     }
+    }
+   ],
+   "pair_line": {
+    "ru": "BIFOLAK® ACTIVE в стиках — для детей и взрослых (содержимое размешивают в жидкости), BIFOLAK® ACTIVE в капсулах — для детей и взрослых (приём в инструкции расписан для взрослых и детей старше 7 лет).",
+    "uz": "BIFOLAK® ACTIVE stiklarda — bolalar va kattalar uchun (tarkibi suyuqlikka aralashtiriladi), BIFOLAK® ACTIVE kapsulalarda — bolalar va kattalar uchun (yo'riqnomada qabul qilish kattalar va 7 yoshdan katta bolalar uchun yozilgan)."
+   },
+   "problems": [
+    {
+     "id": "digestion",
+     "line": {
+      "ru": "Нарушения пищеварения и стула (неправильное питание, стресс, заболевания ЖКТ, печени, поджелудочной железы).",
+      "uz": "Ovqat hazm qilish va najas chiqarishning buzilishi (noto‘g‘ri ovqatlanish, stress, oshqozon-ichak yo‘li, jigar, me’da osti bezi kasalliklari)."
+     },
+     "phrases": {
+      "ru": [
+       "вздутие живота",
+       "живот пучит",
+       "газы мучают",
+       "тяжесть после еды",
+       "плохое пищеварение",
+       "после жирной еды тяжело"
+      ],
+      "uz_latn": [
+       "qorin dam bo'lishi",
+       "qornim dam bo'lyapti",
+       "gaz qiynayapti",
+       "ovqatdan keyin og'irlik",
+       "ovqat hazm qilish yomon",
+       "yog'li ovqatdan keyin og'ir bo'laman"
+      ],
+      "uz_cyrl": [
+       "қорин дам бўлиши",
+       "қорним дам бўляпти",
+       "газ қийнаяпти",
+       "овқатдан кейин оғирлик",
+       "овқат ҳазм қилиш ёмон",
+       "ёғли овқатдан кейин оғир бўламан"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "гастрит",
+       "панкреатит"
+      ],
+      "uz_latn": [
+       "gastrit",
+       "pankreatit"
+      ],
+      "uz_cyrl": [
+       "гастрит",
+       "панкреатит"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "stool",
+     "line": {
+      "ru": "Нарушения пищеварения и стула (неправильное питание, стресс, заболевания ЖКТ, печени, поджелудочной железы).",
+      "uz": "Ovqat hazm qilish va najas chiqarishning buzilishi (noto‘g‘ri ovqatlanish, stress, oshqozon-ichak yo‘li, jigar, me’da osti bezi kasalliklari)."
+     },
+     "phrases": {
+      "ru": [
+       "проблемы со стулом",
+       "нерегулярный стул",
+       "то запор, то понос",
+       "жидкий стул",
+       "запор",
+       "понос"
+      ],
+      "uz_latn": [
+       "ich kelishi bilan muammo",
+       "ich notekis keladi",
+       "goh qabziyat, goh ich ketishi",
+       "suyuq axlat",
+       "qabziyat",
+       "ich ketishi"
+      ],
+      "uz_cyrl": [
+       "ич келиши билан муаммо",
+       "ич нотекис келади",
+       "гоҳ қабзият, гоҳ ич кетиши",
+       "суюқ ахлат",
+       "қабзият",
+       "ич кетиши"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "дисбактериоз"
+      ],
+      "uz_latn": [
+       "disbakterioz"
+      ],
+      "uz_cyrl": [
+       "дисбактериоз"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "antibiotics",
+     "line": {
+      "ru": "Приём антибиотиков и жаропонижающих (НПВС).",
+      "uz": "Antibiotiklar va isitma tushiruvchi dorilar (nosteroid yallig‘lanishga qarshi vositalar) qabul qilish."
+     },
+     "phrases": {
+      "ru": [
+       "пью антибиотики",
+       "курс антибиотиков",
+       "после антибиотиков восстановить кишечник",
+       "что пить вместе с антибиотиками",
+       "ребенку назначили антибиотики",
+       "часто пью жаропонижающие"
+      ],
+      "uz_latn": [
+       "antibiotik ichyapman",
+       "antibiotik kursi",
+       "antibiotikdan keyin ichakni tiklash",
+       "antibiotik bilan birga nima ichsa bo'ladi",
+       "bolamga antibiotik buyurishdi",
+       "tez-tez isitma tushiruvchi ichaman"
+      ],
+      "uz_cyrl": [
+       "антибиотик ичяпман",
+       "антибиотик курси",
+       "антибиотикдан кейин ичакни тиклаш",
+       "антибиотик билан бирга нима ичса бўлади",
+       "боламга антибиотик буюришди",
+       "тез-тез иситма туширувчи ичаман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "food_poisoning",
+     "line": {
+      "ru": "Пищевые отравления и кишечные инфекции.",
+      "uz": "Ovqatdan zaharlanish va ichak infeksiyalari."
+     },
+     "phrases": {
+      "ru": [
+       "отравился",
+       "отравление",
+       "отравился едой",
+       "съел что-то несвежее",
+       "ребенок отравился"
+      ],
+      "uz_latn": [
+       "zaharlandim",
+       "zaharlanish",
+       "ovqatdan zaharlandim",
+       "buzilgan narsa yeb qo'ydim",
+       "bolam zaharlandi"
+      ],
+      "uz_cyrl": [
+       "заҳарландим",
+       "заҳарланиш",
+       "овқатдан заҳарландим",
+       "бузилган нарса еб қўйдим",
+       "болам заҳарланди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "intestinal_infection",
+     "line": {
+      "ru": "Пищевые отравления и кишечные инфекции.",
+      "uz": "Ovqatdan zaharlanish va ichak infeksiyalari."
+     },
+     "phrases": {
+      "ru": [
+       "кишечная инфекция",
+       "кишечный грипп",
+       "подхватил кишечную инфекцию",
+       "у ребенка кишечная инфекция",
+       "после кишечной инфекции восстановиться"
+      ],
+      "uz_latn": [
+       "ichak infeksiyasi",
+       "ichak grippi",
+       "ichak infeksiyasini yuqtirdim",
+       "bolamda ichak infeksiyasi",
+       "ichak infeksiyasidan keyin tiklanish"
+      ],
+      "uz_cyrl": [
+       "ичак инфекцияси",
+       "ичак гриппи",
+       "ичак инфекциясини юқтирдим",
+       "боламда ичак инфекцияси",
+       "ичак инфекциясидан кейин тикланиш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "ротавирус"
+      ],
+      "uz_latn": [
+       "rotavirus"
+      ],
+      "uz_cyrl": [
+       "ротавирус"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "allergy",
+     "line": {
+      "ru": "Аллергии – очищение от аллергенов и токсинов.",
+      "uz": "Allergiyalar – allergenlar va toksinlardan tozalanish."
+     },
+     "phrases": {
+      "ru": [
+       "аллергия",
+       "у ребенка аллергия",
+       "пищевая аллергия",
+       "я аллергик",
+       "очистить организм от аллергенов"
+      ],
+      "uz_latn": [
+       "allergiya",
+       "bolamda allergiya",
+       "ovqat allergiyasi",
+       "men allergikman",
+       "organizmni allergenlardan tozalash"
+      ],
+      "uz_cyrl": [
+       "аллергия",
+       "боламда аллергия",
+       "овқат аллергияси",
+       "мен аллергикман",
+       "организмни аллергенлардан тозалаш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "helminths",
+     "line": {
+      "ru": "Гельминтозы.",
+      "uz": "Gelmintoz kasalliklari."
+     },
+     "phrases": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "diagnoses": {
+      "ru": [
+       "глисты",
+       "гельминты",
+       "острицы"
+      ],
+      "uz_latn": [
+       "gijja",
+       "gelmint",
+       "ostritsa"
+      ],
+      "uz_cyrl": [
+       "гижжа",
+       "гельминт",
+       "острица"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "after_surgery",
+     "line": {
+      "ru": "Восстановление кишечника после операций.",
+      "uz": "Jarrohlik amaliyotlaridan so‘ng ichak faoliyatini tiklash."
+     },
+     "phrases": {
+      "ru": [
+       "восстановить кишечник после операции",
+       "после операции кишечник плохо работает",
+       "после операции на животе",
+       "после кесарева восстановить кишечник",
+       "после удаления аппендицита"
+      ],
+      "uz_latn": [
+       "operatsiyadan keyin ichakni tiklash",
+       "operatsiyadan keyin ichak yomon ishlayapti",
+       "qorin operatsiyasidan keyin",
+       "kesarchadan keyin ichakni tiklash",
+       "appenditsit olib tashlangandan keyin"
+      ],
+      "uz_cyrl": [
+       "операциядан кейин ичакни тиклаш",
+       "операциядан кейин ичак ёмон ишлаяпти",
+       "қорин операциясидан кейин",
+       "кесарчадан кейин ичакни тиклаш",
+       "аппендицит олиб ташлангандан кейин"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "sport",
+     "line": {
+      "ru": "Занятия спортом – усвоение аминокислот, витаминов и минералов.",
+      "uz": "Sport bilan shug‘ullanish – aminokislotalar, vitaminlar va minerallarni o‘zlashtirish."
+     },
+     "phrases": {
+      "ru": [
+       "занимаюсь спортом",
+       "хожу в спортзал",
+       "чтобы протеин лучше усваивался",
+       "чтобы витамины лучше усваивались",
+       "спортивное питание плохо усваивается"
+      ],
+      "uz_latn": [
+       "sport bilan shug'ullanaman",
+       "sport zaliga qatnayman",
+       "protein yaxshiroq o'zlashishi uchun",
+       "vitaminlar yaxshiroq o'zlashishi uchun",
+       "sport ozuqasi yomon o'zlashadi"
+      ],
+      "uz_cyrl": [
+       "спорт билан шуғулланаман",
+       "спорт залига қатнайман",
+       "протеин яхшироқ ўзлашиши учун",
+       "витаминлар яхшироқ ўзлашиши учун",
+       "спорт озуқаси ёмон ўзлашади"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "weight_loss",
+     "line": {
+      "ru": "Похудение – очищение организма и поддержка пищеварения.",
+      "uz": "Ozish - organizmni tozalash va hazm qilish tizimini qo‘llab-quvvatlash."
+     },
+     "phrases": {
+      "ru": [
+       "хочу похудеть",
+       "похудение",
+       "сижу на диете",
+       "сбросить вес",
+       "что пить при похудении",
+       "очистить организм при похудении"
+      ],
+      "uz_latn": [
+       "ozmoqchiman",
+       "ozish",
+       "parhezdaman",
+       "vazn tashlash",
+       "ozish paytida nima ichsa bo'ladi",
+       "ozishda organizmni tozalash"
+      ],
+      "uz_cyrl": [
+       "озмоқчиман",
+       "озиш",
+       "парҳездаман",
+       "вазн ташлаш",
+       "озиш пайтида нима ичса бўлади",
+       "озишда организмни тозалаш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Пробиотики и пребиотики – для здоровья кишечника, очищения организма, крепкого иммунитета и защиты от антибиотиков.",
+     "names": [
+      "probiotics_8_strains",
+      "prebiotics"
+     ]
+    },
+    {
+     "line": "1 триллион полезных бактерий в каждой капсуле – быстрая и активная помощь кишечнику.",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "1 триллион полезных бактерий в каждом стике – быстрая и активная помощь кишечнику.",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "пробиотик",
+     "пробиотики для кишечника",
+     "пробиотик для взрослых",
+     "бифидобактерии и лактобактерии",
+     "пребиотик",
+     "синбиотик"
+    ],
+    "uz_latn": [
+     "probiotik",
+     "ichak uchun probiotiklar",
+     "kattalar uchun probiotik",
+     "bifidobakteriya va laktobakteriyalar",
+     "prebiotik",
+     "sinbiotik"
+    ],
+    "uz_cyrl": [
+     "пробиотик",
+     "ичак учун пробиотиклар",
+     "катталар учун пробиотик",
+     "бифидобактерия ва лактобактериялар",
+     "пребиотик",
+     "синбиотик"
+    ]
+   },
+   "pregnancy": [
+    20,
+    21
+   ]
+  },
+  {
+   "id": "neo",
+   "title": {
+    "ru": "Пробиотики для детей с рождения: BIFOLAK NEO",
+    "uz": "Tug'ilgandan boshlab bolalar uchun probiotiklar: BIFOLAK NEO"
+   },
+   "products": [
+    {
+     "shop_id": 22,
+     "name": "BIFOLAK® NEO",
+     "form": "stick",
+     "for_whom": {
+      "ru": "Для детей с первых дней жизни",
+      "uz": "Bolalar uchun hayotning ilk kunlaridan"
+     }
+    }
+   ],
+   "pair_line": null,
+   "problems": [
+    {
+     "id": "newborn_microflora",
+     "line": {
+      "ru": "C первых дней жизни – формирование здоровой микрофлоры кишечника.",
+      "uz": "Hayotning ilk kunlaridanoq sog‘lom ichak mikroflorasini shakllantirish uchun."
+     },
+     "phrases": {
+      "ru": [
+       "пробиотик для новорожденного",
+       "новорожденному для кишечника",
+       "микрофлора у грудничка",
+       "малышу с первых дней для животика",
+       "ребенку месяц, что для кишечника"
+      ],
+      "uz_latn": [
+       "yangi tug'ilgan chaqaloq uchun probiotik",
+       "chaqaloqqa ichak uchun",
+       "chaqaloqning ichak mikroflorasi",
+       "chaqaloqqa ilk kunlardan qorinchasi uchun",
+       "bolam bir oylik, ichak uchun nima bor"
+      ],
+      "uz_cyrl": [
+       "янги туғилган чақалоқ учун пробиотик",
+       "чақалоққа ичак учун",
+       "чақалоқнинг ичак микрофлораси",
+       "чақалоққа илк кунлардан қоринчаси учун",
+       "болам бир ойлик, ичак учун нима бор"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "digestion",
+     "line": {
+      "ru": "Нарушения пищеварения и стула (неправильное питание, стресс, заболевания ЖКТ, печени, поджелудочной железы).",
+      "uz": "Ovqat hazm qilish va najas chiqarishning buzilishi (noto‘g‘ri ovqatlanish, stress, oshqozon-ichak yo‘li, jigar, me’da osti bezi kasalliklari)."
+     },
+     "phrases": {
+      "ru": [
+       "колики у грудничка",
+       "у малыша вздутие живота",
+       "ребенка мучают газики",
+       "ребенок плохо переваривает прикорм",
+       "плохое пищеварение у ребенка"
+      ],
+      "uz_latn": [
+       "chaqaloqda sanchiq",
+       "bolamning qorni dam bo'lyapti",
+       "bolamni gaz qiynayapti",
+       "bolam qo'shimcha ovqatni yomon hazm qiladi",
+       "bolada ovqat hazm qilish yomon"
+      ],
+      "uz_cyrl": [
+       "чақалоқда санчиқ",
+       "боламнинг қорни дам бўляпти",
+       "боламни газ қийнаяпти",
+       "болам қўшимча овқатни ёмон ҳазм қилади",
+       "болада овқат ҳазм қилиш ёмон"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "stool",
+     "line": {
+      "ru": "Нарушения пищеварения и стула (неправильное питание, стресс, заболевания ЖКТ, печени, поджелудочной железы).",
+      "uz": "Ovqat hazm qilish va najas chiqarishning buzilishi (noto‘g‘ri ovqatlanish, stress, oshqozon-ichak yo‘li, jigar, me’da osti bezi kasalliklari)."
+     },
+     "phrases": {
+      "ru": [
+       "у ребенка запор",
+       "малыш не какает несколько дней",
+       "у ребенка жидкий стул",
+       "ребенок какает нерегулярно",
+       "у малыша понос"
+      ],
+      "uz_latn": [
+       "bolamda qabziyat",
+       "bolam bir necha kundan beri ich kelmayapti",
+       "bolamning axlati suyuq",
+       "bolamning ichi notekis keladi",
+       "chaqalog'imning ichi ketyapti"
+      ],
+      "uz_cyrl": [
+       "боламда қабзият",
+       "болам бир неча кундан бери ич келмаяпти",
+       "боламнинг ахлати суюқ",
+       "боламнинг ичи нотекис келади",
+       "чақалоғимнинг ичи кетяпти"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "дисбактериоз у ребенка"
+      ],
+      "uz_latn": [
+       "bolada disbakterioz"
+      ],
+      "uz_cyrl": [
+       "болада дисбактериоз"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "diathesis_allergy",
+     "line": {
+      "ru": "Диатезы и аллергия – очищение от аллергенов и токсинов.",
+      "uz": "Diatez va allergiya - organizmdagi allergen va toksinlardan tozalanish."
+     },
+     "phrases": {
+      "ru": [
+       "диатез у ребенка",
+       "высыпания на щечках у малыша",
+       "у малыша аллергия",
+       "пищевая аллергия у ребенка",
+       "аллергия на прикорм"
+      ],
+      "uz_latn": [
+       "bolamda diatez",
+       "chaqalog'imning yuzchasida toshma",
+       "chaqalog'imda allergiya",
+       "bolada ovqat allergiyasi",
+       "qo'shimcha ovqatga allergiya"
+      ],
+      "uz_cyrl": [
+       "боламда диатез",
+       "чақалоғимнинг юзчасида тошма",
+       "чақалоғимда аллергия",
+       "болада овқат аллергияси",
+       "қўшимча овқатга аллергия"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "атопический дерматит"
+      ],
+      "uz_latn": [
+       "atopik dermatit"
+      ],
+      "uz_cyrl": [
+       "атопик дерматит"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "intestinal_infection",
+     "line": {
+      "ru": "Кишечные инфекции и пищевые отравления.",
+      "uz": "Ichak infeksiyalari va oziq-ovqatdan zaharlanish."
+     },
+     "phrases": {
+      "ru": [
+       "кишечная инфекция у ребенка",
+       "ребенок подхватил кишечную инфекцию",
+       "кишечный грипп у малыша",
+       "после кишечной инфекции восстановить кишечник ребенку"
+      ],
+      "uz_latn": [
+       "bolada ichak infeksiyasi",
+       "bolam ichak infeksiyasini yuqtirdi",
+       "chaqaloqda ichak grippi",
+       "ichak infeksiyasidan keyin bolaning ichagini tiklash"
+      ],
+      "uz_cyrl": [
+       "болада ичак инфекцияси",
+       "болам ичак инфекциясини юқтирди",
+       "чақалоқда ичак гриппи",
+       "ичак инфекциясидан кейин боланинг ичагини тиклаш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "ротавирус у ребенка"
+      ],
+      "uz_latn": [
+       "bolada rotavirus"
+      ],
+      "uz_cyrl": [
+       "болада ротавирус"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "food_poisoning",
+     "line": {
+      "ru": "Кишечные инфекции и пищевые отравления.",
+      "uz": "Ichak infeksiyalari va oziq-ovqatdan zaharlanish."
+     },
+     "phrases": {
+      "ru": [
+       "ребенок отравился",
+       "отравление у ребенка",
+       "малыш съел что-то несвежее"
+      ],
+      "uz_latn": [
+       "bolam zaharlanib qoldi",
+       "bolada zaharlanish",
+       "chaqalog'im buzilgan narsa yeb qo'ydi"
+      ],
+      "uz_cyrl": [
+       "болам заҳарланиб қолди",
+       "болада заҳарланиш",
+       "чақалоғим бузилган нарса еб қўйди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "antibiotics",
+     "line": {
+      "ru": "Приём антибиотиков и жаропонижающих (НПВС).",
+      "uz": "Antibiotiklar va isitma tushiruvchi dorilar (nosteroid yallig‘lanishga qarshi vositalar) qabul qilish."
+     },
+     "phrases": {
+      "ru": [
+       "ребенок пьет антибиотики",
+       "малышу назначили антибиотик",
+       "после антибиотиков у малыша",
+       "что дать ребенку вместе с антибиотиком",
+       "часто даю ребенку жаропонижающее"
+      ],
+      "uz_latn": [
+       "bolam antibiotik ichyapti",
+       "chaqalog'imga antibiotik buyurishdi",
+       "antibiotikdan keyin chaqalog'imga",
+       "antibiotik bilan birga bolaga nima bersam bo'ladi",
+       "bolamga tez-tez isitma tushiruvchi beraman"
+      ],
+      "uz_cyrl": [
+       "болам антибиотик ичяпти",
+       "чақалоғимга антибиотик буюришди",
+       "антибиотикдан кейин чақалоғимга",
+       "антибиотик билан бирга болага нима берсам бўлади",
+       "боламга тез-тез иситма туширувчи бераман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "helminths",
+     "line": {
+      "ru": "Гельминтозы.",
+      "uz": "Gelmintoz kasalliklari."
+     },
+     "phrases": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "diagnoses": {
+      "ru": [
+       "глисты у ребенка",
+       "острицы у ребенка"
+      ],
+      "uz_latn": [
+       "bolada gijja",
+       "bolada ostritsa"
+      ],
+      "uz_cyrl": [
+       "болада гижжа",
+       "болада острица"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "after_surgery",
+     "line": {
+      "ru": "Восстановление кишечника после операций.",
+      "uz": "Jarrohlik amaliyotlaridan so‘ng ichak faoliyatini tiklash."
+     },
+     "phrases": {
+      "ru": [
+       "ребенку сделали операцию, восстановить кишечник",
+       "после операции у ребенка плохо работает кишечник",
+       "малышу после операции на животе"
+      ],
+      "uz_latn": [
+       "bolamga operatsiya qilishdi, ichakni tiklash",
+       "operatsiyadan keyin bolamning ichagi yomon ishlayapti",
+       "chaqaloqqa qorin operatsiyasidan keyin"
+      ],
+      "uz_cyrl": [
+       "боламга операция қилишди, ичакни тиклаш",
+       "операциядан кейин боламнинг ичаги ёмон ишлаяпти",
+       "чақалоққа қорин операциясидан кейин"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Пробиотики и пребиотики – для здоровья кишечника, очищения организма, крепкого иммунитета и защиты от антибиотиков.",
+     "names": [
+      "probiotics_8_strains",
+      "prebiotics"
+     ]
+    },
+    {
+     "line": "100 миллиардов полезных бактерий в каждом стике – быстрая помощь кишечнику с первых дней жизни.",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "детский пробиотик",
+     "бифидобактерии для грудничка",
+     "лактобактерии для малыша",
+     "пребиотик для ребенка"
+    ],
+    "uz_latn": [
+     "bolalar probiotigi",
+     "chaqaloq uchun bifidobakteriyalar",
+     "chaqaloq uchun laktobakteriyalar",
+     "bola uchun prebiotik"
+    ],
+    "uz_cyrl": [
+     "болалар пробиотиги",
+     "чақалоқ учун бифидобактериялар",
+     "чақалоқ учун лактобактериялар",
+     "бола учун пребиотик"
+    ]
+   },
+   "pregnancy": [
+    22
+   ]
+  },
+  {
+   "id": "calciy",
+   "title": {
+    "ru": "Кальций и витамин D3: CALCIY TRIACTIVE D3",
+    "uz": "Kalsiy va D3 vitamini: CALCIY TRIACTIVE D3"
+   },
+   "products": [
+    {
+     "shop_id": 15,
+     "name": "CALCIY® TRIACTIVE D3",
+     "form": "stick",
+     "for_whom": {
+      "ru": "Для детей и взрослых",
+      "uz": "Bolalar va kattalar uchun"
+     }
+    }
+   ],
+   "pair_line": null,
+   "problems": [
+    {
+     "id": "bones_50plus",
+     "line": {
+      "ru": "Остеопороз и возраст 50+ – поддержка костей, снижение риска переломов.",
+      "uz": "Osteoporoz va 50 yoshdan oshganlar uchun - suyaklarni qo‘llab-quvvatlash, sinish xavfini kamaytirish."
+     },
+     "phrases": {
+      "ru": [
+       "хрупкие кости",
+       "укрепить кости после 50",
+       "маме 65 лет, для костей",
+       "боюсь переломов в возрасте",
+       "кости стали ломкими"
+      ],
+      "uz_latn": [
+       "mo'rt suyaklar",
+       "50 yoshdan keyin suyaklarni mustahkamlash",
+       "onam 65 yoshda, suyaklar uchun",
+       "keksalikda suyak sinishidan qo'rqaman",
+       "suyaklarim mo'rt bo'lib qoldi"
+      ],
+      "uz_cyrl": [
+       "мўрт суяклар",
+       "50 ёшдан кейин суякларни мустаҳкамлаш",
+       "онам 65 ёшда, суяклар учун",
+       "кексаликда суяк синишидан қўрқаман",
+       "суякларим мўрт бўлиб қолди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "остеопороз",
+       "остеопения"
+      ],
+      "uz_latn": [
+       "osteoporoz",
+       "osteopeniya"
+      ],
+      "uz_cyrl": [
+       "остеопороз",
+       "остеопения"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "physical_load",
+     "line": {
+      "ru": "Высокие физические нагрузки – укрепление костей и суставов.",
+      "uz": "Og‘ir jismoniy yuklamalar paytida – suyak va bo‘g‘imlarni mustahkamlash."
+     },
+     "phrases": {
+      "ru": [
+       "укрепить кости при тренировках",
+       "для суставов при нагрузках",
+       "тяжелый физический труд, для костей",
+       "спортсмену для костей и суставов",
+       "много бегаю, для суставов"
+      ],
+      "uz_latn": [
+       "mashg'ulotlarda suyaklarni mustahkamlash",
+       "yuklamalarda bo'g'imlar uchun",
+       "og'ir jismoniy mehnat, suyaklar uchun",
+       "sportchiga suyak va bo'g'imlar uchun",
+       "ko'p yuguraman, bo'g'imlar uchun"
+      ],
+      "uz_cyrl": [
+       "машғулотларда суякларни мустаҳкамлаш",
+       "юкламаларда бўғимлар учун",
+       "оғир жисмоний меҳнат, суяклар учун",
+       "спортчига суяк ва бўғимлар учун",
+       "кўп югураман, бўғимлар учун"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "pregnancy_lactation",
+     "line": {
+      "ru": "Беременность и лактация – здоровье костей и зубов матери, правильное формирование скелета ребенка.",
+      "uz": "Homiladorlik va emizish davrida – onaning suyaklari va tishlarining sog‘lig‘ini ta’minlash, bolaning skeleti to‘g‘ri shakllanishi uchun."
+     },
+     "phrases": {
+      "ru": [
+       "беременна, для костей и зубов",
+       "для формирования скелета малыша",
+       "кормлю грудью, для зубов и костей",
+       "кормящей маме для костей",
+       "при беременности портятся зубы"
+      ],
+      "uz_latn": [
+       "homiladorman, suyak va tishlar uchun",
+       "chaqaloq skeleti to'g'ri shakllanishi uchun",
+       "emizyapman, tish va suyaklar uchun",
+       "emizikli onaga suyaklar uchun",
+       "homiladorlikda tishlarim buzilyapti"
+      ],
+      "uz_cyrl": [
+       "ҳомиладорман, суяк ва тишлар учун",
+       "чақалоқ скелети тўғри шаклланиши учун",
+       "эмизяпман, тиш ва суяклар учун",
+       "эмизикли онага суяклар учун",
+       "ҳомиладорликда тишларим бузиляпти"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "kids_rickets_curvature",
+     "line": {
+      "ru": "Дети – предотвращение рахита, искривлений, задержки роста, детского кариеса.",
+      "uz": "Bolalarda – raxit, qiyshayish, o‘sishdan orqada qolish va tish kariyesining oldini olish."
+     },
+     "phrases": {
+      "ru": [
+       "профилактика рахита",
+       "чтобы не было рахита",
+       "ребенку для крепких костей",
+       "чтобы ножки были ровными",
+       "для правильной осанки ребенка"
+      ],
+      "uz_latn": [
+       "raxitning oldini olish",
+       "raxit bo'lmasligi uchun",
+       "bolaga baquvvat suyaklar uchun",
+       "oyoqchalari tekis bo'lishi uchun",
+       "bolaning qaddi-qomati to'g'ri bo'lishi uchun"
+      ],
+      "uz_cyrl": [
+       "рахитнинг олдини олиш",
+       "рахит бўлмаслиги учун",
+       "болага бақувват суяклар учун",
+       "оёқчалари текис бўлиши учун",
+       "боланинг қадди-қомати тўғри бўлиши учун"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "рахит"
+      ],
+      "uz_latn": [
+       "raxit"
+      ],
+      "uz_cyrl": [
+       "рахит"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "kids_growth",
+     "line": {
+      "ru": "Дети – предотвращение рахита, искривлений, задержки роста, детского кариеса.",
+      "uz": "Bolalarda – raxit, qiyshayish, o‘sishdan orqada qolish va tish kariyesining oldini olish."
+     },
+     "phrases": {
+      "ru": [
+       "чтобы ребенок хорошо рос",
+       "ребенку для роста костей",
+       "ребенок медленно растет",
+       "ребенок ниже сверстников ростом"
+      ],
+      "uz_latn": [
+       "bola yaxshi o'sishi uchun",
+       "bolaning suyaklari o'sishi uchun",
+       "bolam sekin o'syapti",
+       "bolam bo'yi tengdoshlaridan past"
+      ],
+      "uz_cyrl": [
+       "бола яхши ўсиши учун",
+       "боланинг суяклари ўсиши учун",
+       "болам секин ўсяпти",
+       "болам бўйи тенгдошларидан паст"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "kids_caries",
+     "line": {
+      "ru": "Дети – предотвращение рахита, искривлений, задержки роста, детского кариеса.",
+      "uz": "Bolalarda – raxit, qiyshayish, o‘sishdan orqada qolish va tish kariyesining oldini olish."
+     },
+     "phrases": {
+      "ru": [
+       "кариес у ребенка",
+       "у ребенка портятся зубы",
+       "у ребенка крошатся зубы",
+       "ребенку для крепких зубов",
+       "чтобы у ребенка не было кариеса"
+      ],
+      "uz_latn": [
+       "bolada kariyes",
+       "bolamning tishlari buzilyapti",
+       "bolamning tishlari uvalanyapti",
+       "bolaga baquvvat tishlar uchun",
+       "bolada kariyes bo'lmasligi uchun"
+      ],
+      "uz_cyrl": [
+       "болада кариес",
+       "боламнинг тишлари бузиляпти",
+       "боламнинг тишлари увалаяпти",
+       "болага бақувват тишлар учун",
+       "болада кариес бўлмаслиги учун"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "recovery_injury",
+     "line": {
+      "ru": "Восстановление после травм, болезней, операций.",
+      "uz": "Jarohatlar, kasalliklar va jarrohlik amaliyotlaridan keyin tiklanish."
+     },
+     "phrases": {
+      "ru": [
+       "чтобы кость быстрее срослась",
+       "после травмы восстановить кости",
+       "после операции на костях",
+       "после гипса восстановиться",
+       "после болезни укрепить кости"
+      ],
+      "uz_latn": [
+       "suyak tezroq bitishi uchun",
+       "jarohatdan keyin suyaklarni tiklash",
+       "suyak operatsiyasidan keyin",
+       "gipsdan keyin tiklanish",
+       "kasallikdan keyin suyaklarni mustahkamlash"
+      ],
+      "uz_cyrl": [
+       "суяк тезроқ битиши учун",
+       "жароҳатдан кейин суякларни тиклаш",
+       "суяк операциясидан кейин",
+       "гипсдан кейин тикланиш",
+       "касалликдан кейин суякларни мустаҳкамлаш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "после перелома",
+       "трещина в кости"
+      ],
+      "uz_latn": [
+       "sinishdan keyin",
+       "suyak darz ketgan"
+      ],
+      "uz_cyrl": [
+       "синишдан кейин",
+       "суяк дарз кетган"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "dental",
+     "line": {
+      "ru": "Стоматология – ускорение заживления после лечения кариеса, имплантации, протезирования.",
+      "uz": "Stomatologiya – kariyesni davolash, implantatsiya qilish va protezlashdan keyin tuzalishni tezlashtirish."
+     },
+     "phrases": {
+      "ru": [
+       "после лечения кариеса",
+       "ставлю импланты",
+       "после имплантации зубов",
+       "после протезирования зубов",
+       "чтобы быстрее зажило после стоматолога"
+      ],
+      "uz_latn": [
+       "kariyesni davolagandan keyin",
+       "implant qo'ydiryapman",
+       "tish implantatsiyasidan keyin",
+       "tish protezlashdan keyin",
+       "stomatologdan keyin tezroq bitishi uchun"
+      ],
+      "uz_cyrl": [
+       "кариесни даволагандан кейин",
+       "имплант қўйдиряпман",
+       "тиш имплантациясидан кейин",
+       "тиш протезлашдан кейин",
+       "стоматологдан кейин тезроқ битиши учун"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "nails",
+     "line": {
+      "ru": "Ломкость и расслоение ногтей.",
+      "uz": "Tirnoqlarning mo‘rtligi va qatlamlarga ajralishi."
+     },
+     "phrases": {
+      "ru": [
+       "ногти ломаются",
+       "ногти слоятся",
+       "ломкие ногти",
+       "слабые ногти",
+       "тонкие ногти"
+      ],
+      "uz_latn": [
+       "tirnoqlarim sinadi",
+       "tirnoqlarim qatlamlarga ajraladi",
+       "mo'rt tirnoqlar",
+       "tirnoqlarim zaif",
+       "tirnoqlarim yupqa"
+      ],
+      "uz_cyrl": [
+       "тирноқларим синади",
+       "тирноқларим қатламларга ажралади",
+       "мўрт тирноқлар",
+       "тирноқларим заиф",
+       "тирноқларим юпқа"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Кальций + витамины D3, B-группы и пробиотики – для здоровья костей, зубов и ногтей.",
+     "names": [
+      "calcium",
+      "vitamin_d3",
+      "b_group_vitamins",
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Витамины D3, B-группы и пробиотики улучшают всасывание и накопление кальция в костях и зубах.",
+     "names": [
+      "vitamin_d3",
+      "b_group_vitamins",
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Укрепляет: кальций, D3 и витамины B-группы делают кости прочными, защищают от переломов и остеопороза (особенно после 45 лет, в период беременности и лактации). У детей предотвращают рахит, искривления и способствуют росту.",
+     "names": [
+      "calcium",
+      "vitamin_d3",
+      "b_group_vitamins"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "кальций",
+     "кальций с витамином д3",
+     "кальций для детей",
+     "кальций для беременных",
+     "кальций цитрат"
+    ],
+    "uz_latn": [
+     "kalsiy",
+     "d3 vitaminli kalsiy",
+     "bolalar uchun kalsiy",
+     "homiladorlar uchun kalsiy",
+     "kalsiy sitrat"
+    ],
+    "uz_cyrl": [
+     "кальций",
+     "d3 витаминли кальций",
+     "болалар учун кальций",
+     "ҳомиладорлар учун кальций",
+     "кальций цитрат"
+    ]
+   },
+   "pregnancy": [
+    15
+   ]
+  },
+  {
+   "id": "dermacomplex",
+   "title": {
+    "ru": "Кожа, волосы, ногти: DERMACOMPLEX",
+    "uz": "Teri, soch, tirnoqlar: DERMACOMPLEX"
+   },
+   "products": [
+    {
+     "shop_id": 4,
+     "name": "DERMACOMPLEX®",
+     "form": "capsule",
+     "for_whom": {
+      "ru": "Для детей с 4 лет и взрослых",
+      "uz": "4 yoshdan boshlab bolalar va kattalar uchun"
+     }
+    }
+   ],
+   "pair_line": null,
+   "problems": [
+    {
+     "id": "skin_dry_irritated",
+     "line": {
+      "ru": "Проблемы с кожей: сухость, раздражение, угри, дерматиты, аллергия, грибки и т.д",
+      "uz": "Teri muammolari: quruqlik, ta’sirlanish, husnbuzar, dermatit, allergiya, zamburug‘lar va boshqalar."
+     },
+     "phrases": {
+      "ru": [
+       "проблемы с кожей",
+       "сухая кожа",
+       "кожа шелушится",
+       "кожу стягивает",
+       "раздражение на коже"
+      ],
+      "uz_latn": [
+       "teri muammolari",
+       "terim quruq",
+       "terim po'st tashlayapti",
+       "terim tortishadi",
+       "terida ta'sirlanish"
+      ],
+      "uz_cyrl": [
+       "тери муаммолари",
+       "терим қуруқ",
+       "терим пўст ташлаяпти",
+       "терим тортишади",
+       "терида таъсирланиш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "acne",
+     "line": {
+      "ru": "Проблемы с кожей: сухость, раздражение, угри, дерматиты, аллергия, грибки и т.д",
+      "uz": "Teri muammolari: quruqlik, ta’sirlanish, husnbuzar, dermatit, allergiya, zamburug‘lar va boshqalar."
+     },
+     "phrases": {
+      "ru": [
+       "угри и прыщи",
+       "акне",
+       "прыщи на лице",
+       "у подростка прыщи",
+       "жирная кожа и прыщи"
+      ],
+      "uz_latn": [
+       "husnbuzar",
+       "akne",
+       "yuzimda husnbuzar",
+       "o'smirda husnbuzar",
+       "yog'li teri va husnbuzar"
+      ],
+      "uz_cyrl": [
+       "ҳуснбузар",
+       "акне",
+       "юзимда ҳуснбузар",
+       "ўсмирда ҳуснбузар",
+       "ёғли тери ва ҳуснбузар"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "dermatitis_allergy",
+     "line": {
+      "ru": "Проблемы с кожей: сухость, раздражение, угри, дерматиты, аллергия, грибки и т.д",
+      "uz": "Teri muammolari: quruqlik, ta’sirlanish, husnbuzar, dermatit, allergiya, zamburug‘lar va boshqalar."
+     },
+     "phrases": {
+      "ru": [
+       "дерматит",
+       "кожа чешется",
+       "аллергия на коже",
+       "высыпания на коже",
+       "аллергическая сыпь"
+      ],
+      "uz_latn": [
+       "dermatit",
+       "terim qichiydi",
+       "terida allergiya",
+       "terida toshma",
+       "allergik toshma"
+      ],
+      "uz_cyrl": [
+       "дерматит",
+       "терим қичийди",
+       "терида аллергия",
+       "терида тошма",
+       "аллергик тошма"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "атопический дерматит",
+       "себорейный дерматит"
+      ],
+      "uz_latn": [
+       "atopik dermatit",
+       "seboreyali dermatit"
+      ],
+      "uz_cyrl": [
+       "атопик дерматит",
+       "себореяли дерматит"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "skin_fungus",
+     "line": {
+      "ru": "Проблемы с кожей: сухость, раздражение, угри, дерматиты, аллергия, грибки и т.д",
+      "uz": "Teri muammolari: quruqlik, ta’sirlanish, husnbuzar, dermatit, allergiya, zamburug‘lar va boshqalar."
+     },
+     "phrases": {
+      "ru": [
+       "грибок на коже",
+       "грибок на ногах",
+       "кожный грибок",
+       "грибковое поражение кожи"
+      ],
+      "uz_latn": [
+       "terida zamburug'",
+       "oyoqda zamburug'",
+       "teri zamburug'i",
+       "terining zamburug'li kasalligi"
+      ],
+      "uz_cyrl": [
+       "терида замбуруғ",
+       "оёқда замбуруғ",
+       "тери замбуруғи",
+       "терининг замбуруғли касаллиги"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "hair",
+     "line": {
+      "ru": "Выпадение волос, медленный рост, ломкость.",
+      "uz": "Soch to‘kilishi, sochning sekin o‘sishi va mo‘rtligi."
+     },
+     "phrases": {
+      "ru": [
+       "выпадают волосы",
+       "волосы сильно лезут",
+       "волосы редеют",
+       "волосы медленно растут",
+       "волосы ломаются",
+       "секутся кончики"
+      ],
+      "uz_latn": [
+       "sochim to'kilyapti",
+       "sochim juda ko'p to'kiladi",
+       "sochim siyraklashyapti",
+       "sochim sekin o'sadi",
+       "sochim sinadi",
+       "soch uchlari ajraladi"
+      ],
+      "uz_cyrl": [
+       "сочим тўкиляпти",
+       "сочим жуда кўп тўкилади",
+       "сочим сийраклашяпти",
+       "сочим секин ўсади",
+       "сочим синади",
+       "соч учлари ажралади"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "nails",
+     "line": {
+      "ru": "Ломкость ногтей, расслоение, тусклый цвет.",
+      "uz": "Tirnoqlarning mo‘rtligi, qatlanishi va xira ko‘rinishi."
+     },
+     "phrases": {
+      "ru": [
+       "ногти ломаются",
+       "ногти слоятся",
+       "ломкие ногти",
+       "тусклые ногти",
+       "слабые ногти"
+      ],
+      "uz_latn": [
+       "tirnoqlarim sinadi",
+       "tirnoqlarim qatlanadi",
+       "mo'rt tirnoqlar",
+       "tirnoqlarim xira",
+       "tirnoqlarim zaif"
+      ],
+      "uz_cyrl": [
+       "тирноқларим синади",
+       "тирноқларим қатланади",
+       "мўрт тирноқлар",
+       "тирноқларим хира",
+       "тирноқларим заиф"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "skin_hair_nails_beauty",
+     "line": {
+      "ru": "DERMACOMPLEX® – Здоровье и красота кожи, волос и ногтей.",
+      "uz": "DERMACOMPLEX® – Teri, soch va tirnoqlarning sog‘ligi va go‘zalligi."
+     },
+     "phrases": {
+      "ru": [
+       "витамины для кожи, волос и ногтей",
+       "для красоты кожи",
+       "для волос и ногтей",
+       "чтобы кожа была красивой",
+       "витамины для красоты"
+      ],
+      "uz_latn": [
+       "teri, soch va tirnoq uchun vitaminlar",
+       "teri go'zalligi uchun",
+       "soch va tirnoq uchun",
+       "terim chiroyli bo'lishi uchun",
+       "go'zallik uchun vitaminlar"
+      ],
+      "uz_cyrl": [
+       "тери, соч ва тирноқ учун витаминлар",
+       "тери гўзаллиги учун",
+       "соч ва тирноқ учун",
+       "терим чиройли бўлиши учун",
+       "гўзаллик учун витаминлар"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "skin_aging",
+     "line": {
+      "ru": "Антивозрастной эффект – биотин и антиоксиданты повышают упругость кожи, предотвращают морщины и возрастные изменения цвета.",
+      "uz": "Qarishi sekinlashtiruvchi ta’sir – biotin va antioksidantlar teri elastikligini oshiradi, ajinlar paydo bo‘lishi va yoshga bog‘liq rang o‘zgarishlarining oldini oladi."
+     },
+     "phrases": {
+      "ru": [
+       "чтобы не было морщин",
+       "появляются морщины",
+       "кожа теряет упругость",
+       "возрастные пигментные пятна",
+       "замедлить старение кожи"
+      ],
+      "uz_latn": [
+       "ajin paydo bo'lmasligi uchun",
+       "ajinlar paydo bo'lyapti",
+       "terim elastikligini yo'qotyapti",
+       "yoshga bog'liq dog'lar",
+       "teri qarishini sekinlashtirish"
+      ],
+      "uz_cyrl": [
+       "ажин пайдо бўлмаслиги учун",
+       "ажинлар пайдо бўляпти",
+       "терим эластиклигини йўқотяпти",
+       "ёшга боғлиқ доғлар",
+       "тери қаришини секинлаштириш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Витамины и минералы питают, восстанавливают и защищают кожу, волосы и ногти.",
+     "names": [
+      "vitamins",
+      "minerals"
+     ]
+    },
+    {
+     "line": "Антиоксиданты (кверцетин, бромелаин и др.) уменьшают воспаления, ускоряют регенерацию, замедляют старение кожи.",
+     "names": [
+      "quercetin",
+      "bromelain"
+     ]
+    },
+    {
+     "line": "Биотин, цинк, селен и витамины укрепляют волосы, активируют их рост, делают ногти крепкими.",
+     "names": [
+      "biotin_b7",
+      "zinc",
+      "selenium"
+     ]
+    },
+    {
+     "line": "Пробиотики очищают организм от токсинов и аллергенов, улучшая состояние кожи изнутри.",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Питание и увлажнение – кверцетин, бромелаин, витамины и минералы улучшают микроциркуляцию, восстанавливают сияние.",
+     "names": [
+      "quercetin",
+      "bromelain"
+     ]
+    },
+    {
+     "line": "Контроль жирности и акне – витамины A и E нормализуют работу сальных желез, уменьшают воспаления.",
+     "names": [
+      "vitamin_a",
+      "vitamin_e"
+     ]
+    },
+    {
+     "line": "Регенерация – биотин, витамины B5 и B9 ускоряют заживление, обновляют клетки кожи.",
+     "names": [
+      "biotin_b7",
+      "pantothenic_acid_b5",
+      "folic_acid_b9"
+     ]
+    },
+    {
+     "line": "Укрепление защитного барьера – цинк, селен и витамин C и другие антиоксиданты усиливают иммунную защиту кожи от микробов и грибков, снижают воспаление, защищают от свободных радикалов, вызванных воздействием солнца и химии.",
+     "names": [
+      "zinc",
+      "selenium",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Глубокое очищение – пробиотики выводят токсины, улучшая общее состояние кожи.",
+     "names": [
+      "probiotics_8_strains"
+     ]
+    },
+    {
+     "line": "Антивозрастной эффект – биотин и антиоксиданты повышают упругость кожи, предотвращают морщины и возрастные изменения цвета.",
+     "names": [
+      "biotin_b7",
+      "quercetin",
+      "bromelain"
+     ]
+    },
+    {
+     "line": "Укрепление и блеск – биотин и витамины стимулируют синтез кератина, предотвращают ломкость.",
+     "names": [
+      "biotin_b7"
+     ]
+    },
+    {
+     "line": "Рост и густота – цинк, селен и кверцетин улучшают питание волосяных фолликул.",
+     "names": [
+      "zinc",
+      "selenium",
+      "quercetin"
+     ]
+    },
+    {
+     "line": "Прочность и защита – биотин и витамины укрепляют структуру ногтевой пластины.",
+     "names": [
+      "biotin_b7"
+     ]
+    },
+    {
+     "line": "Здоровый вид – кверцетин и бромелаин улучшают микроциркуляцию, предотвращая ломкость и расслоение.",
+     "names": [
+      "quercetin",
+      "bromelain"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "биотин",
+     "биотин для волос",
+     "цинк и селен для кожи",
+     "кверцетин",
+     "витамины а и е для кожи"
+    ],
+    "uz_latn": [
+     "biotin",
+     "soch uchun biotin",
+     "teri uchun sink va selen",
+     "kversetin",
+     "teri uchun a va e vitaminlari"
+    ],
+    "uz_cyrl": [
+     "биотин",
+     "соч учун биотин",
+     "тери учун синк ва селен",
+     "кверцетин",
+     "тери учун а ва е витаминлари"
+    ]
+   },
+   "pregnancy": [
+    4
+   ]
+  },
+  {
+   "id": "neurocomplex_kids",
+   "title": {
+    "ru": "Мозг и нервная система ребенка: NEUROCOMPLEX KIDS",
+    "uz": "Bola miyasi va asab tizimi: NEUROCOMPLEX KIDS"
+   },
+   "products": [
+    {
+     "shop_id": 6,
+     "name": "NEUROCOMPLEX® KIDS",
+     "form": "stick",
+     "for_whom": {
+      "ru": "Для детей",
+      "uz": "Bolalar uchun"
+     }
+    }
+   ],
+   "pair_line": null,
+   "problems": [
+    {
+     "id": "low_birth_weight",
+     "line": {
+      "ru": "Недостаточная масса тела при рождении или преждевременные роды.",
+      "uz": "Tug‘ilishda tana vaznining yetarli bo‘lmasligi yoki muddatidan oldin tug‘ilish."
+     },
+     "phrases": {
+      "ru": [
+       "родился с маленьким весом",
+       "низкий вес при рождении",
+       "маловесный малыш",
+       "ребенок родился худеньким"
+      ],
+      "uz_latn": [
+       "kam vazn bilan tug'ilgan",
+       "tug'ilganda vazni kam edi",
+       "kam vaznli chaqaloq",
+       "bolam ozg'in tug'ilgan"
+      ],
+      "uz_cyrl": [
+       "кам вазн билан туғилган",
+       "туғилганда вазни кам эди",
+       "кам вазнли чақалоқ",
+       "болам озғин туғилган"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "premature",
+     "line": {
+      "ru": "Недостаточная масса тела при рождении или преждевременные роды.",
+      "uz": "Tug‘ilishda tana vaznining yetarli bo‘lmasligi yoki muddatidan oldin tug‘ilish."
+     },
+     "phrases": {
+      "ru": [
+       "недоношенный ребенок",
+       "родился раньше срока",
+       "родился семимесячным",
+       "преждевременные роды"
+      ],
+      "uz_latn": [
+       "chala tug'ilgan bola",
+       "muddatidan oldin tug'ildi",
+       "yetti oylik tug'ilgan",
+       "muddatidan oldin tug'ilish"
+      ],
+      "uz_cyrl": [
+       "чала туғилган бола",
+       "муддатидан олдин туғилди",
+       "етти ойлик туғилган",
+       "муддатидан олдин туғилиш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "memory_attention",
+     "line": {
+      "ru": "Поддержка памяти, внимания и умственного развития.",
+      "uz": "Xotira, e’tibor va aqliy rivojlanishni qo‘llab-quvvatlash."
+     },
+     "phrases": {
+      "ru": [
+       "улучшить память ребенку",
+       "ребенок плохо запоминает",
+       "ребенок невнимательный",
+       "рассеянный ребенок",
+       "для концентрации внимания",
+       "школьнику для памяти"
+      ],
+      "uz_latn": [
+       "bolaning xotirasini yaxshilash",
+       "bolam yomon eslab qoladi",
+       "bolam e'tiborsiz",
+       "bolam parishonxotir",
+       "diqqatni jamlash uchun",
+       "o'quvchiga xotira uchun"
+      ],
+      "uz_cyrl": [
+       "боланинг хотирасини яхшилаш",
+       "болам ёмон эслаб қолади",
+       "болам эътиборсиз",
+       "болам паришонхотир",
+       "диққатни жамлаш учун",
+       "ўқувчига хотира учун"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "mental_development",
+     "line": {
+      "ru": "Поддержка памяти, внимания и умственного развития.",
+      "uz": "Xotira, e’tibor va aqliy rivojlanishni qo‘llab-quvvatlash."
+     },
+     "phrases": {
+      "ru": [
+       "для развития мозга ребенка",
+       "для умственного развития",
+       "чтобы ребенок лучше развивался",
+       "питание для мозга ребенку"
+      ],
+      "uz_latn": [
+       "bola miyasi rivojlanishi uchun",
+       "aqliy rivojlanish uchun",
+       "bolam yaxshiroq rivojlanishi uchun",
+       "bolaga miya oziqasi"
+      ],
+      "uz_cyrl": [
+       "бола мияси ривожланиши учун",
+       "ақлий ривожланиш учун",
+       "болам яхшироқ ривожланиши учун",
+       "болага мия озиқаси"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "задержка психического развития",
+       "задержка речи"
+      ],
+      "uz_latn": [
+       "aqliy rivojlanishdan orqada qolish",
+       "nutq kechikishi"
+      ],
+      "uz_cyrl": [
+       "ақлий ривожланишдан орқада қолиш",
+       "нутқ кечикиши"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "adaptation",
+     "line": {
+      "ru": "Адаптация к детскому саду или школе.",
+      "uz": "Bolalar bog‘chasi yoki maktabga moslashish."
+     },
+     "phrases": {
+      "ru": [
+       "адаптация к садику",
+       "пошел в сад и плачет каждое утро",
+       "трудно привыкает к школе",
+       "первый класс, адаптация",
+       "перешел в новую школу"
+      ],
+      "uz_latn": [
+       "bog'chaga moslashish",
+       "bog'chaga bordi, har kuni ertalab yig'laydi",
+       "maktabga qiyin moslashyapti",
+       "birinchi sinf, moslashish",
+       "yangi maktabga o'tdi"
+      ],
+      "uz_cyrl": [
+       "боғчага мослашиш",
+       "боғчага борди, ҳар куни эрталаб йиғлайди",
+       "мактабга қийин мослашяпти",
+       "биринчи синф, мослашиш",
+       "янги мактабга ўтди"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "study_load",
+     "line": {
+      "ru": "Повышенные умственные нагрузки и стресс.",
+      "uz": "Yuqori ruhiy zo‘riqish va stress."
+     },
+     "phrases": {
+      "ru": [
+       "большая нагрузка в школе",
+       "подготовка к экзаменам",
+       "ребенок устает от учебы",
+       "много уроков и кружков",
+       "школьник перегружен"
+      ],
+      "uz_latn": [
+       "maktabda yuklama katta",
+       "imtihonga tayyorgarlik",
+       "bolam o'qishdan charchaydi",
+       "darslar va to'garaklar ko'p",
+       "o'quvchi haddan tashqari band"
+      ],
+      "uz_cyrl": [
+       "мактабда юклама катта",
+       "имтиҳонга тайёргарлик",
+       "болам ўқишдан чарчайди",
+       "дарслар ва тўгараклар кўп",
+       "ўқувчи ҳаддан ташқари банд"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "stress_child",
+     "line": {
+      "ru": "Повышенные умственные нагрузки и стресс.",
+      "uz": "Yuqori ruhiy zo‘riqish va stress."
+     },
+     "phrases": {
+      "ru": [
+       "у ребенка стресс",
+       "ребенок нервный",
+       "ребенок раздражительный",
+       "ребенок сильно переживает",
+       "ребенок плаксивый"
+      ],
+      "uz_latn": [
+       "bolamda stress",
+       "bolam asabiy",
+       "bolam jahldor",
+       "bolam juda xavotirlanadi",
+       "bolam yig'loqi"
+      ],
+      "uz_cyrl": [
+       "боламда стресс",
+       "болам асабий",
+       "болам жаҳлдор",
+       "болам жуда хавотирланади",
+       "болам йиғлоқи"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "nervous_system_recovery",
+     "line": {
+      "ru": "Восстановление нервной системы после болезней, травм, операций, гипоксии или прививок.",
+      "uz": "Kasalliklar, jarohatlar, jarrohlik amaliyotlari, kislorod yetishmasligi yoki emlashlardan so‘ng asab tizimining tiklanishi."
+     },
+     "phrases": {
+      "ru": [
+       "восстановить нервную систему после болезни",
+       "нервная система после операции",
+       "после прививки восстановить нервную систему",
+       "после травмы восстановить нервную систему"
+      ],
+      "uz_latn": [
+       "kasallikdan keyin asab tizimini tiklash",
+       "operatsiyadan keyin asab tizimi",
+       "emlashdan keyin asab tizimini tiklash",
+       "jarohatdan keyin asab tizimini tiklash"
+      ],
+      "uz_cyrl": [
+       "касалликдан кейин асаб тизимини тиклаш",
+       "операциядан кейин асаб тизими",
+       "эмлашдан кейин асаб тизимини тиклаш",
+       "жароҳатдан кейин асаб тизимини тиклаш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "гипоксия при рождении",
+       "после сотрясения мозга"
+      ],
+      "uz_latn": [
+       "tug'ilishda kislorod yetishmasligi",
+       "miya chayqalishidan keyin"
+      ],
+      "uz_cyrl": [
+       "туғилишда кислород етишмаслиги",
+       "мия чайқалишидан кейин"
+      ]
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Омега-3, цинк, витамины B-группы улучшают функции мозга, память и внимание.",
+     "names": [
+      "omega_3",
+      "zinc",
+      "b_group_vitamins"
+     ]
+    },
+    {
+     "line": "L-карнитин, витамины B и C восстанавливают энергию и снижают усталость после нагрузок.",
+     "names": [
+      "l_carnitine",
+      "b_group_vitamins",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Магний и глицин уменьшают стресс, помогают адаптироваться к школе, улучшают сон и настроение.",
+     "names": [
+      "magnesium",
+      "glycine"
+     ]
+    },
+    {
+     "line": "Антиоксиданты защищают мозг и предотвращают повреждение нейронов.",
+     "names": [
+      "antioxidants"
+     ]
+    },
+    {
+     "line": "Цинк, омега-3, L-карнитин и витамины группы B способствуют развитию мышления и концентрации внимания.",
+     "names": [
+      "zinc",
+      "omega_3",
+      "l_carnitine",
+      "b_group_vitamins"
+     ]
+    },
+    {
+     "line": "L-карнитин, витамины C и группы B активируют энергопроцессы в клетках, способствуя повышению успеваемости.",
+     "names": [
+      "l_carnitine",
+      "vitamin_c",
+      "b_group_vitamins"
+     ]
+    },
+    {
+     "line": "Магний и глицин уменьшают нервное напряжение, помогают адаптироваться к новому окружению, детсаду или школе.",
+     "names": [
+      "magnesium",
+      "glycine"
+     ]
+    },
+    {
+     "line": "Антиоксиданты предотвращают повреждение нейронов, уменьшают воспаление и ускоряют восстановление после болезней и операций.",
+     "names": [
+      "antioxidants"
+     ]
+    },
+    {
+     "line": "Содержит DHA – жирную кислоту, жизненно важную для умственного развития.",
+     "names": [
+      "omega_3_dha"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "омега-3 для детей",
+     "глицин ребенку",
+     "l-карнитин для детей",
+     "витамины для мозга ребенку"
+    ],
+    "uz_latn": [
+     "bolalar uchun omega-3",
+     "bolaga glitsin",
+     "bolalar uchun l-karnitin",
+     "bola miyasi uchun vitaminlar"
+    ],
+    "uz_cyrl": [
+     "болалар учун омега-3",
+     "болага глицин",
+     "болалар учун l-карнитин",
+     "бола мияси учун витаминлар"
+    ]
+   },
+   "pregnancy": []
+  },
+  {
+   "id": "ophtalmocomplex",
+   "title": {
+    "ru": "Зрение и глаза: OPHTALMOCOMPLEX",
+    "uz": "Ko'rish va ko'zlar: OPHTALMOCOMPLEX"
+   },
+   "products": [
+    {
+     "shop_id": 5,
+     "name": "OPHTALMOCOMPLEX®",
+     "form": "capsule",
+     "for_whom": {
+      "ru": "Для детей с 7 лет и взрослых",
+      "uz": "7 yoshdan boshlab bolalar va kattalar uchun"
+     }
+    }
+   ],
+   "pair_line": null,
+   "problems": [
+    {
+     "id": "screen_time",
+     "line": {
+      "ru": "Частая работа за компьютером и использование гаджетов.",
+      "uz": "Kompyuterda ko‘p ishlash va gadjetlardan muntazam foydalanish."
+     },
+     "phrases": {
+      "ru": [
+       "много сижу за компьютером",
+       "весь день работаю за компьютером",
+       "ребенок много сидит в телефоне",
+       "глаза от телефона",
+       "много времени в гаджетах",
+       "для глаз программисту"
+      ],
+      "uz_latn": [
+       "kompyuterda ko'p o'tiraman",
+       "kun bo'yi kompyuterda ishlayman",
+       "bolam telefonda ko'p o'tiradi",
+       "telefondan ko'zlar",
+       "gadjetlarda ko'p vaqt o'tkazaman",
+       "dasturchiga ko'z uchun"
+      ],
+      "uz_cyrl": [
+       "компютерда кўп ўтираман",
+       "кун бўйи компютерда ишлайман",
+       "болам телефонда кўп ўтиради",
+       "телефондан кўзлар",
+       "гаджетларда кўп вақт ўтказаман",
+       "дастурчига кўз учун"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "eye_strain",
+     "line": {
+      "ru": "Усталость глаз: сухость, покраснение, напряжение.",
+      "uz": "Ko‘z toliqishi: quruqlik, qizarish, zo‘riqish."
+     },
+     "phrases": {
+      "ru": [
+       "глаза устают",
+       "сухость в глазах",
+       "песок в глазах",
+       "глаза краснеют",
+       "глаза напрягаются"
+      ],
+      "uz_latn": [
+       "ko'zlarim toliqadi",
+       "ko'zim quruqlashadi",
+       "ko'zimga qum kirgandek",
+       "ko'zlarim qizaradi",
+       "ko'zlarim zo'riqadi"
+      ],
+      "uz_cyrl": [
+       "кўзларим толиқади",
+       "кўзим қуруқлашади",
+       "кўзимга қум киргандек",
+       "кўзларим қизаради",
+       "кўзларим зўриқади"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "синдром сухого глаза"
+      ],
+      "uz_latn": [
+       "quruq ko'z sindromi"
+      ],
+      "uz_cyrl": [
+       "қуруқ кўз синдроми"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "glasses_lenses",
+     "line": {
+      "ru": "Ношение очков или контактных линз для улучшения питания глаз.",
+      "uz": "Ko‘zlarning oziqlanishini yaxshilash uchun ko‘zoynak yoki kontakt linzalar taqish."
+     },
+     "phrases": {
+      "ru": [
+       "ношу очки",
+       "ношу контактные линзы",
+       "у ребенка очки",
+       "для глаз тем, кто в очках"
+      ],
+      "uz_latn": [
+       "ko'zoynak taqaman",
+       "kontakt linza taqaman",
+       "bolam ko'zoynak taqadi",
+       "ko'zoynak taqadiganlarga ko'z uchun"
+      ],
+      "uz_cyrl": [
+       "кўзойнак тақаман",
+       "контакт линза тақаман",
+       "болам кўзойнак тақади",
+       "кўзойнак тақадиганларга кўз учун"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "близорукость",
+       "дальнозоркость"
+      ],
+      "uz_latn": [
+       "miopiya",
+       "gipermetropiya"
+      ],
+      "uz_cyrl": [
+       "миопия",
+       "гиперметропия"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "age_vision",
+     "line": {
+      "ru": "Возрастные изменения зрения (после 40 лет) для замедления процессов старения.",
+      "uz": "Ko‘rish qobiliyatining yoshga bog‘liq o‘zgarishlari (40 yoshdan so‘ng) va qarish jarayonlarini sekinlashtirish yo‘llari."
+     },
+     "phrases": {
+      "ru": [
+       "после 40 ухудшилось зрение",
+       "возрастные изменения зрения",
+       "маме 60 лет, для глаз",
+       "сохранить зрение в возрасте",
+       "с возрастом стал хуже видеть"
+      ],
+      "uz_latn": [
+       "40 yoshdan keyin ko'rishim yomonlashdi",
+       "ko'rishning yoshga bog'liq o'zgarishlari",
+       "onam 60 yoshda, ko'z uchun",
+       "yoshi o'tganda ko'rishni saqlash",
+       "yosh o'tgan sari yomonroq ko'ryapman"
+      ],
+      "uz_cyrl": [
+       "40 ёшдан кейин кўришим ёмонлашди",
+       "кўришнинг ёшга боғлиқ ўзгаришлари",
+       "онам 60 ёшда, кўз учун",
+       "ёши ўтганда кўришни сақлаш",
+       "ёш ўтган сари ёмонроқ кўряпман"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "катаракта",
+       "макулодистрофия"
+      ],
+      "uz_latn": [
+       "katarakta",
+       "makula distrofiyasi"
+      ],
+      "uz_cyrl": [
+       "катаракта",
+       "макула дистрофияси"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "eye_inflammation_disease",
+     "line": {
+      "ru": "Воспаления, раздражение, заболевания глаз.",
+      "uz": "Ko‘z yallig‘lanishi, tirnash xususiyati va kasalliklari."
+     },
+     "phrases": {
+      "ru": [
+       "глаза воспалились",
+       "раздражение глаз",
+       "часто воспаляются глаза",
+       "заболевание глаз"
+      ],
+      "uz_latn": [
+       "ko'zim yallig'landi",
+       "ko'z tirnashishi",
+       "ko'zlarim tez-tez yallig'lanadi",
+       "ko'z kasalligi"
+      ],
+      "uz_cyrl": [
+       "кўзим яллиғланди",
+       "кўз тирнашиши",
+       "кўзларим тез-тез яллиғланади",
+       "кўз касаллиги"
+      ]
+     },
+     "diagnoses": {
+      "ru": [
+       "конъюнктивит",
+       "ячмень на глазу",
+       "глаукома"
+      ],
+      "uz_latn": [
+       "kon'yunktivit",
+       "ko'zda arpa",
+       "glaukoma"
+      ],
+      "uz_cyrl": [
+       "конъюнктивит",
+       "кўзда арпа",
+       "глаукома"
+      ]
+     },
+     "applies_to": null
+    },
+    {
+     "id": "after_surgery",
+     "line": {
+      "ru": "Восстановление после операций.",
+      "uz": "Jarrohlik amaliyotidan so‘ng tiklanish."
+     },
+     "phrases": {
+      "ru": [
+       "после операции на глазах",
+       "после лазерной коррекции зрения",
+       "после операции на катаракту",
+       "восстановить глаза после операции"
+      ],
+      "uz_latn": [
+       "ko'z operatsiyasidan keyin",
+       "lazer korreksiyasidan keyin",
+       "katarakta operatsiyasidan keyin",
+       "operatsiyadan keyin ko'zni tiklash"
+      ],
+      "uz_cyrl": [
+       "кўз операциясидан кейин",
+       "лазер коррекциясидан кейин",
+       "катаракта операциясидан кейин",
+       "операциядан кейин кўзни тиклаш"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
+     "id": "vision_support",
+     "line": {
+      "ru": "Лютеин, зеаксантин и витамин A повышают четкость зрения.",
+      "uz": "Lyutein, zeaksantin va A vitamini ko‘rish qobiliyatining aniqligini oshiradi."
+     },
+     "phrases": {
+      "ru": [
+       "для зрения",
+       "улучшить зрение",
+       "поддержать зрение",
+       "витамины для глаз",
+       "зрение падает"
+      ],
+      "uz_latn": [
+       "ko'rish uchun",
+       "ko'rishni yaxshilash",
+       "ko'rishni qo'llab-quvvatlash",
+       "ko'z uchun vitaminlar",
+       "ko'rishim pasayyapti"
+      ],
+      "uz_cyrl": [
+       "кўриш учун",
+       "кўришни яхшилаш",
+       "кўришни қўллаб-қувватлаш",
+       "кўз учун витаминлар",
+       "кўришим пасаяпти"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    }
+   ],
+   "nutrients": [
+    {
+     "line": "Лютеин, зеаксантин и витамин A повышают четкость зрения.",
+     "names": [
+      "lutein",
+      "zeaxanthin",
+      "vitamin_a"
+     ]
+    },
+    {
+     "line": "Омега-3 и витамины группы B улучшают передачу зрительных сигналов.",
+     "names": [
+      "omega_3",
+      "b_group_vitamins"
+     ]
+    },
+    {
+     "line": "Рутин и витамин C улучшают питание глаз и микроциркуляцию.",
+     "names": [
+      "rutin",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Антиоксиданты защищают глаза от свободных радикалов, синего света, воспалений, сухости глаз и возрастных ухудшений зрения.",
+     "names": [
+      "antioxidants"
+     ]
+    },
+    {
+     "line": "Витамины A, E, C ускоряют восстановление глаз после болезней и операций.",
+     "names": [
+      "vitamin_a",
+      "vitamin_e",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Лютеин, зеаксантин, витамин A, E и минералы защищают сетчатку и макулу, улучшают контрастность восприятия.",
+     "names": [
+      "lutein",
+      "zeaxanthin",
+      "vitamin_a",
+      "vitamin_e",
+      "minerals"
+     ]
+    },
+    {
+     "line": "Рутин с витамин C укрепляют сосуды и микроциркуляцию.",
+     "names": [
+      "rutin",
+      "vitamin_c"
+     ]
+    },
+    {
+     "line": "Антиоксиданты снижают усталость, раздражение и сухость глаз.",
+     "names": [
+      "antioxidants"
+     ]
+    },
+    {
+     "line": "Омега-3 и витамины группы B укрепляют зрительный нерв.",
+     "names": [
+      "omega_3",
+      "b_group_vitamins"
+     ]
+    },
+    {
+     "line": "Селен, цинк, медь и другие антиоксиданты предотвращают повреждение зрительных клеток, ускоряют восстановление после операций и болезней глаз.",
+     "names": [
+      "selenium",
+      "zinc",
+      "copper"
+     ]
+    },
+    {
+     "line": "Macula Health Formula снижает риск макулодистрофии и катаракты.",
+     "names": [
+      "macula_health_formula"
+     ]
+    }
+   ],
+   "nutrient_phrases": {
+    "ru": [
+     "лютеин",
+     "лютеин и зеаксантин",
+     "омега-3 для глаз",
+     "витамин а для глаз"
+    ],
+    "uz_latn": [
+     "lyutein",
+     "lyutein va zeaksantin",
+     "ko'z uchun omega-3",
+     "ko'z uchun a vitamini"
+    ],
+    "uz_cyrl": [
+     "лютеин",
+     "лютеин ва зеаксантин",
+     "кўз учун омега-3",
+     "кўз учун а витамини"
+    ]
+   },
+   "pregnancy": [
+    5
+   ]
+  }
+ ],
+ "items": [
+  {
+   "id": "blender",
+   "name": {
+    "ru": "Ручной блендер Healthy Lifestyle",
+    "uz": "Qo‘l blenderi Healthy Lifestyle"
+   },
+   "products": [
+    {
+     "shop_id": 10,
+     "name": {
+      "ru": "Ручной блендер Healthy Lifestyle",
+      "uz": "Qo‘l blenderi Healthy Lifestyle"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Ручной блендер Healthy Lifestyle измельчает продукты для смузи, коктейлей, пюре, соусов, кремов и теста, а также для варенья и маринадов.",
+    "uz": "Healthy Lifestyle qo'l blenderi smuzi, kokteyl, pyure, souslar, krem va xamir uchun, shuningdek murabbo va marinadlar uchun mahsulotlarni maydalaydi."
+   },
+   "phrases": {
+    "ru": [
+     "блендер есть?",
+     "хочу делать смузи и коктейли",
+     "ручной блендер сколько стоит",
+     "нужен блендер для пюре и соусов",
+     "блендер для детского питания"
+    ],
+    "uz_latn": [
+     "blender bormi?",
+     "smuzi va kokteyl tayyorlamoqchiman",
+     "qo'l blenderi narxi qancha?",
+     "pyure va souslar uchun kerak",
+     "bolalar ovqati uchun blender bormi?"
+    ],
+    "uz_cyrl": [
+     "блендер борми?",
+     "смузи ва коктейл тайёрламоқчиман",
+     "қўл блендери нархи қанча?",
+     "пюре ва соуслар учун керак",
+     "болалар овқати учун блендер борми?"
+    ]
+   }
+  },
+  {
+   "id": "chaynik",
+   "name": {
+    "ru": "Электрический чайник Healthy Lifestyle",
+    "uz": "Elektr choynak Healthy Lifestyle"
+   },
+   "products": [
+    {
+     "shop_id": 13,
+     "name": {
+      "ru": "Электрический чайник Healthy Lifestyle",
+      "uz": "Elektr choynak Healthy Lifestyle"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Электрический чайник Healthy Lifestyle быстро кипятит воду, вмещает 1,7 л и поворачивается на подставке на 360°.",
+    "uz": "Healthy Lifestyle elektr choynagi suvni bir necha daqiqada qaynatadi, 1,7 l sig'imga ega va taglikda 360° buriladi."
+   },
+   "phrases": {
+    "ru": [
+     "чайник есть?",
+     "хочу быстро вскипятить воду",
+     "чайник на 1,7 литра есть?",
+     "электрочайник сколько стоит",
+     "чайник с поворотной подставкой есть?"
+    ],
+    "uz_latn": [
+     "choynak bormi?",
+     "suvni tez qaynatmoqchiman",
+     "1,7 litrlik choynak bormi?",
+     "elektr choynak narxi qancha?",
+     "taglikda 360° aylanadigan choynak bormi?"
+    ],
+    "uz_cyrl": [
+     "чойнак борми?",
+     "сувни тез қайнатмоқчиман",
+     "1,7 литрлик чойнак борми?",
+     "электр чойнак нархи қанча?",
+     "таглиги 360° айланадиган чойнак борми?"
+    ]
+   }
+  },
+  {
+   "id": "aerogrill",
+   "name": {
+    "ru": "Аэрогриль Healthy Lifestyle",
+    "uz": "Aerogril Healthy Lifestyle"
+   },
+   "products": [
+    {
+     "shop_id": 23,
+     "name": {
+      "ru": "Аэрогриль Healthy Lifestyle",
+      "uz": "Aerogril Healthy Lifestyle"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Аэрогриль Healthy Lifestyle на 7 л готовит горячим воздухом с до 80% меньшим количеством масла; умеет жарить, запекать, гриллировать, тушить, разогревать и печь выпечку.",
+    "uz": "Healthy Lifestyle aerogrili 7 l hajmda, issiq havo aylanishi bilan 80% gacha kam moy ishlatadi va qovurish, pishirish, gril, dimlash, isitish hamda pishiriqlar tayyorlash imkonini beradi."
+   },
+   "phrases": {
+    "ru": [
+     "аэрогриль есть?",
+     "хочу готовить без масла",
+     "жарить картошку без масла",
+     "аэрогриль на 7 литров есть?",
+     "аэрогриль сколько стоит"
+    ],
+    "uz_latn": [
+     "aerogril bormi?",
+     "yog'siz pishirmoqchiman",
+     "yog'siz kartoshka qovurish mumkinmi?",
+     "7 litrlik aerogril bormi?",
+     "aerogril narxi qancha?"
+    ],
+    "uz_cyrl": [
+     "аэрогрил борми?",
+     "ёғсиз пиширмоқчиман",
+     "ёғсиз картошка қовуриш мумкинми?",
+     "7 литрлик аэрогрил борми?",
+     "аэрогрил нархи қанча?"
+    ]
+   }
+  },
+  {
+   "id": "toster",
+   "name": {
+    "ru": "Тостер Healthy Lifestyle",
+    "uz": "Toster Healthy Lifestyle"
+   },
+   "products": [
+    {
+     "shop_id": 24,
+     "name": {
+      "ru": "Тостер Healthy Lifestyle",
+      "uz": "Toster Healthy Lifestyle"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Тостер Healthy Lifestyle быстро готовит тосты сразу в двух отсеках, подходит для любого хлеба, стоит на нескользящих ножках и имеет отсек для шнура.",
+    "uz": "Healthy Lifestyle toster tostlarni bir vaqtning o'zida ikki bo'limda tez tayyorlaydi, har qanday non uchun mos, sirpanmaydigan oyoqchalarga ega va simi uchun bo'limi bor."
+   },
+   "phrases": {
+    "ru": [
+     "тостер есть?",
+     "хочу быстро сделать тосты на завтрак",
+     "тостер на два тоста есть?",
+     "тостер для багета подойдет?",
+     "тостер сколько стоит"
+    ],
+    "uz_latn": [
+     "toster bormi?",
+     "nonushtaga tez tost tayyorlamoqchiman",
+     "ikki bo'limli toster bormi?",
+     "baget uchun toster mos keladimi?",
+     "toster narxi qancha?"
+    ],
+    "uz_cyrl": [
+     "тостер борми?",
+     "нонуштага тез тост тайёрламоқчиман",
+     "икки бўлимли тостер борми?",
+     "багет учун тостер мос келадими?",
+     "тостер нархи қанча?"
+    ]
+   }
+  },
+  {
+   "id": "sokovyzhimalka",
+   "name": {
+    "ru": "Соковыжималка Healthy Lifestyle",
+    "uz": "Sharbat siqqich Healthy Lifestyle"
+   },
+   "products": [
+    {
+     "shop_id": 25,
+     "name": {
+      "ru": "Соковыжималка Healthy Lifestyle",
+      "uz": "Sharbat siqqich Healthy Lifestyle"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Соковыжималка Healthy Lifestyle отжимает свежий сок из фруктов, овощей и ягод и отдельно выводит сок и жмых.",
+    "uz": "Healthy Lifestyle sharbat siqqich mevalar, sabzavotlar va rezavor mevalardan yangi sharbat siqadi va sharbatni kunjaradan alohida chiqaradi."
+   },
+   "phrases": {
+    "ru": [
+     "соковыжималка есть?",
+     "хочу делать свежий сок",
+     "соковыжималка для моркови и яблок",
+     "соковыжималка сколько стоит",
+     "хочу фреш из апельсинов дома"
+    ],
+    "uz_latn": [
+     "sharbat siqqich bormi?",
+     "yangi sharbat tayyorlamoqchiman",
+     "sabzi va olma uchun sharbat siqqich bormi?",
+     "sharbat siqqich narxi qancha?",
+     "uyda apelsin fresh qilmoqchiman"
+    ],
+    "uz_cyrl": [
+     "шарбат сиққич борми?",
+     "янги шарбат тайёрламоқчиман",
+     "сабзи ва олма учун шарбат сиққич борми?",
+     "шарбат сиққич нархи қанча?",
+     "уйда апельсин фреш қилмоқчиман"
+    ]
+   }
+  },
+  {
+   "id": "ryukzak",
+   "name": {
+    "ru": "Рюкзак Healthy Lifestyle",
+    "uz": "Healthy Lifestyle ryukzak"
+   },
+   "products": [
+    {
+     "shop_id": 36,
+     "name": {
+      "ru": "Рюкзак серый Healthy Lifestyle",
+      "uz": "Healthy Lifestyle Kulrang ryukzak"
+     }
+    },
+    {
+     "shop_id": 37,
+     "name": {
+      "ru": "Рюкзак зеленый Healthy Lifestyle",
+      "uz": "Healthy Lifestyle yashil ryukzagi"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Рюкзак Healthy Lifestyle из переработанного полиэстера защищает от влаги, имеет отделение для гаджетов и дышащую спинку; подходит для города, офиса и путешествий.",
+    "uz": "Healthy Lifestyle ryukzagi qayta ishlangan poliesterdan tayyorlangan, namlikdan himoya qiladi, gadjetlar uchun bo'linmaga va nafas oluvchi orqa qismga ega; shahar, ofis va sayohat uchun mos."
+   },
+   "phrases": {
+    "ru": [
+     "рюкзак есть?",
+     "нужен рюкзак для гаджетов",
+     "рюкзак в офис и в поездку",
+     "экологичный рюкзак есть?",
+     "рюкзак сколько стоит"
+    ],
+    "uz_latn": [
+     "ryukzak bormi?",
+     "gadjetlar uchun ryukzak kerak",
+     "ofisga ryukzak bormi?",
+     "ekologik toza ryukzak bormi?",
+     "ryukzak narxi qancha?"
+    ],
+    "uz_cyrl": [
+     "рюкзак борми?",
+     "гаджетлар учун рюкзак керак",
+     "офисга рюкзак борми?",
+     "экологик тоза рюкзак борми?",
+     "рюкзак нархи қанча?"
+    ]
+   }
+  },
+  {
+   "id": "sumka_organayzer",
+   "name": {
+    "ru": "Компактная сумка-органайзер Healthy Lifestyle",
+    "uz": "Healthy Lifestyle ixcham sumka-organayzer"
+   },
+   "products": [
+    {
+     "shop_id": 38,
+     "name": {
+      "ru": "Компактная сумка-органайзер серая Healthy Lifestyle",
+      "uz": "Healthy Lifestyle Kulrang ixcham sumka-organayzer"
+     }
+    },
+    {
+     "shop_id": 48,
+     "name": {
+      "ru": "Компактная сумка-органайзер зеленая Healthy Lifestyle",
+      "uz": "Healthy Lifestyle yashil ixcham organayzer sumka"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Компактная сумка-органайзер Healthy Lifestyle из переработанного полиэстера с эко-сертификатами имеет влагозащитную ткань и внутренние отделения; подходит для активной жизни и путешествий.",
+    "uz": "Healthy Lifestyle ixcham sumka-organayzer qayta ishlangan poliesterdan, eko-sertifikatlarga ega, namlikdan himoyalovchi va ichki bo'limlarga ega; faol hayot va sayohatlar uchun mos."
+   },
+   "phrases": {
+    "ru": [
+     "органайзер сумка есть?",
+     "нужна сумка с отделениями",
+     "сумка-органайзер для путешествий",
+     "компактная сумка для активного отдыха",
+     "сумка-органайзер сколько стоит"
+    ],
+    "uz_latn": [
+     "organayzer sumka bormi?",
+     "bo'limli sumka kerak",
+     "sayohat uchun organayzer sumka bormi?",
+     "faol dam olish uchun ixcham sumka bormi?",
+     "organayzer sumka narxi qancha?"
+    ],
+    "uz_cyrl": [
+     "органайзер сумка борми?",
+     "бўлимли сумка керак",
+     "сайёҳат учун органайзер сумка борми?",
+     "фаол дам олиш учун ихчам сумка борми?",
+     "органайзер сумка нархи қанча?"
+    ]
+   }
+  },
+  {
+   "id": "zhiletka",
+   "name": {
+    "ru": "Жилетка двусторонняя Healthy Lifestyle",
+    "uz": "Healthy Lifestyle Ikki tomonlama nimcha"
+   },
+   "products": [
+    {
+     "shop_id": 39,
+     "name": {
+      "ru": "Жилетка двусторонняя Healthy Lifestyle",
+      "uz": "Healthy Lifestyle Ikki tomonlama nimcha"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Двусторонняя жилетка Healthy Lifestyle с водоотталкивающей тканью из экологичных материалов; подходит для прогулок, спорта и путешествий.",
+    "uz": "Healthy Lifestyle ikki tomonlama nimchasi suv o'tkazmaydigan matodan, ekologik toza materiallardan tayyorlangan; sayr, sport va sayohatlar uchun mos."
+   },
+   "phrases": {
+    "ru": [
+     "жилетка есть?",
+     "нужна жилетка на прогулку",
+     "двусторонняя жилетка есть?",
+     "жилетка для спорта и путешествий",
+     "жилетка сколько стоит"
+    ],
+    "uz_latn": [
+     "nimcha bormi?",
+     "sayr uchun nimcha kerak",
+     "ikki tomonlama nimcha bormi?",
+     "sport uchun nimcha bormi?",
+     "nimcha narxi qancha?"
+    ],
+    "uz_cyrl": [
+     "нимча борми?",
+     "сайр учун нимча керак",
+     "икки томонлама нимча борми?",
+     "спорт учун нимча борми?",
+     "нимча нархи қанча?"
+    ]
+   }
+  },
+  {
+   "id": "sumka_cherez_plecho",
+   "name": {
+    "ru": "Сумка через плечо Healthy Lifestyle",
+    "uz": "Healthy Lifestyle yelkadan oshgan sumka"
+   },
+   "products": [
+    {
+     "shop_id": 49,
+     "name": {
+      "ru": "Сумка через плечо серая Healthy Lifestyle",
+      "uz": "Healthy Lifestyle Yelkadan oshgan sumka kulrang"
+     }
+    },
+    {
+     "shop_id": 50,
+     "name": {
+      "ru": "Сумка через плечо зелёная Healthy Lifestyle",
+      "uz": "Healthy Lifestyle yelkasi orqali yashil sumka"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Сумка через плечо Healthy Lifestyle из переработанного полиэстера с водоотталкивающей тканью, регулируемым ремнём и эко-сертификатами; подходит для города, путешествий и активного отдыха.",
+    "uz": "Healthy Lifestyle yelka sumkasi qayta ishlangan poliesterdan, suv o'tkazmaydigan matodan, sozlanadigan kamar va eko-sertifikatlar bilan; shahar, sayohat va faol dam olish uchun mos."
+   },
+   "phrases": {
+    "ru": [
+     "сумка через плечо есть?",
+     "нужна сумка на плечо для города",
+     "сумка через плечо для поездки",
+     "сумка через плечо сколько стоит",
+     "удобная сумка с регулируемым ремнем"
+    ],
+    "uz_latn": [
+     "yelka sumkasi bormi?",
+     "shahar uchun yelkaga osiladigan sumka kerak",
+     "sayohat uchun yelka sumkasi bormi?",
+     "yelka sumkasi narxi qancha?",
+     "kamari sozlanadigan sumka bormi?"
+    ],
+    "uz_cyrl": [
+     "елка сумкаси борми?",
+     "шаҳар учун елкага осиладиган сумка керак",
+     "сайёҳат учун елка сумкаси борми?",
+     "елка сумкаси нархи қанча?",
+     "камари созланадиган сумка борми?"
+    ]
+   }
+  },
+  {
+   "id": "shopper",
+   "name": {
+    "ru": "Складная сумка Healthy Lifestyle",
+    "uz": "Healthy Lifestyle buklama sumka"
+   },
+   "products": [
+    {
+     "shop_id": 51,
+     "name": {
+      "ru": "Складная сумка серая Healthy Lifestyle",
+      "uz": "Healthy Lifestyle Kulrang buklama sumka"
+     }
+    },
+    {
+     "shop_id": 52,
+     "name": {
+      "ru": "Складная сумка зелёная Healthy Lifestyle",
+      "uz": "Healthy Lifestyle Yashil buklama sumka"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Складная эко-сумка Healthy Lifestyle увеличивается с 24 до 32 л, сделана из водоотталкивающей ткани с эко-сертификатами; подходит для города и путешествий.",
+    "uz": "Healthy Lifestyle buklanadigan eko-sumka 24 litrdan 32 litrgacha kengayadi, suv o'tkazmaydigan matodan, eko-sertifikatlarga ega; shahar va sayohat uchun mos."
+   },
+   "phrases": {
+    "ru": [
+     "складная сумка есть?",
+     "нужна сумка для покупок",
+     "сумка которая складывается",
+     "сумка на 32 литра есть?",
+     "складная сумка сколько стоит"
+    ],
+    "uz_latn": [
+     "buklanadigan sumka bormi?",
+     "xarid uchun sumka kerak",
+     "katlanadigan eko-sumka bormi?",
+     "32 litrlik sumka bormi?",
+     "buklanadigan sumka narxi qancha?"
+    ],
+    "uz_cyrl": [
+     "букланадиган сумка борми?",
+     "харид учун сумка керак",
+     "катланадиган эко-сумка борми?",
+     "32 литрлик сумка борми?",
+     "букланадиган сумка нархи қанча?"
+    ]
+   }
+  },
+  {
+   "id": "shapka",
+   "name": {
+    "ru": "Шапка Healthy Lifestyle",
+    "uz": "Healthy Lifestyle shapka"
+   },
+   "products": [
+    {
+     "shop_id": 53,
+     "name": {
+      "ru": "Шапка серая Healthy Lifestyle",
+      "uz": "Healthy Lifestyle Kulrang shapka"
+     }
+    },
+    {
+     "shop_id": 54,
+     "name": {
+      "ru": "Шапка зеленая Healthy Lifestyle",
+      "uz": "Healthy Lifestyle Yashil shapka"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Мягкая шапка Healthy Lifestyle из экологичных материалов с сертификатом GRS: сохраняет тепло, дышит и не раздражает кожу.",
+    "uz": "GRS sertifikatiga ega ekologik toza materiallardan tayyorlangan yumshoq Healthy Lifestyle shapkasi issiqlikni saqlaydi, nafas oladi va terini ta'sirlantirmaydi."
+   },
+   "phrases": {
+    "ru": [
+     "шапка есть?",
+     "нужна теплая шапка",
+     "шапка для холодной погоды",
+     "шапка на каждый день есть?",
+     "шапка сколько стоит"
+    ],
+    "uz_latn": [
+     "shapka bormi?",
+     "issiq shapka kerak",
+     "sovuq ob-havo uchun shapka bormi?",
+     "har kuni kiyish uchun shapka bormi?",
+     "shapka narxi qancha?"
+    ],
+    "uz_cyrl": [
+     "шапка борми?",
+     "иссиқ шапка керак",
+     "совуқ об-ҳаво учун шапка борми?",
+     "ҳар куни кийиш учун шапка борми?",
+     "шапка нархи қанча?"
+    ]
+   }
+  },
+  {
+   "id": "manikyur",
+   "name": {
+    "ru": "Маникюрный набор из 12 предметов",
+    "uz": "12 ta buyumdan iborat manikyur to‘plami"
+   },
+   "products": [
+    {
+     "shop_id": 57,
+     "name": {
+      "ru": "Маникюрный набор из 12 предметов",
+      "uz": "12 ta buyumdan iborat manikyur to‘plami"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Маникюрный набор из 12 инструментов в двух цветах: кусачки, ножницы, пилка, инструменты для кутикулы, пинцет и двусторонняя лопатка.",
+    "uz": "12 ta asbobdan iborat manikyur to'plami ikki rangda: tishlagichlar, qaychi, arra, kutikula asboblari, pinset va ikki tomonlama kurak."
+   },
+   "phrases": {
+    "ru": [
+     "маникюрный набор есть?",
+     "хочу сделать маникюр дома",
+     "набор для маникюра сколько стоит",
+     "нужны кусачки и пилка для ногтей",
+     "маникюрный набор в подарок"
+    ],
+    "uz_latn": [
+     "manikyur to'plami bormi?",
+     "uyda manikyur qilmoqchiman",
+     "manikyur to'plami narxi qancha?",
+     "tirnoq uchun tishlagich va arra kerak",
+     "sovg'a uchun manikyur to'plami bormi?"
+    ],
+    "uz_cyrl": [
+     "маникюр тўплами борми?",
+     "уйда маникюр қилмоқчиман",
+     "маникюр тўплами нархи қанча?",
+     "тирноқ учун тишлагич ва арра керак",
+     "совға учун маникюр тўплами борми?"
+    ]
+   }
+  },
+  {
+   "id": "braslet",
+   "name": {
+    "ru": "Умный браслет Biotact Smart Health",
+    "uz": "Biotact Smart Health aqlli bilaguzugi"
+   },
+   "products": [
+    {
+     "shop_id": 58,
+     "name": {
+      "ru": "Умный браслет Biotact Smart Health",
+      "uz": "Biotact Smart Health aqlli bilaguzugi"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Умный браслет Biotact Smart Health в реальном времени контролирует частоту сердцебиения, артериальное давление, уровень кислорода в крови (SpO₂), качество сна и физическую активность.",
+    "uz": "Biotact Smart Health aqlli bilaguzugi real vaqt rejimida yurak urishi tezligi, qon bosimi, qondagi kislorod darajasi (SpO2), uyqu sifati va jismoniy faollikni nazorat qiladi."
+   },
+   "phrases": {
+    "ru": [
+     "умный браслет есть?",
+     "хочу следить за пульсом и сном",
+     "браслет для измерения давления есть?",
+     "фитнес-браслет сколько стоит",
+     "браслет для контроля активности"
+    ],
+    "uz_latn": [
+     "aqlli bilaguzuk bormi?",
+     "yurak urishini va uyquni kuzatmoqchiman",
+     "qon bosimini o'lchaydigan bilaguzuk bormi?",
+     "fitnes bilaguzuk narxi qancha?",
+     "faollikni nazorat qiladigan bilaguzuk bormi?"
+    ],
+    "uz_cyrl": [
+     "ақлли билагузук борми?",
+     "юрак уришини ва уйқуни кузатмоқчиман",
+     "қон босимини ўлчайдиган билагузук борми?",
+     "фитнес билагузук нархи қанча?",
+     "фаолликни назорат қиладиган билагузук борми?"
+    ]
+   }
+  },
+  {
+   "id": "termos",
+   "name": {
+    "ru": "Термос KD-775, 600 мл.",
+    "uz": "Termos KD-775, 600 ml."
+   },
+   "products": [
+    {
+     "shop_id": 59,
+     "name": {
+      "ru": "Термос KD-775, 600 мл.",
+      "uz": "Termos KD-775, 600 ml."
+     }
+    }
+   ],
+   "what": {
+    "ru": "Термос KD-775 на 600 мл зелёного цвета: колба из пищевой нержавеющей стали, съёмное ситечко для заварки и текстильный ремешок.",
+    "uz": "KD-775 termos 600 ml hajmda, yashil rangda: oziq-ovqat uchun zanglamaydigan po'latdan kolba, yechiladigan setkali filtr va to'qimachilik tasma."
+   },
+   "phrases": {
+    "ru": [
+     "термос есть?",
+     "нужен термос на весь день",
+     "термос на 600 мл сколько стоит",
+     "термос с ситечком для чая есть?",
+     "термос для чая и ягод"
+    ],
+    "uz_latn": [
+     "termos bormi?",
+     "butun kunga termos kerak",
+     "600 ml termos narxi qancha?",
+     "choy uchun setkali termos bormi?",
+     "rezavor mevalar uchun termos bormi?"
+    ],
+    "uz_cyrl": [
+     "термос борми?",
+     "бутун кунга термос керак",
+     "600 мл термос нархи қанча?",
+     "чой учун сеткали термос борми?",
+     "резавор мевалар учун термос борми?"
+    ]
+   }
+  },
+  {
+   "id": "kruzhka",
+   "name": {
+    "ru": "Кружка Premium Collection 400 мл",
+    "uz": "Premium Collection krujkasi, 400 ml"
+   },
+   "products": [
+    {
+     "shop_id": 66,
+     "name": {
+      "ru": "Кружка Premium Collection 400 мл",
+      "uz": "Premium Collection krujkasi, 400 ml"
+     }
+    }
+   ],
+   "what": {
+    "ru": "Кружка BIOTACT DEUTSCHLAND Premium Collection на 400 мл для дома, офиса и поездок.",
+    "uz": "BIOTACT DEUTSCHLAND Premium Collection krujkasi 400 ml hajmda; uy, ofis va sayohat uchun mos."
+   },
+   "phrases": {
+    "ru": [
+     "кружка есть?",
+     "нужна кружка для дома и офиса",
+     "красивая кружка в подарок",
+     "кружка на 400 мл есть?",
+     "кружка сколько стоит"
+    ],
+    "uz_latn": [
+     "krujka bormi?",
+     "uy va ofis uchun krujka kerak",
+     "sovg'a uchun chiroyli krujka bormi?",
+     "400 ml krujka bormi?",
+     "krujka narxi qancha?"
+    ],
+    "uz_cyrl": [
+     "кружка борми?",
+     "уй ва офис учун кружка керак",
+     "совға учун чиройли кружка борми?",
+     "400 мл кружка борми?",
+     "кружка нархи қанча?"
+    ]
+   }
+  }
+ ],
+ "names": [
+  {
+   "id": "zincum_c_d3",
+   "text": "BIFOLAK ZINCUM+C+D3",
+   "shop_ids": [
+    16
+   ]
+  },
+  {
+   "id": "zincum",
+   "text": "BIFOLAK ZINCUM",
+   "shop_ids": [
+    17
+   ]
+  },
+  {
+   "id": "active",
+   "text": "BIFOLAK ACTIVE",
+   "shop_ids": [
+    20,
+    21
+   ]
+  },
+  {
+   "id": "neo",
+   "text": "BIFOLAK NEO",
+   "shop_ids": [
+    22
+   ]
+  },
+  {
+   "id": "magniy",
+   "text": "BIFOLAK MAGNIY",
+   "shop_ids": [
+    18,
+    19
+   ]
+  },
+  {
+   "id": "calciy",
+   "text": "CALCIY TRIACTIVE D3",
+   "shop_ids": [
+    15
+   ]
+  },
+  {
+   "id": "dermacomplex",
+   "text": "DERMACOMPLEX",
+   "shop_ids": [
+    4
+   ]
+  },
+  {
+   "id": "immunocomplex",
+   "text": "IMMUNOCOMPLEX",
+   "shop_ids": [
+    7
+   ]
+  },
+  {
+   "id": "immunocomplex_kids",
+   "text": "IMMUNOCOMPLEX KIDS",
+   "shop_ids": [
+    14
+   ]
+  },
+  {
+   "id": "neurocomplex_kids",
+   "text": "NEUROCOMPLEX KIDS",
+   "shop_ids": [
+    6
+   ]
+  },
+  {
+   "id": "ophtalmocomplex",
+   "text": "OPHTALMOCOMPLEX",
+   "shop_ids": [
+    5
+   ]
+  }
+ ]
+}
