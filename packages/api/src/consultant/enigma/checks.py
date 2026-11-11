@@ -1,4 +1,5 @@
-"""Enigma's checks of a written text (spec r2 V-01…V-07). A text that fails is not sent.
+"""Enigma's checks of a written text (spec r2 V-01…V-07; spec.shop-core r4 SV-01…SV-07). A text
+that fails is not sent.
 
 `check` returns the id of the first failed check or None. Product names are found by the
 names of the stage-1 products and masked before the dose and number checks, so that a name
@@ -12,6 +13,7 @@ from itertools import pairwise
 
 from src.consultant.context import SENSITIVE, normalize
 from src.consultant.contracts import Language
+from src.consultant.enigma import shop
 from src.consultant.enigma.data import CORES, NETS, RULES
 from src.consultant.enigma.nets import tokens
 
@@ -92,6 +94,10 @@ class Subject:
     numbers: frozenset[str]
     # Approved texts and instruction lines of the brief.
     approved: tuple[str, ...]
+    # spec.shop-core r4 §2.5: `A` (the chosen topics' texts and the support text) when the brief
+    # held `shop`, and the customer's messages.
+    shop: tuple[str, ...] = ()
+    customers: tuple[str, ...] = ()
 
 
 def numbers(texts: Iterable[str]) -> frozenset[str]:
@@ -119,10 +125,14 @@ def _form(text: str, language: Language) -> bool:
     return not set(tokens(text)) & set(RULES.internal_words)
 
 
-def _names(named: list[frozenset[int]], subject: Subject) -> bool:
+def _names(named: list[frozenset[int]], subject: Subject, names: "Names") -> bool:
     if subject.decision in ("doctor", "emergency"):
         return not named
-    if any(not ids & subject.allowed for ids in named):
+    allowed = set(subject.allowed)
+    if subject.decision == "shop":  # SV-05: the products the shop texts name
+        for ids in names.find("\n".join(subject.shop))[0]:
+            allowed |= ids
+    if any(not ids & allowed for ids in named):
         return False
     return subject.decision != "offer" or any(ids & subject.shown for ids in named)
 
@@ -146,6 +156,8 @@ def _numbers(masked: str, subject: Subject) -> bool:
 def _treatment(toks: Sequence[str], subject: Subject) -> bool:
     pairs = {pair for text in subject.approved for pair in pairwise(tokens(text))}
     for i in _stems(toks, RULES.treatment_stems):
+        if subject.decision == "shop" and shop.warranty_word(toks[i]):
+            continue  # SV-07: a warranty question gets a support answer
         before = (toks[i - 1], toks[i]) if i else None
         after = (toks[i], toks[i + 1]) if i + 1 < len(toks) else None
         if before not in pairs and after not in pairs:
@@ -163,10 +175,11 @@ def _questions(text: str) -> bool:
 
 def check(text: str, subject: Subject, names: Names) -> str | None:
     """The id of the first check the text fails, or None."""
-    if not _form(text, subject.language):
+    # SV-04: the shop phone of `A` is masked before the SENSITIVE search of V-01.
+    if not _form(shop.mask(text, shop.public_values(subject.shop)), subject.language):
         return "V-01"
     named, masked = names.find(text)
-    if not _names(named, subject):
+    if not _names(named, subject, names):
         return "V-02"
     toks = tokens(masked)
     if not _dose(tokens(GLUED.sub(r"\1 \2", masked))):
@@ -175,9 +188,11 @@ def check(text: str, subject: Subject, names: Names) -> str | None:
         return "V-04"
     sentence = RULES.instruction_sentence.model_dump()[subject.language]
     if subject.decision == "offer" and " ".join(sentence.split()) not in " ".join(text.split()):
-        return "V-05"
+        return "V-05"  # SV-06: not for `shop`
     if not _treatment(toks, subject):
         return "V-06"
     if not _questions(text):
         return "V-07"
+    if subject.shop:
+        return shop.check(text, masked, subject.decision, subject.shop, subject.customers)
     return None

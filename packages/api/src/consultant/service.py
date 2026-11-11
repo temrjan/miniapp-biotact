@@ -6,13 +6,13 @@ import logging
 import re
 from collections.abc import Coroutine
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
-from src.consultant.checks import PUBLIC_CONTACTS, RUSSIAN_PROSE, mask
+from src.consultant.checks import RUSSIAN_PROSE, mask
 from src.consultant.context import (
     SENSITIVE,
     Check,
@@ -25,9 +25,10 @@ from src.consultant.context import (
 )
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
-from src.consultant.enigma.cards import ITEM_PRODUCTS, item_cards
+from src.consultant.enigma.cards import ITEM_PRODUCTS
 from src.consultant.enigma.data import DATA as ENIGMA_DATA
 from src.consultant.enigma.nets import Ambulance
+from src.consultant.enigma.shop import PUBLIC_CONTACTS
 from src.consultant.enigma.turn import Enigma, EnigmaTurn, Named
 from src.consultant.enigma.turn import Failure as EnigmaFailure
 from src.consultant.graf import Graf, Stage
@@ -219,7 +220,6 @@ class Consultant:
                 if self.enigma is not None:
                     response = await self.enigma_routed(
                         request,
-                        context,
                         record,
                         owner,
                         deadline,
@@ -294,7 +294,6 @@ class Consultant:
     async def enigma_routed(
         self,
         request: Turn,
-        context: Context,
         record: TurnRecord,
         owner: str,
         deadline: float,
@@ -303,37 +302,18 @@ class Consultant:
         selection: list[int],
         ambulance: Ambulance | None,
     ) -> dict[str, Any]:
-        """consultant-v2 spec r2 SW-03: an ambulance hit is an Enigma turn; a named product
-        keeps the product path; how-to-buy and shop conditions keep their turn; everything
-        else is an Enigma turn. The existing paths see only the selection's supplements."""
+        """consultant-v2 spec r2 SW-03 as amended by spec.shop-core r4 SR-01: an ambulance hit
+        is an Enigma turn; a named product keeps the product path; everything else, how-to-buy
+        and shop conditions included, is an Enigma turn. The product path sees only the
+        selection's supplements."""
         assert self.enigma is not None
         known = [i for i in selection if i in evidence.products]
         if ambulance is None:
             target = route(request, selection, evidence, False, None)
-            if target.kind == "product":
-                # A reply about a shown item card ('первый') stays with Enigma.
-                if all(i in evidence.products for i in target.subject.ids):
-                    record.path = "product"
-                    return await self.product(
-                        request, owner, carry, known, target.subject, evidence
-                    )
-            else:
-                buy = buying(request.question)
-                shop = () if buy else conditions(request.question)
-                if buy or shop:
-                    # The existing turn keeps the displayed cards; item cards are added to
-                    # what it sees, because the knowledge snapshot holds supplements only.
-                    shown, cards = known, evidence
-                    if len(known) != len(selection):
-                        async with self.knowledge.sessions() as db:
-                            items = await item_cards(db, selection, request.language)
-                        shown = [i for i in selection if i in evidence.products or i in items]
-                        cards = replace(evidence, products={**evidence.products, **items})
-                    work = HybridTurn(
-                        self, request, context, record, owner, deadline, cards, carry, shown, None
-                    )
-                    record.path = "post_offer" if target.kind == "post_offer" else "hybrid"
-                    return await work.info(target, HOW_TO_BUY if buy else conditions_outcome(shop))
+            # A reply about a shown item card ('первый') stays with Enigma.
+            if target.kind == "product" and all(i in evidence.products for i in target.subject.ids):
+                record.path = "product"
+                return await self.product(request, owner, carry, known, target.subject, evidence)
         turn = EnigmaTurn(
             self,
             self.enigma,

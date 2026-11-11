@@ -1,7 +1,9 @@
-"""Enigma's data: the cores, the compliance rules and the net lists (spec r2 D-01…D-03).
+"""Enigma's data: the cores, the compliance rules, the net lists (spec r2 D-01…D-03) and the
+shop core (spec.shop-core r4 SD-01…SD-03).
 
-The three JSON files are generated from the approved sources (DocHub, consultant-v2,
-cores-r1/build.py). They are validated at import; an invalid file stops the start.
+The JSON files are generated from the approved sources (DocHub, consultant-v2, cores-r1/build.py;
+the shop core from spec.shop-core r4 §2.1.1). They are validated at import; an invalid file
+stops the start.
 """
 
 import hashlib
@@ -13,7 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DATA_DIR = Path(__file__).parent / "data"
-DATA_FILES = ("cores.json", "rules.json", "nets.json")
+DATA_FILES = ("cores.json", "rules.json", "nets.json", "shop.json")
 # Option ids of the Jev questions that are not a unit, an item or a name.
 RESERVED = frozenset({"doctor", "no_product", "unclear", "none"})
 
@@ -249,19 +251,69 @@ class Nets(Model):
         return self
 
 
-def load(directory: Path = DATA_DIR) -> tuple[Cores, Rules, Nets, str]:
+class Approval(Model):
+    by: str = Field(min_length=1)
+    date: str = Field(min_length=1)
+
+
+class Topic(Model):
+    """A question about the shop: what Jev reads it by, and the approved answer text."""
+
+    id: str = Field(min_length=1)
+    description: Text
+    text: Text
+    approved: Approval | None
+
+
+class Condition(Model):
+    """A shop condition (cash, discount, ...): the stems that make a claim in an answer (spec r7
+    CT-04 (b), widened to other word forms and scripts) and the roots by which a customer's
+    message names it (spec.shop-core r4 SV-03)."""
+
+    concept: str = Field(min_length=1)
+    stems: list[str] = Field(min_length=1)
+    customer_roots: list[str] = Field(min_length=1)
+
+
+class Shop(Model):
+    version: str
+    source: str
+    topic_none: str = Field(min_length=1)
+    conditions: list[Condition] = Field(min_length=1)
+    topics: list[Topic] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def complete(self) -> "Shop":
+        ids = [t.id for t in self.topics]
+        if len(set(ids)) != len(ids) or "none" in ids:
+            raise ValueError("a topic id is repeated or 'none'")
+        if SUPPORT not in ids:
+            raise ValueError(f"no topic {SUPPORT}")
+        concepts = [c.concept for c in self.conditions]
+        if len(set(concepts)) != len(concepts):
+            raise ValueError("a condition concept is repeated")
+        return self
+
+
+# The topic whose text sends the customer to support (spec.shop-core r4 SL-01).
+SUPPORT = "other_shop"
+
+
+def load(directory: Path = DATA_DIR) -> tuple[Cores, Rules, Nets, Shop, str]:
     """The validated data of a directory and its hash."""
     raw = [(directory / name).read_bytes() for name in DATA_FILES]
-    cores, rules, nets = (json.loads(body) for body in raw)
+    cores, rules, nets, shop = (json.loads(body) for body in raw)
     return (
         Cores.model_validate(cores),
         Rules.model_validate(rules),
         Nets.model_validate(nets),
+        Shop.model_validate(shop),
         hashlib.sha256(b"".join(raw)).hexdigest(),
     )
 
 
-CORES, RULES, NETS, DATA = load()
+CORES, RULES, NETS, SHOP, DATA = load()
+TOPIC = {t.id: t for t in SHOP.topics}
 UNIT = {u.id: u for u in CORES.units}
 ITEM = {i.id: i for i in CORES.items}
 NAME = {n.id: n for n in CORES.names}
