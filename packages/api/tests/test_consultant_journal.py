@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from src import main
 from src.auth import privacy
 from src.config import Settings
-from src.consultant import graf
 from src.consultant.contracts import Fault
+from src.consultant.enigma.nets import tokens
 from src.consultant.record import TurnRecord, noop
 from src.journal.models import Conversation, JournalTurn
 from src.journal.writer import Journal, report, runtime
@@ -302,7 +302,7 @@ async def test_every_mapped_column_equals_the_record_value_on_every_path(session
             "versions": as_json(record.versions),
             "asked_question": as_json(record.asked_question),
             "resolution": as_json(record.resolution),
-            "tokens": graf.tokens(record.question),
+            "tokens": tokens(record.question),
             "opyt": None,
             "memory": None,
         }, record.path
