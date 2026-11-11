@@ -3,7 +3,10 @@ database: the switch and the routing, the Luna answer and its checks, the cards,
 turn and the record. Jev is a double at its HTTP boundary, Luna at Provider.call. Each test
 names the requirement it proves."""
 
+import asyncio
+import contextlib
 import json
+import logging
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -16,6 +19,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.config import Settings
 from src.consultant import graf
+from src.consultant import record as recording
 from src.consultant.context import Tokens
 from src.consultant.contracts import Fault, Turn
 from src.consultant.control import Controls
@@ -494,3 +498,167 @@ async def test_ft04_a_removed_product_is_absent_from_the_brief_and_fails_v02(tes
     assert candidate["pair_line"] is None
     assert second["retry"] == {"failed_check": "V-02"}
     assert [p["id"] for p in response["products"]] == [7]
+
+
+# --- Enigma-mode safety tests before the Graf removal changes the service (C-76) --------------
+
+# The approved contacts text of the shop (Graf template conditions.contacts, RU), written out so
+# that the test does not depend on Graf data.
+CONTACTS = (
+    "Если у Вас есть вопросы, можете обратиться\nпо номеру: 998 93 555 17 47\n"
+    "или написать в телеграм: @Biotact_uz"
+)
+
+
+async def test_ct06_the_shop_phone_in_an_earlier_answer_is_not_sensitive_input(
+    test_db: Any,
+) -> None:
+    # spec r7 CT-06 in Enigma mode: a delivered contacts answer does not block the next turn;
+    # another phone in an answer, and the shop phone in the current question, give 422.
+    await seed(test_db)
+    consultant = bot(test_db, JevDouble(answer("unclear")), say("ask", QUESTION))
+    tab, token = shown(consultant, [])
+    reply = await consultant.turn(
+        turn("что посоветуете?", token, tab, (("как с вами связаться?", CONTACTS),))
+    )
+    assert (reply["status"], consultant.records[-1].path) == (  # type: ignore[attr-defined]
+        "clarification",
+        "enigma",
+    )
+    other = (("как с вами связаться?", "Позвоните по номеру 998 90 111 22 33."),)
+    for history, question in (
+        (other, "что посоветуете?"),
+        ((("как с вами связаться?", CONTACTS),), "ваш номер 998 93 555 17 47?"),
+    ):
+        with pytest.raises(Fault) as fault:
+            await consultant.turn(turn(question, token, tab, history))
+        assert (fault.value.code, fault.value.status) == ("sensitive_input", 422)
+
+
+async def test_rec02_counters_have_no_text_and_are_logged_by_the_runtime_task(
+    test_db: Any, caplog: Any
+) -> None:
+    await seed(test_db)
+    text = "IMMUNOCOMPLEX® поддерживает иммунитет. " + SENTENCE
+    failure = Fault("provider_unavailable", 502)
+    consultant = bot(
+        test_db,
+        JevDouble(answer("immunocomplex")),
+        say("offer", text, "immunocomplex"),
+        failure,
+        failure,
+    )
+    await consultant.turn(turn("часто болею"))
+    with pytest.raises(Fault, match="answer_unavailable"):
+        await consultant.turn(turn("плохо сплю и устаю"))
+    counts = dict(consultant.counters.counts)
+    assert (counts["turns.enigma"], counts["turns.failure"], counts["failure.luna"]) == (1, 1, 1)
+    assert counts["luna.outcome.provider_error"] == 2
+    caplog.set_level(logging.INFO, logger="src.consultant.record")
+    task = asyncio.create_task(recording.report(consultant.counters, 0.01))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    lines = [r.getMessage() for r in caplog.records if r.name == "src.consultant.record"]
+    assert lines
+    assert "turns.enigma=1" in lines[0]
+    for secret in ("болею", "устаю", "иммунитет", "IMMUNOCOMPLEX"):
+        assert secret not in lines[0]
+
+
+async def test_the_recorder_runs_once_per_turn_and_a_raising_recorder_changes_nothing(
+    test_db: Any,
+) -> None:
+    await seed(test_db)
+    ask = say("ask", QUESTION)
+    consultant = bot(test_db, JevDouble(answer("unclear")), ask, ask)
+    with pytest.raises(Fault, match="context_invalid"):
+        await consultant.turn(turn("что посоветуете?", "broken.token", None, (("x", "y"),)))
+    reply = await consultant.turn(turn("что посоветуете?"))
+    records = consultant.records  # type: ignore[attr-defined]
+    assert [(r.path, r.http_status, r.fault_code) for r in records] == [
+        ("failure", 400, "context_invalid"),
+        ("enigma", 200, None),
+    ]
+    assert (records[0].versions, records[0].jev, records[0].luna) == (None, None, None)
+    assert records[1].answer == reply["answer"]
+
+    def broken(record: Any) -> None:
+        raise RuntimeError("recorder")
+
+    consultant.recorder = broken
+    again = await consultant.turn(turn("что посоветуете?"))
+    assert (again["status"], again["answer"]) == (reply["status"], reply["answer"])
+
+
+async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db: Any) -> None:
+    # JW-02 in Enigma mode: each path a turn can take today is written to the real journal
+    # tables with the record's values.
+    await seed(test_db)
+    offer = "IMMUNOCOMPLEX® поддерживает иммунитет. " + SENTENCE
+    cases = [
+        (JevDouble(answer("immunocomplex")), say("offer", offer, "immunocomplex"), "часто болею"),
+        (
+            JevDouble(answer("unclear")),
+            say("emergency", RULES.emergency.general.ru),
+            "давит в груди отдает в левую руку",
+        ),
+        (JevDouble(answer("unclear")), say("ask", QUESTION), "IMMUNOCOMPLEX"),
+        (JevDouble(answer("unclear")), say("ask", QUESTION), "как оформить заказ?"),
+        (JevDouble(httpx.Response(500)), say("ask", QUESTION), "плохо сплю"),
+    ]
+    records: list[Any] = []
+    for jev, step, question in cases:
+        consultant = bot(test_db, jev, step)
+        with contextlib.suppress(Fault):  # the failure case ends with 503
+            await consultant.turn(turn(question))
+        records += consultant.records  # type: ignore[attr-defined]
+    assert [(r.path, r.graf_outcome, r.http_status) for r in records] == [
+        ("enigma", "offer", 200),
+        ("enigma", "emergency", 200),
+        ("product", None, 200),
+        ("hybrid", "how_to_buy", 200),
+        ("failure", None, 503),
+    ]
+    sessions = async_sessionmaker(test_db.bind, expire_on_commit=False)
+    journal = Journal(sessions)
+    for record in records:
+        await journal.write(record)
+    async with sessions() as db:
+        stored = list(await db.scalars(select(JournalTurn).order_by(JournalTurn.id)))
+    assert len(stored) == len(records)
+
+    def plain(value: Any) -> Any:
+        return None if value is None else json.loads(json.dumps(value))
+
+    for row, record in zip(stored, records, strict=True):
+        assert (
+            str(row.request_id),
+            row.question,
+            row.answer,
+            row.http_status,
+            row.fault_code,
+            row.response_status,
+            row.path,
+            row.graf_outcome,
+            row.situation,
+            row.offered_product_ids,
+            row.jev,
+            row.luna,
+            row.facts,
+            row.versions,
+        ) == (
+            record.request_id,
+            record.question,
+            record.answer,
+            record.http_status,
+            record.fault_code,
+            record.response_status,
+            record.path,
+            record.graf_outcome,
+            record.situation,
+            record.offered_product_ids or [],
+            plain(record.jev),
+            plain(record.luna),
+            plain(record.facts),
+            plain(record.versions),
+        )
