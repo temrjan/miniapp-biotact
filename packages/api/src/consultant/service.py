@@ -12,7 +12,6 @@ from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
-from src.consultant.checks import RUSSIAN_PROSE, mask
 from src.consultant.context import (
     SENSITIVE,
     Check,
@@ -28,22 +27,11 @@ from src.consultant.control import Controls
 from src.consultant.enigma.cards import ITEM_PRODUCTS
 from src.consultant.enigma.data import DATA as ENIGMA_DATA
 from src.consultant.enigma.nets import Ambulance
-from src.consultant.enigma.shop import PUBLIC_CONTACTS
-from src.consultant.enigma.turn import Enigma, EnigmaTurn, Named
-from src.consultant.enigma.turn import Failure as EnigmaFailure
-from src.consultant.graf import Graf, Stage
-from src.consultant.hybrid import (
-    HOW_TO_BUY,
-    Failure,
-    HybridTurn,
-    buying,
-    conditions,
-    conditions_outcome,
-    route,
-)
+from src.consultant.enigma.shop import PUBLIC_CONTACTS, mask
+from src.consultant.enigma.turn import Enigma, EnigmaTurn, Failure, Named
 from src.consultant.knowledge import ADVICE, Evidence, Knowledge
 from src.consultant.provider import PROFILE, Provider
-from src.consultant.record import GRAF_DATA, Counters, Recorder, TurnRecord, noop
+from src.consultant.record import Counters, Recorder, TurnRecord, noop
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +54,28 @@ PERSONAL = re.compile(
     r"(?:лечи|вылеч|назначь|диагноз|davolab|tashxis|davolash buyur)|(?:скрой|убери|yashir).{0,30}(?:предупрежд|противопоказ|ogohlantir)",
     re.I,
 )
+# The product path's own words of Russian prose in an Uzbek answer (moved unchanged from the
+# former checks.py, graf-removal spec r3 G4-04).
+RUSSIAN_PROSE = re.compile(
+    r"\b(?:это|для|или|при|также|можно|нельзя|следует|состав|указан[аоы]?|"
+    r"содержит|детей|взрослых|инструкци[яию]|индивидуальная|непереносимость)\b",
+    re.I,
+)
+ORDINAL = re.compile(r"\b(?:first|перв\w*|birinchi\w*|second|втор\w*|ikkinchi\w*)\b")
+
+
+def product_subject(request: Turn, selection: list[int], evidence: Evidence) -> Subject | None:
+    """The subject of the named-product path, or None (graf-removal spec r3 G4-04): a named
+    product, or an ordinal or open-intent word with a displayed selection. An ordinal or
+    open-intent word without a displayed selection never routes to the product path."""
+    page = request.page_product_id if request.page_product_id in evidence.products else None
+    subject = resolve(
+        request.question, evidence.aliases, selection, page, request.context_token is None
+    )
+    ordinal = ORDINAL.search(request.question.casefold()) is not None
+    if subject.explicit or (selection and (ordinal or subject.open_intent)):
+        return subject
+    return None
 
 
 @dataclass(frozen=True)
@@ -87,8 +97,6 @@ class Consultant:
         knowledge: Knowledge,
         provider: Provider,
         tokens: Tokens,
-        graf: Graf | None = None,
-        hybrid: bool = True,
         enigma: Enigma | None = None,
     ) -> None:
         self.controls, self.knowledge, self.provider, self.tokens = (
@@ -97,13 +105,8 @@ class Consultant:
             provider,
             tokens,
         )
-        # Graf is on only when its key is configured (plan r4 section 2).
-        self.graf = graf
-        # spec r2 OP-01: off makes every hybrid turn end with the failure response.
-        self.hybrid = hybrid
-        # consultant-v2 spec r2 SW-01: Enigma answers beside Graf only when it is selected,
-        # the Graf key is configured and the hybrid switch is on.
-        self.enigma = enigma if graf is not None and hybrid else None
+        # graf-removal spec r3 G4-03: the one engine; None (no Jev key) fails every turn.
+        self.enigma = enigma
         self.counters = Counters()
         # spec r2 OP-03: called once per turn after the SENSITIVE filter (PR-5 replaces it).
         self.recorder: Recorder = noop
@@ -166,130 +169,56 @@ class Consultant:
         return Fault("answer_unavailable", 503)
 
     async def answer(self, request: Turn, record: TurnRecord) -> dict[str, Any]:
-        """spec r2 HR-01: token, ambulance stage, register, snapshot, then the route."""
+        """Token, the no-engine response, the ambulance list, admission, snapshot, then the
+        route (graf-removal spec r3 G4-03, G4-05)."""
         context = self.tokens.read(request) if request.context_token else Context.fresh()
         record.token_epoch = context.epoch
-        record.versions = {"knowledge": None, "profile": PROFILE, "graf_data": GRAF_DATA}
+        record.versions = {"knowledge": None, "profile": PROFILE}
+        if self.enigma is None:
+            # G4-03 (C-75): without the Jev key every turn gets the failure response, before
+            # admission and without any model call.
+            raise self.failure(record, "no_engine")
+        record.versions.update(engine="enigma", enigma_data=ENIGMA_DATA)
         selection = context.ids
-        # Every issued token carries the pregnancy flag and the cleared digests; only a Graf
-        # question or a safety response carries a flow state.
+        # Every issued token carries the pregnancy flag and the cleared digests.
         carry = Carry(context.epoch, context.pg, context.cleared)
-        owned, flow = context.flow is not None, context.flow
-        stage = Stage("none")
-        ambulance: Ambulance | None = None
-        if self.enigma is not None:
-            # consultant-v2 SW-02: Enigma's ambulance list on the current message; Graf's
-            # adoption and stage do not run.
-            record.versions.update(engine="enigma", enigma_data=ENIGMA_DATA)
-            ambulance = self.enigma.ambulance(request, context)
-        elif self.graf is not None:
-            if context.version == 1:
-                owned, flow = self.graf.adopt(request)
-            # Step 3: the ambulance list runs before register and snapshot (SF-02).
-            stage = self.graf.stage(request, context)
-        # SF-07: register or snapshot failing on an emergency or check turn ends the turn
-        # with the failure response; a continued checked message keeps today's faults.
-        strict = stage.safety and stage.outcome is not None
-        if stage.safety:
-            record.path = "safety"
-            if not self.hybrid:
-                raise self.failure(record, "switch_off")
-        try:
-            owner = await self.controls.register(request.request_id, request.tab_id)
-        except Fault:
-            if strict:
-                raise self.failure(record, "register") from None
-            raise
+        # consultant-v2 SW-02: Enigma's ambulance list on the current message.
+        ambulance = self.enigma.ambulance(request, context)
+        owner = await self.controls.register(request.request_id, request.tab_id)
         deadline = asyncio.get_running_loop().time() + DEADLINE
-        work: HybridTurn | None = None
         try:
             async with asyncio.timeout_at(deadline):
-                try:
-                    evidence = await self.knowledge.snapshot(request.language)
-                except Fault:
-                    if strict:
-                        raise self.failure(record, "snapshot") from None
-                    raise
+                evidence = await self.knowledge.snapshot(request.language)
                 record.versions["knowledge"] = evidence.release
-                if any(
-                    i not in evidence.products
-                    and not (self.enigma is not None and i in ITEM_PRODUCTS)
-                    for i in selection
-                ):
+                if any(i not in evidence.products and i not in ITEM_PRODUCTS for i in selection):
                     selection = []
-                if self.enigma is not None:
-                    response = await self.enigma_routed(
-                        request,
-                        record,
-                        owner,
-                        deadline,
-                        evidence,
-                        carry,
-                        selection,
-                        ambulance,
-                    )
-                elif self.graf is None:
-                    record.path = "product"
-                    subject = resolve(
-                        request.question,
-                        evidence.aliases,
-                        selection,
-                        request.page_product_id
-                        if request.page_product_id in evidence.products
-                        else None,
-                        request.context_token is None,
-                    )
-                    response = await self.product(
-                        request, owner, carry, selection, subject, evidence
-                    )
-                else:
-                    work = HybridTurn(
-                        self,
-                        request,
-                        context,
-                        record,
-                        owner,
-                        deadline,
-                        evidence,
-                        carry,
-                        selection,
-                        flow,
-                    )
-                    response = await self.routed(work, stage, owned, flow)
+                response = await self.enigma_routed(
+                    request, record, owner, deadline, evidence, carry, selection, ambulance
+                )
                 await self.controls.alive(owner)
                 return response
-        except (Failure, EnigmaFailure) as failure:
+        except Failure as failure:
             raise self.failure(record, failure.trigger, failure.check) from None
         except TimeoutError:
-            # FR-01: the deadline on a hybrid turn is the failure response; the product path
-            # keeps its 504 (PO-05).
-            if self.hybrid_turn(work, stage, record) or self.enigma_turn(record):
+            # FR-01: the deadline on an Enigma turn is the failure response; the product path
+            # and a turn without a route yet keep their 504 (PO-05).
+            if self.enigma_turn(record):
                 raise self.failure(record, "deadline") from None
             raise Fault("timeout", 504) from None
         except Fault as fault:
             # The same 60 s deadline seen by the control layer.
-            if fault.code == "timeout" and (
-                self.hybrid_turn(work, stage, record) or self.enigma_turn(record)
-            ):
+            if fault.code == "timeout" and self.enigma_turn(record):
                 raise self.failure(record, "deadline") from None
             raise
         finally:
-            if work is not None:
-                work.finish()
             with suppress(TimeoutError):
                 async with asyncio.timeout_at(deadline):
                     await self.controls.finish(owner)
 
     @staticmethod
-    def hybrid_turn(work: HybridTurn | None, stage: Stage, record: TurnRecord) -> bool:
-        """The turn has not left for the product path after a follow-up."""
-        if work is None:
-            return stage.safety
-        return work.hybrid and record.path != "product"
-
-    def enigma_turn(self, record: TurnRecord) -> bool:
-        """Enigma is on and the turn has a route other than the named-product path."""
-        return self.enigma is not None and record.path not in ("failure", "product")
+    def enigma_turn(record: TurnRecord) -> bool:
+        """The turn has a route other than the named-product path."""
+        return record.path not in ("failure", "product")
 
     async def enigma_routed(
         self,
@@ -309,11 +238,11 @@ class Consultant:
         assert self.enigma is not None
         known = [i for i in selection if i in evidence.products]
         if ambulance is None:
-            target = route(request, selection, evidence, False, None)
+            subject = product_subject(request, selection, evidence)
             # A reply about a shown item card ('первый') stays with Enigma.
-            if target.kind == "product" and all(i in evidence.products for i in target.subject.ids):
+            if subject is not None and all(i in evidence.products for i in subject.ids):
                 record.path = "product"
-                return await self.product(request, owner, carry, known, target.subject, evidence)
+                return await self.product(request, owner, carry, known, subject, evidence)
         turn = EnigmaTurn(
             self,
             self.enigma,
@@ -333,47 +262,6 @@ class Consultant:
             record.path = "product"
             subject = Subject(named.ids, True, False, False)
             return await self.product(request, owner, carry, known, subject, evidence)
-
-    async def routed(
-        self, work: HybridTurn, stage: Stage, owned: bool, flow: FlowState | None
-    ) -> dict[str, Any]:
-        assert self.graf is not None
-        request, record = work.request, work.record
-        if stage.safety:
-            # A strong or weak hit still has its own message: Luna may decide that it is no
-            # danger and answer it normally (Captain 2026-11-09, "Все луне").
-            normal = request if stage.level in {"weak", "strong"} else stage.checked
-            target = None
-            if normal is not None:
-                if normal is not request and work.context.version == 1:
-                    owned, flow = self.graf.adopt(normal)
-                target = route(normal, work.selection, work.evidence, owned, flow)
-            return await work.safety(stage, normal, target)
-        target = route(request, work.selection, work.evidence, owned, flow)
-        # Step 5a (spec r6 BUY-01, BUY-02): after the product path, before steps 6 to 8, and
-        # never on a safety turn.
-        buy = target.kind != "product" and buying(request.question)
-        # Step 5b (spec r7 §2.1, CN-04): the same place; 5a and 5b exclude each other (CR-02).
-        shop = () if target.kind == "product" or buy else conditions(request.question)
-        if not target.hybrid and not buy and not shop:
-            # Step 5 (and a version 1 flow whose start left the window): the product path.
-            record.path, work.hybrid = "product", False
-            if target.kind == "aside":
-                self.graf.log(None, "step_aside")
-            return await self.product(
-                request, work.owner, work.carry, work.selection, target.subject, work.evidence
-            )
-        if target.kind == "post_offer":
-            record.path = "post_offer"
-        else:
-            record.path = "page_product" if target.page is not None else "hybrid"
-        if not self.hybrid:
-            raise Failure("switch_off")
-        if buy:
-            return await work.info(target, HOW_TO_BUY)
-        if shop:
-            return await work.info(target, conditions_outcome(shop))
-        return await work.normal(target)
 
     async def product(
         self,

@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
@@ -17,6 +18,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from src.consultant.context import Tokens, resolve
 from src.consultant.contracts import Fault, Turn
 from src.consultant.control import Controls
+from src.consultant.enigma.jev import Jev
+from src.consultant.enigma.turn import Enigma
 from src.consultant.knowledge import Knowledge
 from src.consultant.models import (
     Budget,
@@ -228,10 +231,25 @@ async def seed(db):
     await db.commit()
 
 
+def unreachable(request):
+    state = json.loads(request.content)["state"]
+    raise AssertionError(f"an Enigma turn for {state!r}: the message must reach the product path")
+
+
 def service(db, provider=None):
+    """The consultant of the product-path tests. Every consultant has Enigma since Graf
+    removal step 4 (graf-removal spec r3 G4-03); its Jev fails the test when called, so each
+    message here must reach the named-product path."""
     sessions = async_sessionmaker(db.bind, expire_on_commit=False)
     controls = Controls(sessions, KEY, True)
-    return Consultant(controls, Knowledge(sessions), provider or ProviderStub(), Tokens(KEY))
+    client = httpx.AsyncClient(transport=httpx.MockTransport(unreachable))
+    return Consultant(
+        controls,
+        Knowledge(sessions),
+        provider or ProviderStub(),
+        Tokens(KEY),
+        Enigma(Jev(client, "fixture-key")),
+    )
 
 
 @pytest.mark.parametrize("language", ["ru", "uz"])
@@ -252,25 +270,16 @@ async def test_explicit_source_only_change_cards_token_and_followup(test_db, lan
     assert b["products"][0]["is_in_stock"] is False
     assert b["open_product_id"] is None
     third = request(
-        "цена" if language == "ru" else "narxi", b["context_token"], first.tab_id, language
+        "DERMACOMPLEX цена" if language == "ru" else "DERMACOMPLEX narxi",
+        b["context_token"],
+        first.tab_id,
+        language,
     )
     c = await bot.turn(third)
     assert [p["id"] for p in c["products"]] == [4]
     assert "100" in c["answer"]
     assert "200" not in c["answer"]
     assert len(bot.provider.calls) == 6  # S4: ordinary prices also use the whole-question path
-
-
-async def test_unknown_clears_page_fallback_and_no_reference_has_no_provider(test_db):
-    await seed(test_db)
-    bot = service(test_db)
-    bot.provider.clarify = True
-    first = request("Теперь UNKNOWN")
-    a = await bot.turn(first)
-    b = await bot.turn(request("состав", a["context_token"], first.tab_id))
-    assert a["products"] == b["products"] == []
-    assert b["status"] == "clarification"
-    assert len(bot.provider.calls) == 1
 
 
 def test_tokens_and_resolver_are_bound_to_current_order():
@@ -600,16 +609,11 @@ async def test_operator_preparation_is_exact_resumable_and_does_not_activate(
         await operator.prepare(path, identity, "fixture-approval", provider, False)
 
 
-async def test_usage_offswitch_and_unknown_hidden_subject(test_db):
+async def test_usage_and_offswitch(test_db):
+    # Graf removal step 4: the hidden-subject part went with the engine-less routing (a hidden
+    # product's name reaches Enigma, not the product path).
     await seed(test_db)
     bot = service(test_db)
-    async with bot.controls.sessions.begin() as db:
-        product = await db.get(Product, 4)
-        product.is_active = False
-    reply = await bot.turn(request("DERMACOMPLEX"))
-    assert reply["status"] == "limited"
-    assert reply["products"] == []
-    assert bot.provider.calls == []
     owner = await bot.controls.register(uuid4(), uuid4())
     controls = bot.controls
     reservation = await controls.reserve(owner, "responses")
@@ -767,9 +771,8 @@ async def test_runtime_without_budget_settings_serves_turns(test_db, provider_ke
     config = SimpleNamespace(
         consultant_provider_key=secret(provider_key),
         consultant_protection_key=secret(KEY),
-        consultant_graf_key=secret(""),
+        consultant_graf_key=secret("jev-key-fixture"),
         consultant_origins=[],
-        consultant_hybrid=True,
     )
     app = SimpleNamespace(state=SimpleNamespace())
     async with runtime(app, config, async_sessionmaker(test_db.bind, expire_on_commit=False)):
@@ -796,10 +799,15 @@ def test_settings_ignore_former_daily_limit_lines(tmp_path):
         "CONSULTANT_DAILY_OUTPUT_TOKENS=491520\n"
         "CONSULTANT_DAILY_EMBEDDING_TOKENS=0\n"
         "CONSULTANT_TRUSTED_PROXY_PEERS=[]\n"
+        # graf-removal spec r3 G4-01: the former engine switches.
+        "CONSULTANT_ENGINE=enigma\n"
+        "CONSULTANT_HYBRID=true\n"
     )
     loaded = Settings(_env_file=env)
     assert not hasattr(loaded, "consultant_daily_calls")
     assert not hasattr(loaded, "consultant_trusted_proxy_peers")
+    assert not hasattr(loaded, "consultant_engine")
+    assert not hasattr(loaded, "consultant_hybrid")
 
 
 async def test_long_history_reaches_the_provider_whole(test_db):
@@ -835,7 +843,9 @@ async def test_long_history_request_above_the_former_64_kib_is_served(test_db):
     app.state.consultant_origins = ["https://shop.test"]
     first = request("ACTIVE")
     shown = await bot.turn(first)
-    raw = json.loads(request("состав", shown["context_token"], first.tab_id).model_dump_json())
+    raw = json.loads(
+        request("ACTIVE состав", shown["context_token"], first.tab_id).model_dump_json()
+    )
     # Answers above the former 8,000 characters; the body is far above 64 KiB.
     raw["history"] = [
         {"question": f"Вопрос {n} про ACTIVE", "answer": "Ответ про состав. " * 1000}

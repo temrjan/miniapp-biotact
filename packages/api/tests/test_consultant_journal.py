@@ -1,8 +1,8 @@
 """The consultant journal (spec.opyt r2 §4, PR-5) on PostgreSQL 16: the writer, the
-conversation key, the column mapping, the agreed-turn labels, the failure path, the counters
-line, the switch and the migration. Records are built directly, or produced by the real
-service with fake Jev (OpenRouter) and fake Luna (LunaStub) as in the hybrid tests. Every
-customer text here is synthetic."""
+conversation key, the agreed-turn labels, the failure path, the counters line, the switch
+and the migration. Records are built directly, or produced by the real service with Enigma's
+Jev and Luna doubles as in the Enigma turn tests (the column mapping on every path is there).
+Every customer text here is synthetic."""
 
 import asyncio
 import json
@@ -19,16 +19,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from src import main
 from src.auth import privacy
 from src.config import Settings
-from src.consultant.contracts import Fault
-from src.consultant.enigma.nets import tokens
 from src.consultant.record import TurnRecord, noop
 from src.journal.models import Conversation, JournalTurn
 from src.journal.writer import Journal, report, runtime
 from tests import test_category_schema_migration as migration
-from tests.test_consultant_graf_fakes import answer
-from tests.test_consultant_graf_flow import OpenRouter
-from tests.test_consultant_graf_hybrid import Recorded
-from tests.test_consultant_graf_turns import shop
+from tests.test_consultant_enigma_core import answer
+from tests.test_consultant_enigma_turn import QUESTION, SENTENCE, JevDouble, bot, say, turn
+from tests.test_consultant_enigma_turn import seed as enigma_seed
 
 scratch = migration.scratch
 T0 = datetime(2026, 11, 3, 10, 0, tzinfo=UTC)
@@ -197,117 +194,6 @@ async def test_conversations_by_tab_and_epoch_and_removal_of_one_conversation(se
     assert [r.question for r in await rows(sessions)] == ["четвёртый"]
 
 
-# --- JW-06 per path ------------------------------------------------------------------------
-
-
-async def path_records():
-    """One service turn per OP-03 path, a how-to-buy turn (BUY-06) and a 504 timeout."""
-    out = []
-    chat = Recorded(OpenRouter({"часто болею": "immunity"}))
-    await chat.say("часто болею")
-    await chat.say("как заказать?")
-    out += chat.records
-    chat = Recorded(OpenRouter())
-    await chat.say("Как принимать IMMUNOCOMPLEX®?")
-    await chat.say("давит в груди")
-    out += chat.records
-    chat = Recorded(OpenRouter({"сын часто болеет, ему 5": "immunity"}))
-    await chat.say("сын часто болеет, ему 5")
-    await chat.say("а что ещё?")
-    out += chat.records
-    page = Recorded(
-        OpenRouter({"как его принимать?": ("immunity", 0.5)}), page=shop("immunocomplex")
-    )
-    page.script(answer(intent=("follow_up", "high")))
-    await page.say("как его принимать?")
-    out += page.records
-    chat = Recorded(OpenRouter({"сын часто болеет, ему 5": "immunity"}))
-    chat.script(Fault("provider_unavailable", 502))
-    await chat.fails("сын часто болеет, ему 5")
-    out += chat.records
-    chat = Recorded(OpenRouter({"сын часто болеет, ему 5": "immunity"}))
-    await chat.say("сын часто болеет, ему 5")
-
-    async def slow(inputs, last):
-        raise TimeoutError
-
-    chat.bot.provider.response = slow
-    chat.script(answer(intent=("follow_up", "high")))
-    with pytest.raises(Fault, match="timeout"):
-        await chat.say("а его можно детям?")
-    out.append(chat.records[-1])
-    return out
-
-
-def as_json(value):
-    return None if value is None else json.loads(json.dumps(value))
-
-
-async def test_every_mapped_column_equals_the_record_value_on_every_path(sessions):
-    records = await path_records()
-    assert {(r.path, r.graf_outcome, r.http_status) for r in records} >= {
-        ("hybrid", "question", 200),
-        ("hybrid", "how_to_buy", 200),
-        ("product", None, 200),
-        ("safety", "emergency", 200),
-        ("post_offer", "post_offer", 200),
-        ("page_product", None, 200),
-        ("failure", None, 503),
-        ("post_offer", None, 504),
-    }
-    await store(sessions, *records)
-    stored = await rows(sessions)
-    assert len(stored) == len(records)
-    for row, record in zip(stored, records, strict=True):
-        assert {
-            "request_id": str(row.request_id),
-            "tab_id": str(row.tab_id),
-            "created_at": row.created_at,
-            "question": row.question,
-            "answer": row.answer,
-            "http_status": row.http_status,
-            "fault_code": row.fault_code,
-            "response_status": row.response_status,
-            "path": row.path,
-            "graf_outcome": row.graf_outcome,
-            "situation": row.situation,
-            "template": row.template,
-            "offered_product_ids": row.offered_product_ids,
-            "jev": row.jev,
-            "luna": row.luna,
-            "facts": row.facts,
-            "versions": row.versions,
-            "asked_question": row.asked_question,
-            "resolution": row.resolution,
-            "tokens": row.tokens,
-            "opyt": row.opyt,
-            "memory": row.memory,
-        } == {
-            "request_id": record.request_id,
-            "tab_id": record.tab_id,
-            "created_at": record.created,
-            "question": record.question,
-            "answer": record.answer,
-            "http_status": record.http_status,
-            "fault_code": record.fault_code,
-            "response_status": record.response_status,
-            "path": record.path,
-            "graf_outcome": record.graf_outcome,
-            "situation": record.situation,
-            "template": record.template,
-            "offered_product_ids": record.offered_product_ids or [],
-            "jev": as_json(record.jev),
-            "luna": as_json(record.luna),
-            "facts": as_json(record.facts),
-            "versions": as_json(record.versions),
-            "asked_question": as_json(record.asked_question),
-            "resolution": as_json(record.resolution),
-            "tokens": tokens(record.question),
-            "opyt": None,
-            "memory": None,
-        }, record.path
-
-
 # --- JL-01 ----------------------------------------------------------------------------------
 
 JEV_LUNA = [
@@ -421,51 +307,43 @@ async def test_the_confirmed_label_goes_to_the_latest_asking_row(sessions, case)
     assert "failed" not in " ".join(journal.counters.counts)
 
 
-async def test_a_service_conversation_labels_the_message_that_raised_the_confirm(sessions):
-    chat = Recorded(OpenRouter({"здравствуйте": "unclear", "часто болею": ("immunity", 0.5)}))
-    app = SimpleNamespace(state=SimpleNamespace(consultant=chat.bot))
-    async with runtime(app, ON, sessions):
-        assert (await chat.say("здравствуйте"))["status"] == "clarification"
-        chat.script(answer(situation="immunity"))  # Jev 0.5, Luna sure: confirm (MR-09)
-        await chat.say("часто болею")
-        with pytest.raises(Fault, match="sensitive_input"):  # JW-07: no record
-            await chat.say("пишите на fixture@example.com")
-        await chat.say("да")
-    stored = await rows(sessions)
-    assert [(r.question, r.graf_outcome) for r in stored] == [
-        ("здравствуйте", "clarify"),
-        ("часто болею", "confirm"),
-        ("да", "question"),
-    ]
-    assert labels(stored) == [None, ("immunity", "confirmed"), None]
-
-
 # --- JW-01, JW-08, JG-01 without tables, JS-01 ----------------------------------------------
 
 
 async def test_a_failed_write_is_counted_and_logged_without_text_and_the_writer_goes_on(
-    sessions, caplog
+    test_db, sessions, caplog
 ):
+    # Restated with an Enigma consultant in Graf removal step 4 (graf-removal spec r3 §3).
     marker = "СИНТЕТИКА-7731"
     question = "часто болею " + marker
-    routes = {question: ("immunity", 0.5), "да": ("immunity", 0.5)}
-    expected = await Recorded(OpenRouter(routes)).say(question)
+    await enigma_seed(test_db)
+    offer = "IMMUNOCOMPLEX® поддерживает иммунитет. " + SENTENCE
+
+    def consultant():
+        return bot(
+            test_db,
+            JevDouble(answer("immunocomplex")),
+            say("offer", offer, "immunocomplex"),
+            say("ask", QUESTION),
+        )
+
+    expected = await consultant().turn(turn(question))
     async with sessions.begin() as db:
         await db.execute(text("ALTER TABLE consultant_turn RENAME TO consultant_turn_away"))
     caplog.set_level(logging.INFO)
-    chat = Recorded(OpenRouter(routes))
-    app = SimpleNamespace(state=SimpleNamespace(consultant=chat.bot))
+    chat = consultant()
+    app = SimpleNamespace(state=SimpleNamespace(consultant=chat))
     restore = text("ALTER TABLE IF EXISTS consultant_turn_away RENAME TO consultant_turn")
     try:
         async with runtime(app, ON, sessions) as journal:  # startup without the table
-            reply = await chat.say(question)
+            reply = await chat.turn(turn(question))
             assert journal.queue.qsize() == 1  # the turn did not wait for the writer
             keys = ("status", "answer", "products", "sources", "cautions", "open_product_id")
             assert {k: reply[k] for k in keys} == {k: expected[k] for k in keys}
             await until(lambda: journal.queue.qsize() == 0 and len(journal.counters.counts) > 1)
             async with sessions.begin() as db:
                 await db.execute(restore)
-            await chat.say("да")
+            await chat.turn(turn("да"))
     finally:
         async with sessions.begin() as db:
             await db.execute(restore)

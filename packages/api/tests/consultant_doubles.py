@@ -1,15 +1,131 @@
-"""A fake Luna at the Provider.call boundary (spec r2 §12 test doubles). Each call returns a
-scripted Responses body; the default script echoes the approved text for the target the
-brief implies, so a turn delivers Luna's text equal to Graf's approved text. A fake Luna
-proves the service's reaction, not the model."""
+"""Shared consultant test doubles (moved from the Graf test files in Graf removal step 4,
+graf-removal spec r3 §3): a fake Luna at the Provider.call boundary (spec r2 §12 test
+doubles), whose default script echoes the approved text for the target the brief implies,
+and the knowledge fixture of five supplements. A fake Luna proves the service's reaction,
+not the model."""
 
 import copy
+import hashlib
 import json
 from collections.abc import Callable
 from typing import Any
 
+from sqlalchemy import text
+
 from src.consultant.contracts import Fault
+from src.consultant.models import Control, Membership, Release, Section, Source
+from src.consultant.provider import EMBEDDING_PROFILE, PROFILE
+from src.products.models import Product
 from tests.test_consultant import ProviderStub
+
+# The five supplement cards of the fixture: shop id, shop name, slug, form, instruction PDF
+# (the values of the former graf_data/products.json for these cards).
+CARDS = [
+    (
+        16,
+        "BIFOLAK® ZINCUM+C+D3",
+        "bifolak_zincum_c_d3",
+        "capsule",
+        "inst_BIFOLAK ZINCUM+C+D3_capsula_2026_new.pdf",
+    ),
+    (17, "BIFOLAK® ZINCUM", "bifolak_zincum", "stick", "inst_BIFOLAK ZINCUM_stick_2026_new.pdf"),
+    (7, "IMMUNOCOMPLEX®", "immunocomplex", "capsule", "inst_IMMUNOCOMPLEX capsula_2026_new.pdf"),
+    (
+        14,
+        "IMMUNOCOMPLEX® KIDS",
+        "immunocomplex_kids",
+        "stick",
+        "inst_IMMUNOCOMPLEX_KIDS_stik_2026_new.pdf",
+    ),
+    (
+        20,
+        "BIFOLAK® ACTIVE",
+        "bifolak_active_caps",
+        "capsule",
+        "inst_BIFOLAK ACTIVE_capsula_2026_new.pdf",
+    ),
+]
+
+
+async def seed(db: Any) -> None:
+    """The five supplements in the catalogue and in an active knowledge release, both
+    languages, four sections each (section 2 a caution)."""
+    for shop_id, name, slug, _, _ in CARDS:
+        db.add(
+            Product(
+                id=shop_id,
+                name=name,
+                slug=slug + "-fixture",
+                price=100,
+                is_active=True,
+                is_in_stock=True,
+            )
+        )
+    await db.flush()
+    sources = [f"g{c[0]}{lang}" for c in CARDS for lang in ("ru", "uz")]
+    db.add(
+        Release(
+            id="graf-release",
+            manifest={"sources": sources},
+            profile=PROFILE,
+            approval="fixture-approval",
+            prepared=True,
+        )
+    )
+    await db.flush()
+    control = await db.get(Control, 1)
+    if control is None:
+        db.add(Control(id=1, enabled=True, active="graf-release"))
+    else:
+        control.enabled, control.active = True, "graf-release"
+    for shop_id, name, _, form, pdf in CARDS:
+        for lang in ("ru", "uz"):
+            sid = f"g{shop_id}{lang}"
+            db.add(
+                Source(
+                    id=sid,
+                    product_id=shop_id,
+                    language=lang,
+                    provenance={
+                        "title": name,
+                        "form": form,
+                        "revision": "fixture-1",
+                        "pdf_title": pdf,
+                        "aliases": [name],
+                        "section_count": 4,
+                    },
+                    withdrawn=False,
+                )
+            )
+            await db.flush()
+            db.add(Membership(release_id="graf-release", source_id=sid))
+            for ordinal in range(4):
+                body = f"Fixture section {ordinal}."
+                db.add(
+                    Section(
+                        id=f"{sid}:{ordinal}",
+                        source_id=sid,
+                        ordinal=ordinal,
+                        body=body,
+                        body_hash=hashlib.sha256(body.encode()).hexdigest(),
+                        heading=f"Section {ordinal}",
+                        caution=ordinal == 2,
+                        pdf_page=1,
+                    )
+                )
+                await db.flush()
+                await db.execute(
+                    text(
+                        "INSERT INTO consultant_embeddings(section_id,profile,vector) VALUES (:id,:profile,CAST(:vector AS vector))"
+                    ),
+                    {
+                        "id": f"{sid}:{ordinal}",
+                        "profile": EMBEDDING_PROFILE,
+                        "vector": str([1.0] + [0.0] * 1535),
+                    },
+                )
+    await db.commit()
+
 
 QUESTION = {
     "ru": "Подскажите, пожалуйста, что именно вас беспокоит?",

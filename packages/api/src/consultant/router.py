@@ -18,9 +18,8 @@ from src.consultant.context import Tokens
 from src.consultant.contracts import Cancel, Fault, Refresh, Turn
 from src.consultant.control import Controls
 from src.consultant.enigma.cards import ITEM_PRODUCTS, item_cards
-from src.consultant.enigma.jev import Jev as EnigmaJev
+from src.consultant.enigma.jev import Jev
 from src.consultant.enigma.turn import Enigma
-from src.consultant.graf import Graf, Jev
 from src.consultant.knowledge import Knowledge
 from src.consultant.provider import Provider
 from src.consultant.record import report
@@ -162,18 +161,16 @@ async def runtime(app: Any, config: Any, sessions: Any) -> AsyncIterator[None]:
     controls = Controls(
         sessions, config.consultant_protection_key.get_secret_value(), bool(provider_key)
     )
-    graf_key = config.consultant_graf_key.get_secret_value()
+    jev_key = config.consultant_graf_key.get_secret_value()
     async with httpx.AsyncClient(timeout=60, follow_redirects=False, trust_env=False) as client:
         app.state.consultant = Consultant(
             controls,
             Knowledge(sessions),
             Provider(client, provider_key),
             Tokens(config.consultant_protection_key.get_secret_value()),
-            Graf(Jev(client, graf_key)) if graf_key else None,
-            config.consultant_hybrid,
-            Enigma(EnigmaJev(client, graf_key))
-            if getattr(config, "consultant_engine", "graf") == "enigma" and graf_key
-            else None,
+            # graf-removal spec r3 G4-02: Enigma whenever its Jev key is set; without it every
+            # turn gets the failure response (G4-03).
+            Enigma(Jev(client, jev_key)) if jev_key else None,
         )
         app.state.consultant_origins = config.consultant_origins
         cleanup = asyncio.create_task(cleaner(controls))
