@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from src.consultant import record as recording
+from src.consultant import service
 from src.consultant.context import Tokens
 from src.consultant.contracts import Fault, Turn
 from src.consultant.control import Controls
@@ -468,8 +469,13 @@ async def test_rec01_enigma_turns_in_the_journal(test_db: Any) -> None:
     )
     # The pregnancy rule removed IMMUNOCOMPLEX KIDS (14) before the offer.
     assert delivered.offered_product_ids == [7, 17]
-    assert delivered.versions["engine"] == "enigma"
-    assert delivered.versions["enigma_data"] == DATA
+    # G4-06: the versions of an Enigma turn, exactly; no graf_data key.
+    assert delivered.versions == {
+        "knowledge": "graf-release",
+        "profile": PROFILE,
+        "engine": "enigma",
+        "enigma_data": DATA,
+    }
     assert delivered.jev["unit"][0] == ["immunocomplex", 0.6]
     assert delivered.jev["error"] is None
     assert (delivered.luna["decision"], delivered.luna["offered"]) == (
@@ -480,6 +486,24 @@ async def test_rec01_enigma_turns_in_the_journal(test_db: Any) -> None:
     assert delivered.facts["pregnancy"] == [0]
     assert (failed.path, failed.http_status, failed.jev["error"]) == ("failure", 503, "status")
     assert failed.versions["engine"] == "enigma"
+
+
+async def test_fr01_the_deadline_on_an_enigma_turn_is_the_failure_response(
+    test_db: Any, monkeypatch: Any
+) -> None:
+    """graf-removal spec r3 G4-05, spec r2 FR-01 (restated from the former hybrid test): the
+    turn deadline on an Enigma turn is the failure response, not 504 timeout."""
+    await seed(test_db)
+    consultant = bot(test_db, JevDouble(answer("immunocomplex")))
+    monkeypatch.setattr(service, "DEADLINE", 0.2)
+    consultant.provider.hold = asyncio.Event()  # Luna never answers; its own limit is 16 s
+    with pytest.raises(Fault) as fault:
+        await consultant.turn(turn("часто болею"))
+    assert (fault.value.code, fault.value.status) == ("answer_unavailable", 503)
+    (record,) = consultant.records  # type: ignore[attr-defined]
+    assert (record.path, record.http_status) == ("failure", 503)
+    assert record.luna["failure_trigger"] == "deadline"
+    assert consultant.counters.counts["failure.deadline"] == 1
 
 
 # --- FT-04: a removed product is not in the brief and may not be named -------------------------

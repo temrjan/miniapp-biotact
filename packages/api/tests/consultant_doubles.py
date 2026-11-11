@@ -4,10 +4,8 @@ doubles), whose default script echoes the approved text for the target the brief
 and the knowledge fixture of five supplements. A fake Luna proves the service's reaction,
 not the model."""
 
-import copy
 import hashlib
 import json
-from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import text
@@ -187,51 +185,6 @@ def echo(brief: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def answer(**change: Any) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """A step that starts from the echo and changes parts of it. Keys: target, body,
-    situation, confidence, facts (merged per fact), objections (a list or a callable over
-    the brief), check_reply, intent, danger, topic_change, candidates, action (Luna's
-    decision; default "follow", "check" with danger), decided (its situation)."""
-
-    def step(brief: dict[str, Any]) -> dict[str, Any]:
-        out = copy.deepcopy(echo(brief))
-        reading = out["reading"]
-        if "target" in change:
-            out["text"]["target"] = change["target"]
-            texts = brief["texts"]
-            kind = change["target"]
-            out["text"]["body"] = texts.get(kind) or QUESTION[brief["language"]]
-        if "body" in change:
-            out["text"]["body"] = change["body"]
-        if "situation" in change:
-            reading["situation"] = change["situation"]
-            reading["situation_confidence"] = change.get("confidence", "high")
-        for name, value in change.get("facts", {}).items():
-            reading["facts"][name].update(value)
-        objections = change.get("objections", [])
-        reading["objections"] = objections(brief) if callable(objections) else objections
-        if "check_reply" in change:
-            value, quote, confidence = change["check_reply"]
-            reading["check_reply"] = {"value": value, "quote": quote, "confidence": confidence}
-        if "intent" in change:
-            value, confidence = change["intent"]
-            reading["intent"] = {"value": value, "confidence": confidence}
-        if "danger" in change:
-            reading["facts"]["danger"] = {"present": True, "quote": change["danger"]}
-            out["decision"]["action"] = "check"
-        if "action" in change:
-            out["decision"]["action"] = change["action"]
-        if "decided" in change:
-            out["decision"]["situation"] = change["decided"]
-        if "topic_change" in change:
-            reading["facts"]["topic_change"] = {"present": True, "quote": change["topic_change"]}
-        if "candidates" in change:
-            reading["age_candidates"] = change["candidates"]
-        return out
-
-    return step
-
-
 def body(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "completed",
@@ -243,17 +196,6 @@ def body(result: dict[str, Any]) -> dict[str, Any]:
             },
         ],
         "usage": {"input_tokens": 3000, "output_tokens": 200},
-    }
-
-
-def objection(brief: dict[str, Any], prefix: str, quote: str, **extra: Any) -> dict[str, Any]:
-    """An objection to the first listed hit whose id starts with prefix."""
-    hit = next(h for h in brief["hits"] if h["id"].startswith(prefix))
-    return {
-        "hit_id": hit["id"],
-        "reason": extra.get("reason", "negated"),
-        "quote": quote,
-        "confidence": extra.get("confidence", "high"),
     }
 
 

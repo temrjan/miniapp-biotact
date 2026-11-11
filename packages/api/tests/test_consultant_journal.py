@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from src import main
 from src.auth import privacy
 from src.config import Settings
+from src.consultant.contracts import Fault
 from src.consultant.record import TurnRecord, noop
 from src.journal.models import Conversation, JournalTurn
 from src.journal.writer import Journal, report, runtime
@@ -305,6 +306,29 @@ async def test_the_confirmed_label_goes_to_the_latest_asking_row(sessions, case)
         if expected is not None:
             assert labels(await rows(sessions)) == expected, (case, n)
     assert "failed" not in " ".join(journal.counters.counts)
+
+
+# --- JW-07 ---------------------------------------------------------------------------------
+
+
+async def test_a_turn_refused_as_sensitive_input_leaves_no_journal_row(test_db, sessions):
+    """JW-07 (restated with an Enigma consultant in Graf removal step 4): a turn refused with
+    422 sensitive_input between two delivered turns leaves no record and no journal row."""
+    await enigma_seed(test_db)
+    offer = "IMMUNOCOMPLEX® поддерживает иммунитет. " + SENTENCE
+    chat = bot(
+        test_db,
+        JevDouble(answer("immunocomplex")),
+        say("offer", offer, "immunocomplex"),
+        say("ask", QUESTION),
+    )
+    app = SimpleNamespace(state=SimpleNamespace(consultant=chat))
+    async with runtime(app, ON, sessions):
+        await chat.turn(turn("часто болею"))
+        with pytest.raises(Fault, match="sensitive_input"):
+            await chat.turn(turn("пишите на fixture@example.com"))
+        await chat.turn(turn("да"))
+    assert [r.question for r in await rows(sessions)] == ["часто болею", "да"]
 
 
 # --- JW-01, JW-08, JG-01 without tables, JS-01 ----------------------------------------------
