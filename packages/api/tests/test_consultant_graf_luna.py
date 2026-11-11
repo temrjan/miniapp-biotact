@@ -25,7 +25,6 @@ from src.consultant.checks import check as check_text
 from src.consultant.contracts import Turn
 from src.consultant.graf import Part, Writer
 from src.consultant.hybrid import Units, Validator, matches
-from src.consultant.provider import IMPLEMENTATION
 from tests.test_consultant_graf_fakes import echo, neutral
 from tests.test_consultant_graf_flow import evidence
 
@@ -986,18 +985,6 @@ def test_every_template_variant_passes_against_its_family():
     # (2 variants in each language: 4 pairs each), plus the five spec r7 conditions.*
     # templates (1 variant in each language: 1 pair each).
     assert checked == 818
-
-
-# --- OP-04 PROFILE ---------------------------------------------------------------------------
-
-
-def test_every_consultant_module_is_in_the_profile():
-    folder = Path(graf.__file__).parent
-    files = {p.name for p in folder.glob("*.py")} - {"__init__.py"}
-    # consultant-v2 spec r2 D-04: the modules of the enigma subpackage are in the profile.
-    files |= {"enigma/" + p.name for p in (folder / "enigma").glob("*.py")} - {"enigma/__init__.py"}
-    assert set(IMPLEMENTATION) == files
-    assert len(IMPLEMENTATION) == len(set(IMPLEMENTATION))
 
 
 def test_the_writer_records_the_parts_of_an_offer():

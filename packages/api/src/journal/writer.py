@@ -15,7 +15,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.consultant.graf import tokens
+from src.consultant.enigma.nets import tokens
 from src.consultant.record import Counters, TurnRecord, noop
 from src.journal.models import Conversation, JournalTurn
 
