@@ -60,15 +60,19 @@ BASE_UZ = (
     "nemis sifatidagi probiotiklar va vitamin-mineral komplekslar."
 )
 EVENT_RU = (
-    "👋 Здравствуйте, Synthetic! Добро пожаловать в BIOTACT DEUTSCHLAND — пробиотики и "
-    "витаминно-минеральные комплексы немецкого качества. 🎁 Для гостей NUTRIFORUM 2026 действует "
-    "скидка 5% до 31.12.2026 — она применится в корзине. Нажмите «Войти», чтобы открыть магазин."
+    "👋 Здравствуйте, Synthetic!\n\n"
+    "Добро пожаловать в BIOTACT DEUTSCHLAND — пробиотики и "
+    "витаминно-минеральные комплексы немецкого качества.\n\n"
+    "🎁 Для гостей NUTRIFORUM 2026 действует скидка 5% до 31.12.2026 — применяется в корзине.\n\n"
+    "Нажмите «Войти», чтобы открыть магазин."
 )
 EVENT_UZ = (
-    "👋 Assalomu alaykum, Synthetic! BIOTACT DEUTSCHLAND'ga xush kelibsiz — nemis sifatidagi "
-    "probiotiklar va vitamin-mineral komplekslar. 🎁 NUTRIFORUM 2026 mehmonlari uchun 31.12.2026 "
-    "gacha 5% chegirma amal qiladi — u savatchada qo'llaniladi. Do'konni ochish uchun «Kirish» "
-    "tugmasini bosing."
+    "👋 Assalomu alaykum, Synthetic!\n\n"
+    "BIOTACT DEUTSCHLAND'ga xush kelibsiz — nemis sifatidagi "
+    "probiotiklar va vitamin-mineral komplekslar.\n\n"
+    "🎁 NUTRIFORUM 2026 mehmonlari uchun 31.12.2026 gacha 5% chegirma amal qiladi — "
+    "savatchada qo'llaniladi.\n\n"
+    "Do'konni ochish uchun «Kirish» tugmasini bosing."
 )
 
 

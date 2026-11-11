@@ -21,15 +21,19 @@ TASHKENT = ZoneInfo("Asia/Tashkent")
 
 WELCOME = {
     "ru": (
-        "👋 Здравствуйте, {name}! Добро пожаловать в BIOTACT DEUTSCHLAND — пробиотики и "
-        "витаминно-минеральные комплексы немецкого качества. 🎁 Для гостей {title} действует "
-        "скидка {p}% до {date} — она применится в корзине. Нажмите «Войти», чтобы открыть магазин."
+        "👋 Здравствуйте, {name}!\n\n"
+        "Добро пожаловать в BIOTACT DEUTSCHLAND — пробиотики и "
+        "витаминно-минеральные комплексы немецкого качества.\n\n"
+        "🎁 Для гостей {title} действует скидка {p}% до {date} — применяется в корзине.\n\n"
+        "Нажмите «Войти», чтобы открыть магазин."
     ),
     "uz": (
-        "👋 Assalomu alaykum, {name}! BIOTACT DEUTSCHLAND'ga xush kelibsiz — nemis sifatidagi "
-        "probiotiklar va vitamin-mineral komplekslar. 🎁 {title} mehmonlari uchun {date} gacha "
-        "{p}% chegirma amal qiladi — u savatchada qo'llaniladi. Do'konni ochish uchun «Kirish» "
-        "tugmasini bosing."
+        "👋 Assalomu alaykum, {name}!\n\n"
+        "BIOTACT DEUTSCHLAND'ga xush kelibsiz — nemis sifatidagi "
+        "probiotiklar va vitamin-mineral komplekslar.\n\n"
+        "🎁 {title} mehmonlari uchun {date} gacha {p}% chegirma amal qiladi — "
+        "savatchada qo'llaniladi.\n\n"
+        "Do'konni ochish uchun «Kirish» tugmasini bosing."
     ),
 }
 BUTTON = {"ru": "Войти", "uz": "Kirish"}
