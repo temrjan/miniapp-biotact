@@ -1,13 +1,15 @@
 """No outbound network: exercise the real httpx adapter with bounded transport responses."""
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
 from pydantic import ValidationError
 
+from src.consultant import provider
 from src.consultant.contracts import ContextArgs, Fault, Proposal
-from src.consultant.provider import RESPONSE_BYTES, Provider
+from src.consultant.provider import IMPLEMENTATION, RESPONSE_BYTES, Provider
 
 
 async def test_real_adapter_uses_exact_profile_no_retry_and_bounded_body():
@@ -100,3 +102,15 @@ def test_long_answer_is_valid_and_the_model_schema_has_no_length_cap():
     )
     assert proposal.answer == answer
     assert "maxLength" not in FORMAT["schema"]["properties"]["answer"]
+
+
+# --- OP-04 PROFILE (moved from test_consultant_graf_luna.py, Graf removal step 1) -----------
+
+
+def test_every_consultant_module_is_in_the_profile():
+    folder = Path(provider.__file__).parent
+    files = {p.name for p in folder.glob("*.py")} - {"__init__.py"}
+    # consultant-v2 spec r2 D-04: the modules of the enigma subpackage are in the profile.
+    files |= {"enigma/" + p.name for p in (folder / "enigma").glob("*.py")} - {"enigma/__init__.py"}
+    assert set(IMPLEMENTATION) == files
+    assert len(IMPLEMENTATION) == len(set(IMPLEMENTATION))

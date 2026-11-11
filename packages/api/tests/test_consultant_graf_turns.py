@@ -9,9 +9,7 @@ file runs against the previous service to show each behavioural difference."""
 
 import base64
 import hashlib
-import hmac
 import json
-import time
 from uuid import UUID, uuid4
 
 import httpx
@@ -24,6 +22,7 @@ from src.consultant.service import Consultant
 from tests.test_consultant import KEY
 from tests.test_consultant_graf_fakes import QUESTION, LunaStub, answer
 from tests.test_consultant_graf_flow import SHOP, WALKS, OpenRouter, evidence, talk, variants
+from tests.test_consultant_token import v1_token
 
 # An assistant answer written by someone other than Graf (a Luna text in PR-3b).
 OTHER = "Понятно. Расскажите, пожалуйста, чуть подробнее."
@@ -77,16 +76,6 @@ def digest(text):
 def body(token):
     encoded = token.split(".")[0]
     return json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
-
-
-def v1_token(tab, language="ru", ids=(), epoch="v1-epoch", issued=None):
-    """A token as the service issued it before PR-3a (context.py at 600c3d6)."""
-    issued = int(time.time()) - 5 if issued is None else issued
-    raw = json.dumps(
-        [1, str(tab), language, list(ids), issued, issued + 1800, epoch], separators=(",", ":")
-    ).encode()
-    encoded = base64.urlsafe_b64encode(raw).decode().rstrip("=")
-    return encoded + "." + hmac.new(KEY.encode(), raw, hashlib.sha256).hexdigest()
 
 
 class Chat:
