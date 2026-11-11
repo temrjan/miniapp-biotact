@@ -41,6 +41,10 @@ def _unknown_key(shop_file: dict[str, Any]) -> None:
     shop_file["topics"][0]["extra"] = 1
 
 
+def _missing_key(shop_file: dict[str, Any]) -> None:
+    del shop_file["topics"][0]["approved"]
+
+
 def _empty_text(shop_file: dict[str, Any]) -> None:
     shop_file["topics"][0]["text"]["uz"] = ""
 
@@ -62,7 +66,8 @@ def _no_support(shop_file: dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(
-    "spoil", [_unknown_key, _empty_text, _empty_description, _duplicate, _none, _no_support]
+    "spoil",
+    [_unknown_key, _missing_key, _empty_text, _empty_description, _duplicate, _none, _no_support],
 )
 def test_sd02_invalid_shop_file_is_rejected(tmp_path: Path, spoil: Any) -> None:
     for name in data.DATA_FILES:
@@ -252,6 +257,8 @@ def test_sv01_a_shop_answer_may_name_a_shown_product_with_digits() -> None:
         ),
         # C-72: Jev chose `return` for a broken blender; the support answer passes.
         (f"Если блендер сломался, {SUPPORT}", ["return"], True),
+        # Handles compare without case.
+        (f"Пишите в Telegram @biotact_uz или звоните по номеру {PHONE}.", ["contacts"], True),
     ],
 )
 def test_sv02_handles_addresses_and_the_support_answer(
@@ -299,6 +306,22 @@ def test_sv03_condition_words(
     assert (verdict(text, "shop", topics, language, customers) is None) is passes
 
 
+@pytest.mark.parametrize(
+    ("text", "language"),
+    [
+        ("Можно оплатить наличкой.", "ru"),
+        ("Оплата налом возможна.", "ru"),
+        ("Скидок много.", "ru"),
+        ("Есть кешбек.", "ru"),
+        ("Yetkazib berish бепул.", "uz"),
+        ("Yetkazib berish besplatno.", "uz"),
+    ],
+)
+def test_sv03_condition_words_in_other_forms_and_scripts(text: str, language: str) -> None:
+    # Review S-01: the answer side sees the condition in other word forms and scripts too.
+    assert verdict(text, "shop", ["payment"], language) == "SV-03"
+
+
 def test_sv04_the_shop_phone_is_masked_and_an_emergency_text_is_delivered() -> None:
     assert verdict(f"Звоните: {PHONE}, Telegram @Biotact_uz.", "shop", ["contacts"]) is None
     assert verdict("Звоните: 998 90 111 22 33, Telegram @Biotact_uz.", "shop", ["contacts"]) == (
@@ -319,6 +342,8 @@ def test_sv07_warranty_words_in_a_shop_answer() -> None:
     assert verdict(f"По вопросам гарантии {SUPPORT}", "shop", ["contacts"]) is None
     assert verdict("Это гарантирует результат.", "shop", ["contacts"]) == "V-06"
     assert verdict("Это гарантирует результат?", "ask", ["contacts"]) == "V-06"
+    # SV-07: the noun passes only in a shop answer; V-06 is unchanged for the other decisions.
+    assert verdict(f"По вопросам гарантии {SUPPORT}", "ask", ["contacts"]) == "V-06"
     uz_support = f"Kafolat bo'yicha Telegramda @Biotact_uz ga yozing yoki {PHONE} raqamiga qo'ng'iroq qiling."
     assert verdict(uz_support, "shop", ["contacts"], "uz") is None
     assert verdict("Bu natijani kafolatlaydi.", "shop", ["contacts"], "uz") == "V-06"

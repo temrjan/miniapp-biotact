@@ -266,9 +266,9 @@ class Topic(Model):
 
 
 class Condition(Model):
-    """A shop condition (cash, discount, ...): the stems that make a claim in an answer
-    (spec r7 CT-04 (b)) and the roots by which a customer's message names it, in every
-    script (spec.shop-core r4 SV-03)."""
+    """A shop condition (cash, discount, ...): the stems that make a claim in an answer (spec r7
+    CT-04 (b), widened to other word forms and scripts) and the roots by which a customer's
+    message names it (spec.shop-core r4 SV-03)."""
 
     concept: str = Field(min_length=1)
     stems: list[str] = Field(min_length=1)

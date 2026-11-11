@@ -7,8 +7,11 @@
    "concept": "free",
    "stems": [
     "бесплатн",
+    "besplatn",
     "bepul",
-    "tekin"
+    "бепул",
+    "tekin",
+    "текин"
    ],
    "customer_roots": [
     "бесплат",
@@ -23,8 +26,13 @@
    "concept": "cash",
    "stems": [
     "наличн",
+    "наличк",
+    "налом",
+    "nalichn",
+    "nalichk",
     "naqd",
-    "нақд"
+    "нақд",
+    "накд"
    ],
    "customer_roots": [
     "налич",
@@ -37,7 +45,9 @@
    "concept": "instalment",
    "stems": [
     "рассроч",
-    "nasiya"
+    "rassroch",
+    "nasiya",
+    "насия"
    ],
    "customer_roots": [
     "рассроч",
@@ -50,7 +60,11 @@
    "concept": "discount",
    "stems": [
     "скидк",
-    "chegirma"
+    "скидок",
+    "skidk",
+    "skidok",
+    "chegirma",
+    "чегирма"
    ],
    "customer_roots": [
     "скид",
@@ -75,7 +89,10 @@
    "stems": [
     "кешбэк",
     "кэшбэк",
-    "keshbek"
+    "кешбек",
+    "кэшбек",
+    "keshbek",
+    "cashback"
    ],
    "customer_roots": [
     "кешб",

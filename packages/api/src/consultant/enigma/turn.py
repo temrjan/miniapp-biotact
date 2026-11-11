@@ -133,6 +133,8 @@ class EnigmaTurn:
             raise Named(named(reading, self.request.question))
         if reading is not None and self.ambulance is None:
             self.topics = tuple(t for t, _ in reading.topics)
+        if self.topics:  # SO-02: also on a turn that ends with the failure response
+            record.luna_part()["shop"] = list(self.topics)
         found = rules.candidates(reading, self.signs)
         await self.load_cards(found)
         failed: str | None = None
@@ -192,7 +194,8 @@ class EnigmaTurn:
     def brief(
         self, found: rules.Candidates, reading: Reading | None, failed: str | None
     ) -> dict[str, Any]:
-        """FT-02: everything Luna gets for the turn. No price and no dose."""
+        """FT-02: everything Luna gets for the turn. No product price and no dose; shop texts may
+        hold delivery amounts (spec.shop-core r4 SL-05)."""
         language = self.request.language
 
         def t(text: Text) -> str:
