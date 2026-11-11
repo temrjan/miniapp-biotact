@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.consultant.context import FORMS, Context, normalize
 from src.consultant.contracts import Fault, Turn
-from src.consultant.enigma import checks, luna, nets, rules
+from src.consultant.enigma import checks, luna, nets, rules, shop
 from src.consultant.enigma.cards import ITEM_PRODUCTS, item_cards
 from src.consultant.enigma.data import CORES, RULES, Text
 from src.consultant.enigma.jev import Attempt, Jev, Reading
@@ -30,6 +30,7 @@ STATUS = {
     "doctor": "limited",
     "emergency": "limited",
     "no_product": "limited",
+    "shop": "answer",
 }
 SIGNS = ("doctor", "number", "intolerance", "diarrhea", "pregnancy")
 
@@ -111,6 +112,8 @@ class EnigmaTurn:
         self.more = bool(selection) and more_reply(request.question)
         self.names = checks.Names.of(evidence.aliases)
         self.cards: dict[int, dict[str, Any]] = {}
+        # spec.shop-core r4 SJ-02, SR-02: the chosen shop topics; none on an ambulance hit.
+        self.topics: tuple[str, ...] = ()
 
     # -- steps ---------------------------------------------------------------------------------
 
@@ -128,6 +131,8 @@ class EnigmaTurn:
             raise Failure("jev")
         if reading is not None and reading.name_only and not self.ambulance and not self.more:
             raise Named(named(reading, self.request.question))
+        if reading is not None and self.ambulance is None:
+            self.topics = tuple(t for t, _ in reading.topics)
         found = rules.candidates(reading, self.signs)
         await self.load_cards(found)
         failed: str | None = None
@@ -138,7 +143,8 @@ class EnigmaTurn:
                 break
             brief = self.brief(found, reading, failed)
             parsed = await self.call(brief, found, second)
-            if parsed.answer is None:
+            if parsed.answer is None or (parsed.answer.decision == "shop" and not self.topics):
+                # SL-02: a shop answer without shop texts in the brief is unusable.
                 failed, trigger = "answer", ("luna", None)
                 continue
             answer = parsed.answer
@@ -150,6 +156,8 @@ class EnigmaTurn:
                 frozenset(shown),
                 checks.numbers([json.dumps(brief, ensure_ascii=False), *self.customers]),
                 tuple(self.approved(brief)),
+                shop.reference(self.request.language, self.topics) if self.topics else (),
+                tuple(self.customers),
             )
             failed = checks.check(answer.text, subject, self.names)
             self.record.luna_part()["calls"][-1]["check_id"] = failed
@@ -259,6 +267,8 @@ class EnigmaTurn:
                 "emergency": {k: t(getattr(RULES.emergency, k)) for k in nets.TEMPLATES},
             },
         }
+        if self.topics:
+            brief["shop"] = shop.brief(language, self.topics)
         if failed is not None:
             brief["retry"] = {"failed_check": failed}
         return brief
@@ -370,6 +380,9 @@ class EnigmaTurn:
         record = self.record
         record.graf_outcome = answer.decision
         record.situation = answer.offered[0] if answer.offered else None
+        if answer.decision == "shop":
+            record.situation = self.topics[0]
+            self.c.counters.add("enigma.shop")
         record.template = None
         record.offered_product_ids = shown if answer.decision == "offer" else []
         record.luna_part().update(
@@ -377,6 +390,7 @@ class EnigmaTurn:
             offered=answer.offered,
             candidates=[[c.unit.id, c.probability] for c in found.units]
             + ([[found.item.id, None]] if found.item else []),
+            shop=list(self.topics),
         )
         cards = [self.cards[i] for i in shown if i in self.cards]
         return self.c.envelope(
@@ -405,4 +419,8 @@ class EnigmaTurn:
             else [],
             "item": list(reading.item) if reading and reading.item else None,
             "name": list(reading.name) if reading and reading.name else None,
+            # SO-02: the top topic option (may be 'none'), then the second chosen topic.
+            "topic": [list(reading.topic), *[list(t) for t in reading.topics[1:]]]
+            if reading
+            else None,
         }

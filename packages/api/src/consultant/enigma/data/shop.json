@@ -1,0 +1,254 @@
+{
+ "version": "2026-11-11",
+ "source": "consultant-v2 spec.shop-core.r4 §2.1.1 and Appendix A; Graf templates info.how_to_buy (first variant) and conditions.* verbatim",
+ "topic_none": "The current message asks no question about the shop: a health problem, a product, a greeting or anything else.",
+ "conditions": [
+  {
+   "concept": "free",
+   "stems": [
+    "бесплатн",
+    "bepul",
+    "tekin"
+   ],
+   "customer_roots": [
+    "бесплат",
+    "besplat",
+    "bepul",
+    "бепул",
+    "tekin",
+    "текин"
+   ]
+  },
+  {
+   "concept": "cash",
+   "stems": [
+    "наличн",
+    "naqd",
+    "нақд"
+   ],
+   "customer_roots": [
+    "налич",
+    "nalich",
+    "naqd",
+    "нақд"
+   ]
+  },
+  {
+   "concept": "instalment",
+   "stems": [
+    "рассроч",
+    "nasiya"
+   ],
+   "customer_roots": [
+    "рассроч",
+    "rassroch",
+    "nasiya",
+    "насия"
+   ]
+  },
+  {
+   "concept": "discount",
+   "stems": [
+    "скидк",
+    "chegirma"
+   ],
+   "customer_roots": [
+    "скид",
+    "skid",
+    "chegirm",
+    "чегирм"
+   ]
+  },
+  {
+   "concept": "promo_code",
+   "stems": [
+    "промокод",
+    "promokod"
+   ],
+   "customer_roots": [
+    "промо",
+    "promo"
+   ]
+  },
+  {
+   "concept": "cashback",
+   "stems": [
+    "кешбэк",
+    "кэшбэк",
+    "keshbek"
+   ],
+   "customer_roots": [
+    "кешб",
+    "кэшб",
+    "keshb"
+   ]
+  }
+ ],
+ "topics": [
+  {
+   "id": "how_to_buy",
+   "description": {
+    "ru": "Как купить и оформить заказ на сайте или в мини-приложении: выбрать товар, корзина, оформление заказа.",
+    "uz": "Saytda yoki mini-ilovada qanday xarid qilish va buyurtma berish: mahsulot tanlash, savat, rasmiylashtirish."
+   },
+   "text": {
+    "ru": "Выберите товар и нажмите на его карточке кнопку «В корзину». Добавленные товары будут в «Корзине» — это кнопка со значком корзинки.",
+    "uz": "Mahsulotni tanlang va uning kartasidagi «Savatga» tugmasini bosing. Qo'shilgan mahsulotlar «Savat»da bo'ladi — bu savatcha belgisi bor tugma."
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-11"
+   }
+  },
+  {
+   "id": "delivery_tashkent",
+   "description": {
+    "ru": "Доставка по Ташкенту: сроки, стоимость, когда бесплатно, курьер.",
+    "uz": "Toshkent bo'ylab yetkazib berish: muddat, narx, qachon bepul, kuryer."
+   },
+   "text": {
+    "ru": "Доставка по Ташкенту\nСтандартная курьерская доставка\nЗаказы, оформленные до 13:00, доставляются в тот же день. После 13:00 — на следующий рабочий день\nСтоимость доставки — 30 000 сум\nДоставка осуществляется с понедельника по пятницу, ориентировочно с 16:00 до 20:00\nТолько предоплата — оплата до отправки заказа\nПри покупке от 250 000 сум — доставка по Ташкенту бесплатная",
+    "uz": "Toshkent shahri bo'ylab yetkazib berish\nKuryer orqali standart yetkazib berish\nSoat 13:00 gacha rasmiylashtirilgan buyurtmalar shu kunning o'zida yetkazib beriladi. Soat 13:00 dan keyin esa — keyingi ish kunida\nYetkazib berish narxi — 30 000 so'm\nYetkazib berish dushanbadan jumagacha, taxminan soat 16:00 dan 20:00 gacha amalga oshiriladi\nFaqat oldindan to'lov — to'lov buyurtma jo'natilishidan avval amalga oshiriladi\n250 000 so'm va undan yuqori xaridlar uchun Toshkent shahri bo'ylab yetkazib berish bepul"
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-04"
+   }
+  },
+  {
+   "id": "delivery_regions",
+   "description": {
+    "ru": "Доставка в регионы Узбекистана (Самарканд, Бухара, Фергана и другие): служба BTS Express, сроки и стоимость.",
+    "uz": "O'zbekiston viloyatlariga (Samarqand, Buxoro, Farg'ona va boshqalar) yetkazib berish: BTS Express, muddat va narx."
+   },
+   "text": {
+    "ru": "Доставка по Узбекистану\nВсе регионы республики\nДоставка по регионам осуществляется курьерской службой BTS Express. Сроки и стоимость определяются на условиях службы доставки и оплачиваются клиентом отдельно",
+    "uz": "O'zbekiston bo'ylab yetkazib berish\nRespublikaning barcha hududlari\nHududlar bo'ylab yetkazib berish BTS Express kuryerlik xizmati tomonidan amalga oshiriladi. Muddat va narx yetkazib berish xizmati shartlarida belgilanadi hamda mijoz tomonidan alohida to'lanadi."
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-04"
+   }
+  },
+  {
+   "id": "payment",
+   "description": {
+    "ru": "Оплата: способы оплаты, карты, Payme, Click, Uzum, онлайн, наличные.",
+    "uz": "To'lov: to'lov usullari, kartalar, Payme, Click, Uzum, onlayn, naqd."
+   },
+   "text": {
+    "ru": "Оплата\nУдобный способ на ваш выбор\nОплата производится онлайн через платёжный агрегатор Multicard, который поддерживает более 10 платёжных систем\nPayme\nClick\nUzum\nXazna\nAlif\nAnorbank\nOson\nBeepul\nPaynet\nСБП\nTrastpay\nHUMO\nUzCard\nVisa\nMasterCard",
+    "uz": "To'lov\nTanlovingiz bo'yicha qulay usul\nTo'lov 10 dan ortiq to'lov tizimlarini qo'llab-quvvatlaydigan Multicard to'lov agregatori orqali onlayn amalga oshiriladi.\nPayme\nClick\nUzum\nXazna\nAlif\nAnorbank\nOson\nBeepul\nPaynet\nSBP\nTrastpay\nHUMO\nUzCard\nVisa\nMasterCard"
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-04"
+   }
+  },
+  {
+   "id": "return",
+   "description": {
+    "ru": "Возврат и обмен купленного товара.",
+    "uz": "Sotib olingan mahsulotni qaytarish va almashtirish."
+   },
+   "text": {
+    "ru": "Возврат и обмен\nТовар возврату и обмену не подлежит\n* Продукция может быть дополнена и укомплектована по усмотрению ООО «BIOTACT» материалами информационного и/или рекламного характера (бумажный пакет, флаеры, буклеты, пробники, образцы и т.д.)\n** По соглашению сторон продукция BIFOLAK® ACTIVE и BIFOLAK® MAGNIY может быть заменена по форме выпуска (со стиков на капсулы и наоборот)",
+    "uz": "Qaytarish va almashtirish\nMahsulot qaytarilmaydi va almashtirilmaydi\n* Mahsulotlar \"BIOTACT\" MCHJning ixtiyoriga ko'ra axborot va/yoki reklama xususiyatiga ega materiallar (qog'oz paket, flayerlar, bukletlar, namunalar va boshqalar) bilan to'ldirilishi va butlanishi mumkin.\n** Tomonlarning kelishuviga ko'ra, BIFOLAK® ACTIVE va BIFOLAK® MAGNIY mahsulotlari ishlab chiqarish shakli bo'yicha almashtirilishi mumkin (stiklardan kapsulalarga va aksincha)."
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-04"
+   }
+  },
+  {
+   "id": "contacts",
+   "description": {
+    "ru": "Контакты: телефон, Telegram, как связаться с поддержкой или оператором.",
+    "uz": "Aloqa: telefon, Telegram, qo'llab-quvvatlash yoki operator bilan bog'lanish."
+   },
+   "text": {
+    "ru": "Если у Вас есть вопросы, можете обратиться\nпо номеру: 998 93 555 17 47\nили написать в телеграм: @Biotact_uz",
+    "uz": "Savollaringiz bo'lsa, bizga murojaat qilishingiz mumkin\ntelefon raqami: 998 93 555 17 47\nyoki telegramda yozing: @Biotact_uz"
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-04"
+   }
+  },
+  {
+   "id": "order_status",
+   "description": {
+    "ru": "Статус оформленного заказа: где мой заказ, когда привезут, как отследить.",
+    "uz": "Berilgan buyurtma holati: buyurtmam qayerda, qachon keladi, qanday kuzatish."
+   },
+   "text": {
+    "ru": "Чтобы узнать, где ваш заказ, напишите нам в Telegram @Biotact_uz или позвоните по номеру 998 93 555 17 47.",
+    "uz": "Buyurtmangiz qayerdaligini bilish uchun Telegramda @Biotact_uz ga yozing yoki 998 93 555 17 47 raqamiga qo'ng'iroq qiling."
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-11"
+   }
+  },
+  {
+   "id": "order_cancel",
+   "description": {
+    "ru": "Отменить или изменить уже оформленный заказ.",
+    "uz": "Berilgan buyurtmani bekor qilish yoki o'zgartirish."
+   },
+   "text": {
+    "ru": "Чтобы отменить или изменить заказ, напишите нам в Telegram @Biotact_uz или позвоните по номеру 998 93 555 17 47.",
+    "uz": "Buyurtmani bekor qilish yoki o'zgartirish uchun Telegramda @Biotact_uz ga yozing yoki 998 93 555 17 47 raqamiga qo'ng'iroq qiling."
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-11"
+   }
+  },
+  {
+   "id": "channels",
+   "description": {
+    "ru": "Сайт и Telegram мини-приложение @BiotactBot: где можно купить, чем отличаются, есть ли приложение.",
+    "uz": "Sayt va Telegram mini-ilova @BiotactBot: qayerda xarid qilish mumkin, farqi nima, ilova yoki ilovangiz bormi."
+   },
+   "text": {
+    "ru": "Купить наши товары можно на сайте biotact.uz или в Telegram-приложении @BiotactBot. С вопросами пишите в Telegram @Biotact_uz или звоните по номеру 998 93 555 17 47.",
+    "uz": "Mahsulotlarimizni biotact.uz saytida yoki Telegramdagi @BiotactBot ilovasida xarid qilishingiz mumkin. Savollar bo'lsa, Telegramda @Biotact_uz ga yozing yoki 998 93 555 17 47 raqamiga qo'ng'iroq qiling."
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-11"
+   }
+  },
+  {
+   "id": "storage_expiry",
+   "description": {
+    "ru": "Срок годности и условия хранения товаров.",
+    "uz": "Mahsulotlarning yaroqlilik muddati va saqlash shartlari."
+   },
+   "text": {
+    "ru": "Срок годности и условия хранения указаны на упаковке и в инструкции к товару.",
+    "uz": "Yaroqlilik muddati va saqlash shartlari qadoqda va mahsulot yo'riqnomasida ko'rsatilgan."
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-11"
+   }
+  },
+  {
+   "id": "other_shop",
+   "description": {
+    "ru": "Другой вопрос о магазине, заказе или компании, на который другие темы не отвечают: гарантия и поломка техники, самовывоз, часы работы, о компании, кто производитель и в какой стране производят, лекарство это или БАД, сертификаты, халяль, баллы, акции, скидки, промокоды, опт, сотрудничество и партнёрство.",
+    "uz": "Do'kon, buyurtma yoki kompaniya haqidagi boshqa savol: texnika kafolati va buzilishi, o'zi olib ketish, ish vaqti, kompaniya haqida, ishlab chiqaruvchi kim va qaysi davlatda ishlab chiqariladi, dorimi yoki BAD, sertifikatlar, halol, ballar, aksiyalar, chegirmalar, promokodlar, ulgurji, hamkorlik."
+   },
+   "text": {
+    "ru": "Если у Вас есть вопросы, можете обратиться\nпо номеру: 998 93 555 17 47\nили написать в телеграм: @Biotact_uz",
+    "uz": "Savollaringiz bo'lsa, bizga murojaat qilishingiz mumkin\ntelefon raqami: 998 93 555 17 47\nyoki telegramda yozing: @Biotact_uz"
+   },
+   "approved": {
+    "by": "Captain",
+    "date": "2026-11-04"
+   }
+  }
+ ]
+}

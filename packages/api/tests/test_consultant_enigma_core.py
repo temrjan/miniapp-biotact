@@ -72,7 +72,7 @@ def _reserved(cores: dict[str, Any]) -> None:
 def test_d02_invalid_cores_file_is_rejected(tmp_path: Path, spoil: Any) -> None:
     for name in data.DATA_FILES:
         (tmp_path / name).write_bytes((data.DATA_DIR / name).read_bytes())
-    assert data.load(tmp_path)[3] == data.DATA  # the copy itself is valid
+    assert data.load(tmp_path)[-1] == data.DATA  # the copy itself is valid
     cores = json.loads((tmp_path / "cores.json").read_text(encoding="utf-8"))
     spoil(cores)
     (tmp_path / "cores.json").write_text(json.dumps(cores, ensure_ascii=False), encoding="utf-8")
@@ -135,14 +135,23 @@ def test_n03_number_rule_boundaries(text: str, expected: bool) -> None:
 # --- J-01, J-02: the request -------------------------------------------------------------------
 
 
-def answer(unit: str, item: str = "none", name: str = "none", **units: float) -> dict[str, Any]:
-    """A Jev body whose top options are the given ones; `units` adds unit probabilities."""
+def answer(
+    unit: str,
+    item: str = "none",
+    name: str = "none",
+    topic: str = "none",
+    topics: dict[str, float] | None = None,
+    **units: float,
+) -> dict[str, Any]:
+    """A Jev body whose top options are the given ones; `units` adds unit probabilities and
+    `topics` the probabilities of the shop topic question (spec.shop-core r4 SJ-01)."""
     return {
         "model": SERVED,
         "answers": {
             "unit": {"choice": unit, "probabilities": {unit: 0.6, **units}},
             "item": {"choice": item, "probabilities": {item: 0.9}},
             "name": {"choice": name, "probabilities": {name: 0.9}},
+            "topic": {"choice": topic, "probabilities": topics or {topic: 0.9}},
         },
     }
 
@@ -171,6 +180,7 @@ async def test_j01_j02_request_body_and_reading() -> None:
         "unit": {u.id for u in data.CORES.units} | {"doctor", "no_product", "unclear"},
         "item": {i.id for i in data.CORES.items} | {"none"},
         "name": {n.id for n in data.CORES.names} | {"none"},
+        "topic": {t.id for t in data.SHOP.topics} | {"none"},
     }
     assert {q["type"] for q in body["questions"].values()} == {"choice"}
     assert len(data.CORES.names) == 11

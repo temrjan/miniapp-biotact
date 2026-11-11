@@ -178,7 +178,8 @@ async def test_sw01_default_engine_answers_on_the_existing_path(test_db: Any) ->
     [
         ("IMMUNOCOMPLEX, давит в груди отдает в левую руку", [], "enigma"),
         ("IMMUNOCOMPLEX", [], "product"),
-        ("как оформить заказ?", [], "hybrid"),
+        # spec.shop-core r4 SR-01: how-to-buy is an Enigma turn.
+        ("как оформить заказ?", [], "enigma"),
         ("плохо сплю", [], "enigma"),
         ("первый", [36, 37], "enigma"),
     ],
@@ -273,11 +274,15 @@ async def test_ft05_an_item_offer_shows_the_item_card(test_db: Any) -> None:
     tab, token = shown(keep, [36, 37])
     kept = await keep.turn(turn("а он большой?", token, tab))
     assert (kept["status"], [p["id"] for p in kept["products"]]) == ("clarification", [36, 37])
-    # SW-03 (c): a how-to-buy turn after item cards keeps them too.
-    buy = bot(test_db, JevDouble(answer("unclear")))
+    # spec.shop-core r4 SO-01: a how-to-buy turn after item cards keeps them too.
+    buy = bot(
+        test_db,
+        JevDouble(answer("unclear", topic="how_to_buy")),
+        say("shop", "Нажмите «В корзину» на карточке нужного товара."),
+    )
     tab, token = shown(buy, [36, 37])
     bought = await buy.turn(turn("как оформить заказ?", token, tab))
-    assert [p["id"] for p in bought["products"]] == [36, 37]
+    assert (bought["status"], [p["id"] for p in bought["products"]]) == ("answer", [36, 37])
     assert buy.tokens.read(turn("x", bought["context_token"], tab)).ids == [36, 37]
 
 
@@ -603,7 +608,11 @@ async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db:
             "давит в груди отдает в левую руку",
         ),
         (JevDouble(answer("unclear")), say("ask", QUESTION), "IMMUNOCOMPLEX"),
-        (JevDouble(answer("unclear")), say("ask", QUESTION), "как оформить заказ?"),
+        (
+            JevDouble(answer("unclear", topic="how_to_buy")),
+            say("shop", "Нажмите «В корзину» на карточке нужного товара."),
+            "как оформить заказ?",
+        ),
         (JevDouble(httpx.Response(500)), say("ask", QUESTION), "плохо сплю"),
     ]
     records: list[Any] = []
@@ -616,7 +625,7 @@ async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db:
         ("enigma", "offer", 200),
         ("enigma", "emergency", 200),
         ("product", None, 200),
-        ("hybrid", "how_to_buy", 200),
+        ("enigma", "shop", 200),
         ("failure", None, 503),
     ]
     sessions = async_sessionmaker(test_db.bind, expire_on_commit=False)

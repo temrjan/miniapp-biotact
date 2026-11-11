@@ -53,6 +53,7 @@ IMPLEMENTATION = (
     "enigma/luna.py",
     "enigma/nets.py",
     "enigma/rules.py",
+    "enigma/shop.py",
     "enigma/turn.py",
 )
 PROFILE = hashlib.sha256(
