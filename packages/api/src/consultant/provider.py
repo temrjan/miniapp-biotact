@@ -41,9 +41,6 @@ IMPLEMENTATION = (
     "router.py",
     "models.py",
     "operator.py",
-    "graf.py",
-    "luna.py",
-    "checks.py",
     "record.py",
     "enigma/cards.py",
     "enigma/checks.py",
@@ -68,13 +65,6 @@ PROFILE = hashlib.sha256(
             "implementation": {
                 name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
                 for name in IMPLEMENTATION
-            },
-            # Graf data is part of the knowledge release (plan r4 section 2).
-            "graf_data": {
-                name: hashlib.sha256(
-                    (Path(__file__).parent / "graf_data" / name).read_bytes()
-                ).hexdigest()
-                for name in ("products.json", "situations.json", "templates.json", "safety.json")
             },
         },
         sort_keys=True,
