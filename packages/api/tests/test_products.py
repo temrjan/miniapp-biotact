@@ -221,3 +221,70 @@ async def test_sale_patch_requires_admin_and_preserves_product(
     after = (await client.get(url)).json()
     assert after["is_sale"] is True
     assert after["sale_price"] == "150.00"
+
+
+@pytest.mark.asyncio
+async def test_search_matches_across_scripts_fields_and_spacing(
+    client: AsyncClient, admin_headers: dict[str, str]
+):
+    """Storefront search (2026-11-12): Cyrillic finds Latin names, spaces, hyphens and ®
+    do not count, and the description and category name are searched too."""
+    category = await client.post(
+        "/api/v1/categories",
+        json={"name": "Нутриенты и витаминные добавки", "slug": "nutrients"},
+        headers=admin_headers,
+    )
+    assert category.status_code == 201, category.text
+    other = await client.post(
+        "/api/v1/categories",
+        json={"name": "Техника", "slug": "technique"},
+        headers=admin_headers,
+    )
+    assert other.status_code == 201, other.text
+    for name, slug, category_id, description in (
+        ("IMMUNOCOMPLEX", "immuno", category.json()["id"], None),
+        ("DERMACOMPLEX", "derma", category.json()["id"], None),
+        ("NEUROCOMPLEX", "neuro", category.json()["id"], None),
+        ("BIFOLAK® MAGNIY", "magniy", other.json()["id"], None),
+        ("Рюкзак-сумка", "bag", other.json()["id"], "Для мамы и малыша"),
+    ):
+        created = await client.post(
+            "/api/v1/products",
+            json={
+                "name": name,
+                "slug": slug,
+                "price": "1000.00",
+                "category_id": category_id,
+                "description": description,
+            },
+            headers=admin_headers,
+        )
+        assert created.status_code == 201, created.text
+
+    async def found(query: str) -> set[str]:
+        response = await client.get("/api/v1/products", params={"search": query, "size": 100})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["total"] == len(data["items"])
+        return {item["name"] for item in data["items"]}
+
+    complexes = {"IMMUNOCOMPLEX", "DERMACOMPLEX", "NEUROCOMPLEX"}
+    # The four zero-result queries of the task.
+    assert await found("иммуно") == {"IMMUNOCOMPLEX"}
+    assert await found("дерма") == {"DERMACOMPLEX"}
+    assert await found("витамин") == complexes
+    assert await found("neuro complex") == {"NEUROCOMPLEX"}
+    # Name matches of before stay.
+    assert await found("IMMUNO") == {"IMMUNOCOMPLEX"}
+    assert await found("рюкзак") == {"Рюкзак-сумка"}
+    assert await found("комплекс") == complexes
+    assert await found("магний") == {"BIFOLAK® MAGNIY"}
+    assert await found("bifolak magniy") == {"BIFOLAK® MAGNIY"}
+    assert await found("рюкзак сумка") == {"Рюкзак-сумка"}
+    # The description is searched.
+    assert await found("мамы") == {"Рюкзак-сумка"}
+    # A query without letters or digits filters nothing, as before; % is no pattern.
+    every = complexes | {"BIFOLAK® MAGNIY", "Рюкзак-сумка"}
+    assert await found("®") == every
+    assert await found("%") == every
+    assert await found("100%") == set()

@@ -196,7 +196,8 @@ async def test_membership_legacy_filters_and_empty_single_sets(client, test_db):
         ({"category_id": 999}, []),
         ({"category_id": 0, "sort_by": "id_asc"}, [1, 2, 3, 4]),
         ({"search": "Русс"}, [1]),
-        ({"search": "UZ match"}, []),
+        # Storefront search (2026-11-12) also reads the Uzbek name.
+        ({"search": "UZ match", "sort_by": "id_asc"}, [1, 2, 3, 4]),
         ({"search": "%", "sort_by": "id_asc"}, [1, 2, 3, 4]),
     ]:
         assert await traverse(client, "/api/v1/products", params=params, size=2) == expected

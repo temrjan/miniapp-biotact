@@ -4,13 +4,15 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from src.categories.models import Category
 from src.products.models import Product
 from src.products.schemas import ProductCreate, ProductUpdate
+from src.products.search import column_key, search_key
 from src.products.stock import lock_products
 
 
@@ -169,6 +171,26 @@ async def delete_product(
     return True
 
 
+def _search_filter(search: str) -> ColumnElement[bool]:
+    """Name, description or category name (both languages) contain the query's key."""
+    key = search_key(search)
+    category_ids = select(Category.id).where(
+        or_(*(column_key(column).contains(key) for column in (Category.name, Category.name_uz)))
+    )
+    return or_(
+        *(
+            column_key(column).contains(key)
+            for column in (
+                Product.name,
+                Product.name_uz,
+                Product.description,
+                Product.description_uz,
+            )
+        ),
+        Product.category_id.in_(category_ids),
+    )
+
+
 async def get_products_paginated(
     db: AsyncSession,
     page: int = 1,
@@ -201,8 +223,9 @@ async def get_products_paginated(
         query = query.where(Product.is_featured.is_(True))
         count_query = count_query.where(Product.is_featured.is_(True))
 
-    if search:
-        search_filter = Product.name.ilike(f"%{search}%")
+    # A query without letters or digits (e.g. "%" or "®") filters nothing, as before.
+    if search and search_key(search):
+        search_filter = _search_filter(search)
         query = query.where(search_filter)
         count_query = count_query.where(search_filter)
 
