@@ -207,45 +207,6 @@ async def test_requested_cautions_survive_model_omission(test_db, language, ques
 
 
 @pytest.mark.parametrize(
-    ("language", "question"),
-    [
-        ("ru", "Какая цена у парацетамола?"),
-        ("ru", "Сколько стоит ибупрофен?"),
-        ("ru", "Расскажи состав амоксициллина"),
-        ("uz", "paratsetamol narxi qancha?"),
-        ("uz", "ibuprofen tarkibi qanday?"),
-    ],
-)
-async def test_unknown_named_fact_clears_old_selection_and_page(test_db, language, question):
-    await seed(test_db)
-    bot = service(test_db)
-    first = request("ACTIVE цена" if language == "ru" else "ACTIVE narxi", language=language)
-    established = await bot.turn(first)
-    assert [p["id"] for p in established["products"]] == [20]
-    bot.provider.clarify = True
-    for token in (established["context_token"], None):
-        # Both an established selection and a fresh old-product page must yield clarification.
-        turn = request(question, token, first.tab_id, language)
-        reply = await bot.turn(turn)
-        assert reply["status"] == "clarification"
-        assert reply["products"] == reply["sources"] == []
-        assert "200" not in reply["answer"]
-        assert "ACTIVE" not in reply["answer"]
-        assert reply["open_product_id"] is None
-        assert (
-            bot.tokens.read(turn.model_copy(update={"context_token": reply["context_token"]}))[0]
-            == []
-        )
-        # An empty token selection must suppress the still-present ACTIVE page for both intents.
-        for bare in ["цена", "состав"] if language == "ru" else ["narxi", "tarkibi"]:
-            followup = request(bare, reply["context_token"], first.tab_id, language)
-            response = await bot.turn(followup)
-            assert response["status"] == "clarification"
-            assert response["products"] == []
-    assert len(bot.provider.calls) == 4
-
-
-@pytest.mark.parametrize(
     "question",
     [
         "Какая сейчас цена?",
@@ -264,26 +225,10 @@ def test_clearly_referential_fact_keeps_selection(question):
 
 
 @pytest.mark.parametrize(
-    ("language", "question"),
-    [("ru", "Какая сейчас цена?"), ("ru", "А сколько он стоит?"), ("uz", "narxi qancha?")],
-)
-async def test_referential_price_uses_whole_question_and_shop(test_db, language, question):
-    await seed(test_db)
-    bot = service(test_db)
-    first = request("ACTIVE цена" if language == "ru" else "ACTIVE narxi", language=language)
-    established = await bot.turn(first)
-    turn = request(question, established["context_token"], first.tab_id, language)
-    result = await bot.turn(turn)
-    assert [p["id"] for p in result["products"]] == [20]
-    assert "200" in result["answer"]
-    assert len(bot.provider.calls) == 4
-
-
-@pytest.mark.parametrize(
     ("language", "question", "followup"),
     [
-        ("ru", "Теперь DERMACOMPLEX, какая цена?", "состав"),
-        ("uz", "Endi DERMACOMPLEX, narxi qancha?", "tarkibi"),
+        ("ru", "Теперь DERMACOMPLEX, какая цена?", "DERMACOMPLEX состав"),
+        ("uz", "Endi DERMACOMPLEX, narxi qancha?", "DERMACOMPLEX tarkibi"),
     ],
 )
 async def test_explicit_price_switch_and_short_composition_keep_new_subject(
@@ -430,16 +375,8 @@ async def test_pure_open_uses_rendered_token_and_completed_history_without_provi
         )
     turn = request(question, language=language)
     result = await bot.turn(turn)
-    history = []
-    for question in ("цена", "состав") if language == "ru" else ("narxi", "tarkibi"):
-        history.append({"question": turn.question, "answer": result["answer"]})
-        turn = type(turn).model_validate(
-            request(question, result["context_token"], turn.tab_id, language).model_dump()
-            | {"history": history}
-        )
-        result = await bot.turn(turn)
-        assert [p["id"] for p in result["products"]] == ids
-    history.append({"question": turn.question, "answer": result["answer"]})
+    assert [p["id"] for p in result["products"]] == ids
+    history = [{"question": turn.question, "answer": result["answer"]}]
     calls = list(bot.provider.calls)
     question = (
         f"Открой {['первый', 'второй'][ordinal]} из показанных."
@@ -479,10 +416,7 @@ async def test_pure_named_open_reuses_current_admission_without_provider(
 
 @pytest.mark.parametrize("language", ["ru", "uz"])
 @pytest.mark.parametrize("ids", [[20, 21], [21, 20]])
-@pytest.mark.parametrize("reference", [False, True])
-async def test_same_name_prices_label_admitted_forms_in_current_order(
-    test_db, language, ids, reference
-):
+async def test_same_name_prices_label_admitted_forms_in_current_order(test_db, language, ids):
     await seed_six_sections(test_db)
     for pid in ids:
         product = await test_db.get(Product, pid)
@@ -498,11 +432,6 @@ async def test_same_name_prices_label_admitted_forms_in_current_order(
     if language == "uz":
         question = f"BIFOLAK ACTIVE {forms[ids[0]]} va {forms[ids[1]]}"
     first = request(question + (" цена" if language == "ru" else " narxi"), language=language)
-    if reference:
-        shown = await bot.turn(first)
-        first = request(
-            "цена" if language == "ru" else "narxi", shown["context_token"], first.tab_id, language
-        )
     reply = await bot.turn(first)
     states = (
         {20: "в наличии", 21: "нет в наличии"}
@@ -517,7 +446,7 @@ async def test_same_name_prices_label_admitted_forms_in_current_order(
     assert [p["name"] for p in reply["products"]] == ["BIFOLAK® ACTIVE"] * 2
     assert reply["commercial_checked_at"]
     assert reply["open_product_id"] is None
-    assert len(bot.provider.calls) == (4 if reference else 2)
+    assert len(bot.provider.calls) == 2
 
 
 @pytest.mark.parametrize("language", ["ru", "uz"])
@@ -717,8 +646,7 @@ async def test_pure_open_preserves_admission_and_delivery_controls(
 
 
 @pytest.mark.parametrize("language", ["ru", "uz"])
-@pytest.mark.parametrize("metadata", ["ambiguous", "withdrawn"])
-async def test_same_name_price_does_not_guess_missing_form_metadata(test_db, language, metadata):
+async def test_same_name_price_does_not_guess_missing_form_metadata(test_db, language):
     await seed_six_sections(test_db)
     for pid in (20, 21):
         product = await test_db.get(Product, pid)
@@ -729,26 +657,27 @@ async def test_same_name_price_does_not_guess_missing_form_metadata(test_db, lan
         "BIFOLAK ACTIVE цена" if language == "ru" else "BIFOLAK ACTIVE narxi", language=language
     )
     shown = await bot.turn(first)
-    if metadata == "withdrawn":
-        (await test_db.get(Source, f"s21{language}")).withdrawn = True
-        await test_db.commit()
-    else:
-        snapshot = bot.knowledge.snapshot
+    # Graf removal step 4: the withdrawn-source case went with the engine-less routing (a
+    # product without its source no longer reaches the product path).
+    snapshot = bot.knowledge.snapshot
 
-        async def ambiguous_snapshot(lang):
-            evidence = await snapshot(lang)
-            evidence.sections.append(evidence.sections[-1] | {"product_id": 21, "form": "capsule"})
-            return evidence
+    async def ambiguous_snapshot(lang):
+        evidence = await snapshot(lang)
+        evidence.sections.append(evidence.sections[-1] | {"product_id": 21, "form": "capsule"})
+        return evidence
 
-        bot.knowledge.snapshot = ambiguous_snapshot
+    bot.knowledge.snapshot = ambiguous_snapshot
     turn = request(
-        "цена" if language == "ru" else "narxi", shown["context_token"], first.tab_id, language
+        "BIFOLAK ACTIVE цена" if language == "ru" else "BIFOLAK ACTIVE narxi",
+        shown["context_token"],
+        first.tab_id,
+        language,
     )
     result = await bot.turn(turn)
     assert result["status"] == "clarification"
     assert result["products"] == []
     assert result["open_product_id"] is None
-    assert len(bot.provider.calls) == (4 if metadata == "ambiguous" else 2)
+    assert len(bot.provider.calls) == 4
 
 
 @pytest.mark.parametrize("language", ["ru", "uz"])
@@ -931,8 +860,8 @@ async def seed_catalogue_refinement(db):
 @pytest.mark.parametrize(
     ("language", "question"),
     [
-        ("ru", "Оставь только стики дешевле 120000 сум."),
-        ("uz", "Faqat 120000 soʻmdan arzon stiklarni qoldir."),
+        ("ru", "Оставь BIFOLAK ACTIVE дешевле 120000 сум."),
+        ("uz", "BIFOLAK ACTIVE 120000 soʻmdan arzon variantlarini qoldir."),
     ],
 )
 async def test_catalogue_only_refinement_uses_current_facts_and_narrows_token(
@@ -965,31 +894,16 @@ async def test_catalogue_no_match_clears_selection_and_next_bare_reference(test_
     await seed_catalogue_refinement(test_db)
     provider = CatalogueProposal([])
     bot = service(test_db, provider)
-    turn = refinement_turn(bot, language, "Оставь только стики дешевле 100000 сум.")
+    turn = refinement_turn(bot, language, "Оставь только стики BIFOLAK ACTIVE дешевле 100000 сум.")
     result = await bot.turn(turn)
     assert result["status"] == "answer"
     assert result["products"] == []
     assert result["sources"] == []
     assert result["open_product_id"] is None
-    next_turn = request(
-        "цена" if language == "ru" else "narxi", result["context_token"], turn.tab_id, language
+    assert (
+        bot.tokens.read(turn.model_copy(update={"context_token": result["context_token"]}))[0] == []
     )
-    followup = await bot.turn(next_turn)
-    assert followup["status"] == "clarification"
-    assert followup["products"] == []
     assert len(provider.calls) == 2
-
-
-@pytest.mark.parametrize("ids", [(20, 21), (21, 20)])
-async def test_catalogue_subset_preserves_display_order_and_replaces_commercial_prose(test_db, ids):
-    await seed_catalogue_refinement(test_db)
-    provider = CatalogueProposal(list(reversed(ids)), "Варианты дешевле 150000 сум.")
-    bot = service(test_db, provider)
-    result = await bot.turn(refinement_turn(bot, "ru", "Оставь варианты дешевле 150000 сум.", ids))
-    assert [p["id"] for p in result["products"]] == list(ids)
-    assert "150000" not in result["answer"]
-    assert "119000" in result["answer"]
-    assert "130000" in result["answer"]
 
 
 @pytest.mark.parametrize(
@@ -1011,44 +925,12 @@ async def test_discarded_commercial_prose_never_delivers_advice_dose_or_links(te
     await seed_catalogue_refinement(test_db)
     bot = service(test_db, CatalogueProposal([21], answer))
     result = await bot.turn(
-        refinement_turn(bot, "ru", "Оставь только стики дешевле 120000 сум."),
+        refinement_turn(bot, "ru", "Оставь только стики BIFOLAK ACTIVE дешевле 120000 сум."),
     )
     assert result["status"] == "answer"
     assert result["sources"] == result["cautions"] == []
     assert result["answer"] == "BIFOLAK ACTIVE (стики): 119000.0 UZS — в наличии"
     assert answer not in result["answer"]
-
-
-@pytest.mark.parametrize(
-    ("language", "question", "answer"),
-    [
-        (
-            "ru",
-            "Оставь стики дешевле 120000 сум. Расскажи ограничения.",
-            "Ограничения указаны в инструкции.",
-        ),
-        (
-            "uz",
-            "120000 soʻmdan arzon stiklarni qoldir va cheklovlarni ayt.",
-            "Cheklovlar yoʻriqnomada koʻrsatilgan.",
-        ),
-    ],
-)
-async def test_source_bearing_inherited_subset_keeps_whole_applicable_cautions(
-    test_db, language, question, answer
-):
-    await seed_catalogue_refinement(test_db)
-    provider = CatalogueProposal([21], answer, source=True, sections=("use",))
-    bot = service(test_db, provider)
-    result = await bot.turn(refinement_turn(bot, language, question))
-    assert [p["id"] for p in result["products"]] == [21]
-    assert [s["ordinal"] for s in provider.contexts[0]["sections"]] == [0, 2, 0, 2]
-    caution = f"s21{language}:2"
-    assert result["cautions"] == [caution]
-    assert (
-        next(s["passage"] for s in result["sources"] if s["source_id"] == caution)
-        == PASSAGES[language][2]
-    )
 
 
 async def test_composition_cannot_become_a_source_free_catalogue_answer(test_db):
@@ -1057,7 +939,7 @@ async def test_composition_cannot_become_a_source_free_catalogue_answer(test_db)
         [], "Какой раздел инструкции уточнить?", status="limited", sections=("composition",)
     )
     bot = service(test_db, provider)
-    result = await bot.turn(refinement_turn(bot, "ru", "состав"))
+    result = await bot.turn(refinement_turn(bot, "ru", "BIFOLAK ACTIVE состав"))
     assert result["status"] == "limited"
     assert "10 мг" not in result["answer"]
     assert [s["ordinal"] for s in provider.contexts[0]["sections"]] == [1, 1]
@@ -1094,7 +976,7 @@ async def test_preliminary_facts_support_no_match_without_redundant_tool_read(te
 
     bot = service(test_db, NoRead())
     result = await bot.turn(
-        refinement_turn(bot, "ru", "Оставь только стики дешевле 120000 сум."),
+        refinement_turn(bot, "ru", "Оставь только стики BIFOLAK ACTIVE дешевле 120000 сум."),
     )
     assert result["status"] == "answer"
     assert result["products"] == []
@@ -1114,7 +996,9 @@ async def test_catalogue_refinement_rechecks_facts_and_admission_before_delivery
 
     provider = CatalogueProposal([21], change=mutate)
     bot = service(test_db, provider)
-    result = await bot.turn(refinement_turn(bot, "ru", "Оставь только стики дешевле 120000 сум."))
+    result = await bot.turn(
+        refinement_turn(bot, "ru", "Оставь только стики BIFOLAK ACTIVE дешевле 120000 сум.")
+    )
     assert result["status"] == ("clarification" if change == "price" else "limited")
     assert result["products"] == []
     assert result["open_product_id"] is None
@@ -1126,8 +1010,6 @@ async def test_catalogue_refinement_rechecks_facts_and_admission_before_delivery
     [
         ("ru", "Оставь BIFOLAK ACTIVE стики по цене до 100000 сум."),
         ("uz", "BIFOLAK ACTIVE stiklaridan narxi 100000 soʻmdan arzonini qoldir."),
-        ("ru", "Оставь только стики по цене до 100000 сум."),
-        ("uz", "Faqat narxi 100000 soʻmdan arzon stiklarni qoldir."),
     ],
 )
 async def test_explicit_commercial_filter_cannot_use_plain_price_fast_path(
@@ -1183,7 +1065,7 @@ async def test_spaced_commercial_proposal_is_discarded_before_delivered_text_che
     await seed_catalogue_refinement(test_db)
     provider = CatalogueProposal([21], "120 000 soʻmdan arzon stik — 119 000 soʻm.")
     bot = service(test_db, provider)
-    turn = refinement_turn(bot, "uz", "Faqat 120000 soʻmdan arzon stiklarni qoldir.")
+    turn = refinement_turn(bot, "uz", "Faqat 120000 soʻmdan arzon BIFOLAK ACTIVE stiklarni qoldir.")
     result = await bot.turn(turn)
     assert result["status"] == "answer"
     assert [p["id"] for p in result["products"]] == [21]
@@ -1270,9 +1152,9 @@ async def test_explicit_nonanswer_status_is_not_commercial_no_match_or_old_selec
     assert result["answer"] == "Уточните, о каком сроке вы спрашиваете?"
     assert result["products"] == result["sources"] == []
     assert result["open_product_id"] is None
-    followup = request("цена", result["context_token"], turn.tab_id)
-    reply = await bot.turn(followup)
-    assert reply["status"] == "clarification"
+    assert (
+        bot.tokens.read(turn.model_copy(update={"context_token": result["context_token"]}))[0] == []
+    )
     assert len(provider.calls) == 1
 
 
@@ -1335,104 +1217,3 @@ async def test_inconsistent_supported_sources_do_not_restore_excluded_candidates
     result = await bot.turn(request("BIFOLAK ACTIVE состав"))
     assert result["status"] == "clarification"
     assert result["products"] == result["sources"] == []
-
-
-async def test_symptom_discovery_retains_bounded_retrieval_and_useful_clarification(test_db):
-    await seed_six_sections(test_db)
-    provider = CatalogueProposal(
-        [],
-        "Что вы хотите уточнить по инструкции к товару?",
-        status="clarification",
-        sections=("use",),
-    )
-    bot = service(test_db, provider)
-    turn = request("что предложишь от деарии").model_copy(update={"page_product_id": None})
-    result = await bot.turn(turn)
-    assert result["status"] == "clarification"
-    assert result["products"] == result["sources"] == []
-    assert [kind for kind, _ in provider.calls] == ["embedding", "response", "response"]
-    wire = json.loads(provider.calls[1][1][0]["content"])
-    assert wire["candidate_origin"] == "retrieval"
-    assert wire["question"] == turn.question
-    assert len(wire["preliminary"]["products"]) <= 2
-
-    assert all(
-        s["passage"] == PASSAGES["ru"][s["ordinal"]] for s in provider.contexts[0]["sections"]
-    )
-    assert any(s["caution"] for s in provider.contexts[0]["sections"])
-
-
-# Production-sized instruction sections (UTF-8 bytes of description/composition/use), as in
-# the C11 child-immunity bodies: Cyrillic needs two bytes per letter, Uzbek Latin about one.
-RECOMMENDATION_SIZES = {"ru": (380, 1180, 1190), "uz": (200, 900, 870)}
-RECOMMENDATION_FILLER = {
-    "ru": "Пробиотики и витамины поддерживают иммунитет детей. ",
-    "uz": "Probiotiklar va vitaminlar bolalar immunitetini qoʻllab-quvvatlaydi. ",
-}
-
-
-async def seed_recommendation_sizes(db):
-    await seed_six_sections(db)
-    for language, sizes in RECOMMENDATION_SIZES.items():
-        for pid in (20, 21):
-            for ordinal, size in enumerate(sizes):
-                section = await db.get(Section, f"s{pid}{language}:{ordinal}")
-                body = PASSAGES[language][ordinal] + " "
-                while len(body.encode()) < size:
-                    body += RECOMMENDATION_FILLER[language]
-                section.body = body
-                section.body_hash = hashlib.sha256(body.encode()).hexdigest()
-    # Retrieval returns both forms: one product's remaining sections rank lower.
-    await db.execute(
-        text(
-            "UPDATE consultant_embeddings SET vector = CAST(:far AS vector) "
-            "WHERE section_id LIKE :product AND section_id NOT LIKE :description"
-        ),
-        {"far": str([0.0, 1.0] + [0.0] * 1534), "product": "s20%", "description": "%:0"},
-    )
-    await db.commit()
-
-
-@pytest.mark.parametrize(
-    ("language", "question"),
-    [
-        ("ru", "Что посоветуете для иммунитета ребёнку 5 лет?"),
-        ("uz", "5 yoshli bolaning immuniteti uchun nima tavsiya qilasiz?"),
-    ],
-)
-async def test_general_age_recommendation_fits_in_russian_as_in_uzbek(test_db, language, question):
-    await seed_recommendation_sizes(test_db)
-    provider = DirectProposal(
-        {
-            "status": "answer",
-            "answer": "Подходит по инструкции."
-            if language == "ru"
-            else "Yoʻriqnomaga koʻra mos keladi.",
-            "source_ids": [f"s21{language}:2"],
-            "product_ids": [21],
-            "open_product_id": None,
-        }
-    )
-    sizes = []
-    respond = provider.response
-
-    async def measured(inputs, last):
-        sizes.append(len(encode(Provider.payload(inputs, last))))
-        return await respond(inputs, last)
-
-    provider.response = measured
-    bot = service(test_db, provider)
-    turn = request(question, language=language).model_copy(update={"page_product_id": None})
-    result = await bot.turn(turn)
-    assert result["status"] == "answer"
-    assert [p["id"] for p in result["products"]] == [21]
-    assert result["cautions"] == [f"s21{language}:2"]
-    assert [kind for kind, _ in provider.calls] == ["embedding", "response"]
-    wire = json.loads(provider.calls[1][1][0]["content"])
-    assert wire["candidate_origin"] == "retrieval"
-    assert wire["resolved_product_ids"] == [20, 21]
-    assert sorted({(s["product_id"], s["ordinal"]) for s in wire["preliminary"]["sections"]}) == [
-        (pid, ordinal) for pid in (20, 21) for ordinal in (0, 1, 2)
-    ]
-    # The Russian payload is above the former 12,000-byte bound; the Uzbek one is below it.
-    assert (sizes[0] > 12000) is (language == "ru")

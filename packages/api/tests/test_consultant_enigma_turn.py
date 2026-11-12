@@ -1,5 +1,5 @@
 """The Enigma turn (consultant-v2 spec r2, PR-2) inside Consultant.turn on the real test
-database: the switch and the routing, the Luna answer and its checks, the cards, the "more"
+database: the engine without a key and the routing, the Luna answer and its checks, the cards, the "more"
 turn and the record. Jev is a double at its HTTP boundary, Luna at Provider.call. Each test
 names the requirement it proves."""
 
@@ -17,28 +17,28 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from src.config import Settings
-from src.consultant import graf
 from src.consultant import record as recording
+from src.consultant import service
 from src.consultant.context import Tokens
 from src.consultant.contracts import Fault, Turn
 from src.consultant.control import Controls
-from src.consultant.enigma import checks, luna
+from src.consultant.enigma import checks, luna, nets
 from src.consultant.enigma.data import DATA, RULES
 from src.consultant.enigma.jev import Jev, read
 from src.consultant.enigma.turn import Enigma, named
 from src.consultant.knowledge import Knowledge
+from src.consultant.models import Run
+from src.consultant.provider import PROFILE
 from src.consultant.router import runtime
 from src.consultant.service import Consultant
 from src.journal.models import JournalTurn
 from src.journal.writer import Journal
 from src.main import create_app
 from src.products.models import Product
+from tests.consultant_doubles import LunaStub, body, echo
+from tests.consultant_doubles import seed as supplements
 from tests.test_consultant import KEY
 from tests.test_consultant_enigma_core import answer
-from tests.test_consultant_graf_fakes import LunaStub, body, echo
-from tests.test_consultant_graf_flow import OpenRouter
-from tests.test_consultant_graf_service import seed as supplements
 
 SENTENCE = RULES.instruction_sentence.ru
 QUESTION = RULES.opening_question.ru
@@ -90,16 +90,13 @@ def say(decision: str, text: str, *offered: str) -> Any:
 
 def bot(db: Any, jev: JevDouble, *script: Any, engine: bool = True) -> Consultant:
     sessions = async_sessionmaker(db.bind, expire_on_commit=False)
-    old = httpx.AsyncClient(transport=httpx.MockTransport(OpenRouter().handler))
-    new = httpx.AsyncClient(transport=httpx.MockTransport(jev.handler))
+    client = httpx.AsyncClient(transport=httpx.MockTransport(jev.handler))
     consultant = Consultant(
         Controls(sessions, KEY, True),
         Knowledge(sessions),
         LunaStub(list(script)),
         Tokens(KEY),
-        graf.Graf(graf.Jev(old, "fixture-key")),
-        True,
-        Enigma(Jev(new, "fixture-key")) if engine else None,
+        Enigma(Jev(client, "fixture-key")) if engine else None,
     )
     consultant.records = []  # type: ignore[attr-defined]
     consultant.recorder = consultant.records.append  # type: ignore[attr-defined]
@@ -132,42 +129,44 @@ def shown(consultant: Consultant, ids: list[int]) -> tuple[Any, str]:
     return tab, consultant.tokens.issue(tab, "ru", ids, str(uuid4()))[0]
 
 
-# --- SW-01: the switch -------------------------------------------------------------------------
+# --- G4-02, G4-03: the engine and the no-key state ---------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("engine", "hybrid", "on"),
-    [(None, True, False), ("graf", True, False), ("enigma", True, True), ("enigma", False, False)],
-)
-async def test_sw01_setting_selects_the_engine(
-    test_db: Any, engine: str | None, hybrid: bool, on: bool
+@pytest.mark.parametrize("key", [KEY, ""])
+async def test_g403_without_the_jev_key_every_turn_gets_the_failure_response(
+    test_db: Any, key: str
 ) -> None:
-    assert Settings.model_fields["consultant_engine"].default == "graf"
+    """graf-removal spec r3 G4-02, G4-03 (C-75): the runtime builds Enigma only with its Jev
+    key; without it a turn ends with 503 answer_unavailable before admission, no model call."""
+    await seed(test_db)
     secret = SimpleNamespace(get_secret_value=lambda: KEY)
     config = SimpleNamespace(
         consultant_provider_key=secret,
         consultant_protection_key=secret,
-        consultant_graf_key=secret,
+        consultant_graf_key=SimpleNamespace(get_secret_value=lambda: key),
         consultant_origins=[],
-        consultant_hybrid=hybrid,
     )
-    if engine is not None:
-        config.consultant_engine = engine
     app = SimpleNamespace(state=SimpleNamespace())
     sessions = async_sessionmaker(test_db.bind, expire_on_commit=False)
     async with runtime(app, config, sessions):
-        assert (app.state.consultant.enigma is not None) is on
-
-
-async def test_sw01_default_engine_answers_on_the_existing_path(test_db: Any) -> None:
-    await seed(test_db)
-    jev = JevDouble(answer("immunocomplex"))
-    consultant = bot(test_db, jev, engine=False)
-    await consultant.turn(turn("часто болею, слабый иммунитет"))
-    (record,) = consultant.records  # type: ignore[attr-defined]
-    assert record.path == "hybrid"
-    assert "engine" not in record.versions
-    assert jev.states == []
+        consultant = app.state.consultant
+        assert (consultant.enigma is not None) is bool(key)
+        if key:
+            return
+        consultant.provider = LunaStub([])
+        records: list[Any] = []
+        consultant.recorder = records.append
+        with pytest.raises(Fault) as fault:
+            await consultant.turn(turn("часто болею, слабый иммунитет"))
+    assert (fault.value.code, fault.value.status) == ("answer_unavailable", 503)
+    (record,) = records
+    assert (record.path, record.http_status) == ("failure", 503)
+    assert record.versions == {"knowledge": None, "profile": PROFILE}
+    assert consultant.counters.counts["failure.no_engine"] == 1
+    assert consultant.provider.calls == consultant.provider.luna == []
+    # No admission: the turn registered nothing.
+    async with sessions() as db:
+        assert (await db.execute(select(Run))).scalars().all() == []
 
 
 # --- SW-03, SW-04: the route -------------------------------------------------------------------
@@ -470,8 +469,13 @@ async def test_rec01_enigma_turns_in_the_journal(test_db: Any) -> None:
     )
     # The pregnancy rule removed IMMUNOCOMPLEX KIDS (14) before the offer.
     assert delivered.offered_product_ids == [7, 17]
-    assert delivered.versions["engine"] == "enigma"
-    assert delivered.versions["enigma_data"] == DATA
+    # G4-06: the versions of an Enigma turn, exactly; no graf_data key.
+    assert delivered.versions == {
+        "knowledge": "graf-release",
+        "profile": PROFILE,
+        "engine": "enigma",
+        "enigma_data": DATA,
+    }
     assert delivered.jev["unit"][0] == ["immunocomplex", 0.6]
     assert delivered.jev["error"] is None
     assert (delivered.luna["decision"], delivered.luna["offered"]) == (
@@ -482,6 +486,24 @@ async def test_rec01_enigma_turns_in_the_journal(test_db: Any) -> None:
     assert delivered.facts["pregnancy"] == [0]
     assert (failed.path, failed.http_status, failed.jev["error"]) == ("failure", 503, "status")
     assert failed.versions["engine"] == "enigma"
+
+
+async def test_fr01_the_deadline_on_an_enigma_turn_is_the_failure_response(
+    test_db: Any, monkeypatch: Any
+) -> None:
+    """graf-removal spec r3 G4-05, spec r2 FR-01 (restated from the former hybrid test): the
+    turn deadline on an Enigma turn is the failure response, not 504 timeout."""
+    await seed(test_db)
+    consultant = bot(test_db, JevDouble(answer("immunocomplex")))
+    monkeypatch.setattr(service, "DEADLINE", 0.2)
+    consultant.provider.hold = asyncio.Event()  # Luna never answers; its own limit is 16 s
+    with pytest.raises(Fault) as fault:
+        await consultant.turn(turn("часто болею"))
+    assert (fault.value.code, fault.value.status) == ("answer_unavailable", 503)
+    (record,) = consultant.records  # type: ignore[attr-defined]
+    assert (record.path, record.http_status) == ("failure", 503)
+    assert record.luna["failure_trigger"] == "deadline"
+    assert consultant.counters.counts["failure.deadline"] == 1
 
 
 # --- FT-04: a removed product is not in the brief and may not be named -------------------------
@@ -596,8 +618,9 @@ async def test_the_recorder_runs_once_per_turn_and_a_raising_recorder_changes_no
 
 
 async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db: Any) -> None:
-    # JW-02 in Enigma mode: each path a turn can take today is written to the real journal
-    # tables with the record's values.
+    # JW-02, JW-06 in Enigma mode: each path a turn can take is written to the real journal
+    # tables with the record's value in every mapped column (restated from the former Graf
+    # journal test in Graf removal step 4).
     await seed(test_db)
     offer = "IMMUNOCOMPLEX® поддерживает иммунитет. " + SENTENCE
     cases = [
@@ -621,12 +644,23 @@ async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db:
         with contextlib.suppress(Fault):  # the failure case ends with 503
             await consultant.turn(turn(question))
         records += consultant.records  # type: ignore[attr-defined]
+    # The product path's 504 when the provider times out.
+    consultant = bot(test_db, JevDouble(answer("unclear")))
+
+    async def slow(inputs: Any, last: Any) -> Any:
+        raise TimeoutError
+
+    consultant.provider.response = slow  # type: ignore[method-assign]
+    with pytest.raises(Fault, match="timeout"):
+        await consultant.turn(turn("IMMUNOCOMPLEX"))
+    records += consultant.records  # type: ignore[attr-defined]
     assert [(r.path, r.graf_outcome, r.http_status) for r in records] == [
         ("enigma", "offer", 200),
         ("enigma", "emergency", 200),
         ("product", None, 200),
         ("enigma", "shop", 200),
         ("failure", None, 503),
+        ("product", None, 504),
     ]
     sessions = async_sessionmaker(test_db.bind, expire_on_commit=False)
     journal = Journal(sessions)
@@ -642,6 +676,14 @@ async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db:
     for row, record in zip(stored, records, strict=True):
         assert (
             str(row.request_id),
+            str(row.tab_id),
+            row.created_at,
+            row.template,
+            row.asked_question,
+            row.resolution,
+            row.tokens,
+            row.opyt,
+            row.memory,
             row.question,
             row.answer,
             row.http_status,
@@ -657,6 +699,14 @@ async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db:
             row.versions,
         ) == (
             record.request_id,
+            record.tab_id,
+            record.created,
+            record.template,
+            plain(record.asked_question),
+            plain(record.resolution),
+            nets.tokens(record.question),
+            None,
+            None,
             record.question,
             record.answer,
             record.http_status,

@@ -3,7 +3,6 @@
 import re
 from functools import lru_cache
 from ipaddress import ip_network
-from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr, model_validator
@@ -58,14 +57,9 @@ class Settings(BaseSettings):
     consultant_provider_key: SecretStr = SecretStr("")
     consultant_protection_key: SecretStr = SecretStr("")
     consultant_origins: list[str] = ["https://biotact.uz"]
-    # Graf (deterministic product offer through Jev); empty means Graf is off.
+    # Enigma's Jev key (the env name is kept from Graf); empty means every consultant turn
+    # gets the failure response (graf-removal spec r3 G4-01, G4-03).
     consultant_graf_key: SecretStr = SecretStr("")
-    # Luna-first hybrid while Graf is on; false answers hybrid turns with the failure
-    # response (named-product questions still work).
-    consultant_hybrid: bool = True
-    # The engine of complaint turns: "graf" (default), or "enigma" (consultant v2) while the
-    # Graf key is set and the hybrid switch is on.
-    consultant_engine: Literal["graf", "enigma"] = "graf"
     # The consultant journal (spec.opyt r2 JN-04, JG-01); read at startup, off by default.
     consultant_journal: bool = False
 

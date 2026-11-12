@@ -2,7 +2,6 @@
 (spec r2 OP-02, OP-03; spec.opyt r2 §3 TR-01 to TR-05)."""
 
 import asyncio
-import hashlib
 import logging
 from collections import Counter
 from collections.abc import Callable
@@ -11,14 +10,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.consultant.contracts import Fault, Turn
-from src.consultant.graf import DATA_DIR, DATA_FILES
 
 logger = logging.getLogger(__name__)
-
-GRAF_DATA = {
-    name: hashlib.sha256((DATA_DIR / name).read_bytes()).hexdigest() for name in DATA_FILES
-}
-PATHS = ("hybrid", "product", "safety", "post_offer", "page_product", "failure")
 
 
 @dataclass

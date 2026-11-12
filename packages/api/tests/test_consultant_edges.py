@@ -147,23 +147,17 @@ async def test_midturn_admission_or_switch_loss_suppresses_stale_delivery(test_d
         await asyncio.gather(pending, return_exceptions=True)
 
 
-async def test_same_subject_source_only_keeps_selection_then_loss_clears_it(test_db):
+async def test_same_subject_source_only_keeps_selection(test_db):
+    # Graf removal step 4: the follow-up names the product, since an unnamed one goes to
+    # Enigma; the withdrawn-source and bare-reference steps went with that routing.
     await seed(test_db)
     bot = service(test_db)
     first = request("ACTIVE")
     response = await bot.turn(first)
-    followup = request("состав", response["context_token"], first.tab_id)
+    followup = request("ACTIVE состав", response["context_token"], first.tab_id)
     result = await bot.turn(followup)
     assert [p["id"] for p in result["products"]] == [20]
     assert bot.tokens.read(followup.model_copy(update={"context_token": result["context_token"]}))[
         0
     ] == [20]
-    async with bot.controls.sessions.begin() as db:
-        (await db.get(Source, "s20ru")).withdrawn = True
-    missing = await bot.turn(request("ACTIVE", result["context_token"], first.tab_id))
-    assert missing["status"] == "limited"
-    assert missing["products"] == []
-    bare = await bot.turn(request("цена", missing["context_token"], first.tab_id))
-    assert bare["status"] == "clarification"
-    assert bare["products"] == []
     assert len(bot.provider.calls) == 4
