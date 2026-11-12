@@ -1,5 +1,5 @@
 """The consultant journal (spec.opyt r2 §4, PR-5) on PostgreSQL 16: the writer, the
-conversation key, the agreed-turn labels, the failure path, the counters line, the switch
+conversation key, the failure path, the counters line, the switch
 and the migration. Records are built directly, or produced by the real service with Enigma's
 Jev and Luna doubles as in the Enigma turn tests (the column mapping on every path is there).
 Every customer text here is synthetic."""
@@ -57,14 +57,6 @@ def rec(question="часто болею", *, tab, epoch="epoch-1", at=0, status=
     return record
 
 
-def asking(kind, *options, repeat=False):
-    return {"kind": kind, "options": list(options), "repeat": repeat}
-
-
-def resolved(kind, situation):
-    return {"kind": kind, "situation": situation}
-
-
 async def store(sessions, *records):
     journal = Journal(sessions)
     for record in records:
@@ -75,13 +67,6 @@ async def store(sessions, *records):
 async def rows(sessions):
     async with sessions() as db:
         return list(await db.scalars(select(JournalTurn).order_by(JournalTurn.id)))
-
-
-def labels(stored):
-    return [
-        None if r.agreed_situation is None else (r.agreed_situation, r.agreed_source)
-        for r in stored
-    ]
 
 
 async def until(predicate):
@@ -195,117 +180,74 @@ async def test_conversations_by_tab_and_epoch_and_removal_of_one_conversation(se
     assert [r.question for r in await rows(sessions)] == ["четвёртый"]
 
 
-# --- JL-01 ----------------------------------------------------------------------------------
-
-JEV_LUNA = [
-    ("agree", True, 200, True),
-    ("same_decision", True, 200, False),
-    ("disagree", True, 200, False),
-    ("abstain", True, 200, False),
-    (None, True, 200, False),
-    ("agree", False, 200, False),
-    ("agree", True, 503, False),
-]
+# --- S6-01, S6-02: new turns leave label and Graf question columns NULL ---------------------
 
 
-async def test_the_jev_luna_label_needs_agree_on_the_typed_question_and_delivery(sessions):
+async def test_enigma_turn_leaves_label_columns_null_and_preserves_seeded_earlier_row(
+    test_db, sessions
+):
+    """S6-01, S6-02: a new delivered Enigma turn writes NULL in agreed_situation,
+    agreed_source, asked_question and resolution, and does not touch an earlier labelled row
+    of the same conversation."""
+    await enigma_seed(test_db)
+    offer = "IMMUNOCOMPLEX® поддерживает иммунитет. " + SENTENCE
+    chat = bot(
+        test_db,
+        JevDouble(answer("immunocomplex")),
+        say("offer", offer, "immunocomplex"),
+    )
     tab = uuid.uuid4()
-    records = [
-        rec(
-            tab=tab,
-            at=n,
-            status=status,
-            jev={"choice": "immunity", "confidence": 0.8, "input_is_question": typed},
-            luna={"agreement": agreement},
+    epoch = "epoch-step6"
+    token, _ = chat.tokens.issue(tab, "ru", [], epoch)
+    seeded_asked = {"kind": "confirm", "options": ["immunity"], "repeat": False}
+    seeded_resolution = {"kind": "confirm", "situation": "immunity"}
+    async with sessions.begin() as db:
+        conv = Conversation(
+            channel="website",
+            tab_id=tab,
+            token_epoch=epoch,
+            started_at=T0,
+            last_turn_at=T0,
         )
-        for n, (agreement, typed, status, _) in enumerate(JEV_LUNA)
-    ]
-    await store(sessions, *records)
-    assert labels(await rows(sessions)) == [
-        ("immunity", "jev_luna") if labelled else None for *_, labelled in JEV_LUNA
-    ]
-
-
-# --- JL-02 cases A to G ---------------------------------------------------------------------
-
-
-def case_steps(case, tab):
-    """Each step: a record and, when checked there, the labels of all rows so far."""
-    H, X, Y, Z = "immunity", "skin_allergy", "adult_stress_sleep", "constipation"
-    jev_luna = {
-        "jev": {"choice": H, "confidence": 0.8, "input_is_question": True},
-        "luna": {"agreement": "agree"},
-    }
-    if case == "A":
-        return [
-            (rec("здравствуйте", tab=tab), None),
-            (rec("часто болею", tab=tab, asked_question=asking("confirm", H)), None),
-            (rec("да", tab=tab, resolution=resolved("confirm", H)), [None, (H, "confirmed"), None]),
-        ]
-    if case == "B":
-        return [
-            (rec("Часто простываю", tab=tab, **jev_luna), None),
-            (rec("лучше от бессонницы", tab=tab, asked_question=asking("confirm", Y)), None),
-            (
-                rec("да", tab=tab, resolution=resolved("confirm", Y)),
-                [(H, "jev_luna"), (Y, "confirmed"), None],
-            ),
-        ]
-    if case == "C":
-        return [
-            (rec("кожа и простуды", tab=tab, asked_question=asking("choose", X, Y)), None),
-            (rec("не знаю", tab=tab, asked_question=asking("choose", X, Y, repeat=True)), None),
-            (rec("сон", tab=tab, resolution=resolved("choose", Y)), [(Y, "confirmed"), None, None]),
-        ]
-    if case == "D":
-        return [
-            (rec("часто болею", tab=tab, asked_question=asking("confirm", H)), None),
-            (rec("да", tab=tab, status=503, resolution=resolved("confirm", H)), [None, None]),
-            (
-                rec("да", tab=tab, resolution=resolved("confirm", H)),
-                [(H, "confirmed"), None, None],
-            ),
-        ]
-    if case == "E":
-        # The second resolution names the other option: the first label stays.
-        return [
-            (rec("часто болею и кожа", tab=tab, asked_question=asking("choose", H, X)), None),
-            (
-                rec(
-                    "первое, и давит в груди",
-                    tab=tab,
-                    graf_outcome="check",
-                    resolution=resolved("choose", H),
-                ),
-                [(H, "confirmed"), None],
-            ),
-            (
-                rec("нет", tab=tab, resolution=resolved("choose", X)),
-                [(H, "confirmed"), None, None],
-            ),
-        ]
-    if case == "F":
-        return [
-            (rec("запор", tab=tab, asked_question=asking("confirm", Z)), None),
-            (rec("кожа и сон", tab=tab, asked_question=asking("choose", X, Y)), None),
-            (rec("запор всё же", tab=tab, resolution=resolved("choose", Z)), [None, None, None]),
-        ]
-    assert case == "G"
-    return [
-        (rec("часто болею", tab=tab, asked_question=asking("confirm", H)), None),
-        (rec("да", tab=tab, epoch=None, resolution=resolved("confirm", H)), [None, None]),
-    ]
-
-
-@pytest.mark.parametrize("case", ["A", "B", "C", "D", "E", "F", "G"])
-async def test_the_confirmed_label_goes_to_the_latest_asking_row(sessions, case):
-    journal = Journal(sessions)
-    for n, (record, expected) in enumerate(case_steps(case, uuid.uuid4())):
-        record.created = T0 + timedelta(minutes=n)
-        await journal.write(record)
-        if expected is not None:
-            assert labels(await rows(sessions)) == expected, (case, n)
-    assert "failed" not in " ".join(journal.counters.counts)
+        db.add(conv)
+        await db.flush()
+        db.add(
+            JournalTurn(
+                request_id=uuid.uuid4(),
+                conversation_id=conv.id,
+                tab_id=tab,
+                created_at=T0,
+                question="часто болею",
+                answer="Синтетический вопрос?",
+                http_status=200,
+                response_status="clarification",
+                path="hybrid",
+                tokens=["часто", "болею"],
+                asked_question=seeded_asked,
+                resolution=seeded_resolution,
+                agreed_situation="immunity",
+                agreed_source="confirmed",
+            )
+        )
+    app = SimpleNamespace(state=SimpleNamespace(consultant=chat))
+    async with runtime(app, ON, sessions):
+        await chat.turn(turn("да", token, tab, (("часто болею", "Синтетический вопрос?"),)))
+    earlier, delivered = await rows(sessions)
+    assert earlier.conversation_id == delivered.conversation_id
+    assert (
+        earlier.agreed_situation,
+        earlier.agreed_source,
+        earlier.asked_question,
+        earlier.resolution,
+    ) == ("immunity", "confirmed", seeded_asked, seeded_resolution)
+    assert (
+        delivered.path,
+        delivered.http_status,
+        delivered.agreed_situation,
+        delivered.agreed_source,
+        delivered.asked_question,
+        delivered.resolution,
+    ) == ("enigma", 200, None, None, None, None)
 
 
 # --- JW-07 ---------------------------------------------------------------------------------

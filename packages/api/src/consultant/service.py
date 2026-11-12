@@ -14,9 +14,7 @@ from pydantic import ValidationError
 
 from src.consultant.context import (
     SENSITIVE,
-    Check,
     Context,
-    FlowState,
     Subject,
     Tokens,
     pure_open,
@@ -81,13 +79,11 @@ def product_subject(request: Turn, selection: list[int], evidence: Evidence) -> 
 @dataclass(frozen=True)
 class Carry:
     """What the response token carries besides the selection (spec r2 TK-10): the epoch, the
-    pregnancy flag, the cleared-message digests, the flow state and a pending check."""
+    pregnancy flag and the cleared-message digests."""
 
     epoch: str
     pg: bool = False
     cleared: tuple[str, ...] = ()
-    flow: FlowState | None = None
-    check: Check | None = None
 
 
 class Consultant:
@@ -383,9 +379,7 @@ class Consultant:
             selection,
             carry.epoch,
             pg=carry.pg,
-            check=carry.check,
             cleared=carry.cleared,
-            flow=carry.flow,
         )
         public = [
             {k: v for k, v in source.items() if k not in {"product_id", "caution", "ordinal"}}

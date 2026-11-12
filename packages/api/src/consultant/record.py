@@ -5,7 +5,7 @@ import asyncio
 import logging
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -42,10 +42,6 @@ class TurnRecord:
     facts: dict[str, list[Any]] | None = None
     versions: dict[str, Any] | None = None
     response_status: str | None = None  # TR-01
-    asked_question: dict[str, Any] | None = None  # TR-04 (a)
-    resolution: dict[str, Any] | None = None  # TR-04 (b)
-    # Not part of the record contract: the asked question before delivery is known.
-    pending_question: dict[str, Any] | None = field(default=None, repr=False, compare=False)
 
     @staticmethod
     def start(request: Turn) -> "TurnRecord":
@@ -73,11 +69,10 @@ class TurnRecord:
         self.answer = response["answer"]
         self.http_status = 200
         self.response_status = response["status"]  # TR-01
-        self.asked_question = self.pending_question
 
     def fail(self, fault: Fault) -> None:
         self.fault_code, self.http_status = fault.code, fault.status
-        self.answer = self.response_status = self.asked_question = None
+        self.answer = self.response_status = None
         if fault.code == "answer_unavailable":
             self.path = "failure"
 

@@ -239,9 +239,9 @@ async def test_user_path_offer_then_more_shows_the_next_cards(test_db: Any) -> N
         assert (a["status"], [p["id"] for p in a["products"]]) == ("answer", [7, 14])
         assert (a["sources"], a["cautions"], a["open_product_id"]) == ([], [], None)
         second = turn("ещё", a["context_token"], first.tab_id, (("часто болею", a["answer"]),))
-        # SW-05: the token holds the shown ids and no flow state or pending check.
+        # SW-05: the token holds the shown ids.
         context = consultant.tokens.read(second)
-        assert (context.ids, context.flow, context.check) == ([7, 14], None, None)
+        assert context.ids == [7, 14]
         two = await client.post(
             "/api/v1/consultant/turns", json=json.loads(second.model_dump_json())
         )
@@ -702,8 +702,8 @@ async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db:
             record.tab_id,
             record.created,
             record.template,
-            plain(record.asked_question),
-            plain(record.resolution),
+            None,
+            None,
             nets.tokens(record.question),
             None,
             None,
