@@ -13,9 +13,7 @@ import pytest
 
 from src.consultant.context import (
     TOKEN_LIMIT,
-    Check,
     Context,
-    FlowState,
     Tokens,
     digest,
 )
@@ -50,30 +48,6 @@ def body(token):
     return json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
 
 
-def full_flow(**changes):
-    flow = FlowState(
-        situation="immunity",
-        pending="slot",
-        template="ask.pregnancy",
-        asked=("ask.whom_age", "ask.sex", "ask.pregnancy"),
-        options=(),
-        first=digest("часто болею"),
-        counter=3,
-        facts={
-            "age": (30.0, "confirmed"),
-            "whom": ("self", "parser"),
-            "sex": ("female", "confirmed"),
-            "pregnant": (True, "luna"),
-            "duration": (2.0, "parser"),
-            "temperature": (38.5, "parser"),
-        },
-        flags=frozenset(("child_word", "form_stick", "disease", "after_clarify", "intolerance")),
-        topics=("topic_cold", "topic_fever"),
-        overruled=(("doc.stoolblood.ru.1", digest("кровь")), ("topic_fever", digest("38"))),
-    )
-    return FlowState(**{**flow.__dict__, **changes})
-
-
 def v1_token(tab, language="ru", ids=(), epoch="v1-epoch", issued=None):
     """A token as the service issued it before PR-3a (context.py at 600c3d6)."""
     issued = int(time.time()) - 5 if issued is None else issued
@@ -84,12 +58,11 @@ def v1_token(tab, language="ru", ids=(), epoch="v1-epoch", issued=None):
     return encoded + "." + hmac.new(KEY.encode(), raw, hashlib.sha256).hexdigest()
 
 
-# --- TK-01 / TK-02 / TK-03 ---------------------------------------------------------------
+# --- TK-01 / TK-02 / TK-03 / S6-03 / S6-04 -----------------------------------------------
 
 
 def test_version_2_round_trip_keeps_every_field():
     tokens, request = Tokens(KEY), turn()
-    check = Check(digest("у дочки судороги"), (digest("у дочки судороги"), digest("и рвота")))
     token, expires = tokens.issue(
         request.tab_id,
         "ru",
@@ -97,16 +70,12 @@ def test_version_2_round_trip_keeps_every_field():
         "epoch",
         NOW,
         pg=True,
-        check=check,
         cleared=(digest("a"), digest("b")),
-        flow=full_flow(),
     )
     assert expires == NOW + 1800
     assert body(token)["v"] == 2
     context = tokens.read(request.model_copy(update={"context_token": token}), NOW + 1)
-    assert context == Context(
-        [4, 20], "epoch", 2, True, check, (digest("a"), digest("b")), full_flow()
-    )
+    assert context == Context([4, 20], "epoch", 2, True, (digest("a"), digest("b")))
 
 
 def test_issue_always_writes_version_2():
@@ -153,7 +122,7 @@ def tampered(token, part):
 @pytest.mark.parametrize("part", ["body", "signature", "other-key", "no-signature"])
 def test_tampered_version_2_token_is_invalid(part):
     tokens, request = Tokens(KEY), turn()
-    token, _ = tokens.issue(request.tab_id, "ru", [], "epoch", NOW, flow=full_flow())
+    token, _ = tokens.issue(request.tab_id, "ru", [], "epoch", NOW)
     assert tokens.read(request.model_copy(update={"context_token": token}), NOW).version == 2
     with pytest.raises(Fault) as fault:
         tokens.read(request.model_copy(update={"context_token": tampered(token, part)}), NOW)
@@ -162,9 +131,9 @@ def test_tampered_version_2_token_is_invalid(part):
 
 def test_expiry_and_binding_of_a_version_2_token():
     tokens, request = Tokens(KEY), turn()
-    token, _ = tokens.issue(request.tab_id, "ru", [], "epoch", NOW, flow=full_flow())
+    token, _ = tokens.issue(request.tab_id, "ru", [4], "epoch", NOW, pg=True)
     bound = request.model_copy(update={"context_token": token})
-    assert tokens.read(bound, NOW + 1799).flow == full_flow()
+    assert tokens.read(bound, NOW + 1799) == Context([4], "epoch", 2, True)
     with pytest.raises(Fault) as fault:
         tokens.read(bound, NOW + 1800)
     assert (fault.value.code, fault.value.status) == ("context_expired", 409)
@@ -190,29 +159,23 @@ def valid_body(tab):
         "g": False,
         "c": None,
         "x": [],
-        "f": full_flow().dump(),
+        "f": None,
     }
 
 
 MALFORMED = [
     ("extra key", lambda b: {**b, "z": 1}),
+    ("missing c key", lambda b: {k: v for k, v in b.items() if k != "c"}),
+    ("missing f key", lambda b: {k: v for k, v in b.items() if k != "f"}),
+    ("non-null c", lambda b: {**b, "c": {"d": digest("a"), "q": []}}),
+    ("non-null f", lambda b: {**b, "f": {}}),
     ("version 3", lambda b: {**b, "v": 3}),
     ("version as bool", lambda b: {**b, "v": True}),
     ("pg as int", lambda b: {**b, "g": 1}),
     ("short digest in x", lambda b: {**b, "x": ["abc"]}),
     ("upper-case digest in x", lambda b: {**b, "x": [digest("a").upper()]}),
-    ("check without quotes", lambda b: {**b, "c": {"d": digest("a")}}),
     ("three selection ids", lambda b: {**b, "s": [1, 2, 3]}),
     ("expiry not issued + 1800", lambda b: {**b, "e": NOW + 1801}),
-    ("flow missing key", lambda b: {**b, "f": {k: v for k, v in b["f"].items() if k != "h"}}),
-    ("unknown pending kind", lambda b: {**b, "f": {**b["f"], "k": "post_offer"}}),
-    ("slot without template", lambda b: {**b, "f": {**b["f"], "t": None}}),
-    ("zero counter", lambda b: {**b, "f": {**b["f"], "n": 0}}),
-    ("flag bits too large", lambda b: {**b, "f": {**b["f"], "b": 32}}),
-    ("unknown fact", lambda b: {**b, "f": {**b["f"], "v": {"weight": [3, "parser"]}}}),
-    ("fact of the wrong type", lambda b: {**b, "f": {**b["f"], "v": {"age": ["30", "parser"]}}}),
-    ("unknown origin", lambda b: {**b, "f": {**b["f"], "v": {"age": [30, "guess"]}}}),
-    ("overruled hit as a string", lambda b: {**b, "f": {**b["f"], "h": ["doc.x"]}}),
 ]
 
 
@@ -224,12 +187,21 @@ def test_signed_but_malformed_version_2_body_is_invalid(case, change):
         Tokens(KEY).read(request.model_copy(update={"context_token": token}), NOW)
     assert (fault.value.code, fault.value.status) == ("context_invalid", 400)
     # The unchanged body passes, so each case fails for its own change.
-    assert (
-        Tokens(KEY)
-        .read(request.model_copy(update={"context_token": signed(valid_body(request.tab_id))}), NOW)
-        .flow
-        == full_flow()
-    )
+    assert Tokens(KEY).read(
+        request.model_copy(update={"context_token": signed(valid_body(request.tab_id))}), NOW
+    ) == Context([], "epoch", 2)
+
+
+def test_above_token_limit_the_oldest_cleared_digests_go_first():
+    tokens, request = Tokens(KEY), turn()
+    cleared = tuple(digest(str(i)) for i in range(120))
+    token, _ = tokens.issue(request.tab_id, "ru", [4], "epoch", NOW, cleared=cleared)
+    assert len(token) <= TOKEN_LIMIT
+    context = tokens.read(request.model_copy(update={"context_token": token}), NOW + 1)
+    assert 0 < len(context.cleared) < len(cleared)
+    assert context.cleared == cleared[-len(context.cleared) :]
+    with pytest.raises(ValueError, match="token"):
+        tokens.issue(request.tab_id, "ru", [], "e" * TOKEN_LIMIT, NOW)
 
 
 def test_token_limit_is_the_request_bound():

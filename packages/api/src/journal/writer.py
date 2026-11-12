@@ -1,4 +1,4 @@
-"""The journal writer (spec.opyt r2 JW-01 to JW-09, JL-01 to JL-03, JS-01, JG-01).
+"""The journal writer (spec.opyt r2 JW-01 to JW-09, JS-01, JG-01).
 
 The recorder only queues the turn record. One background task writes the records in queue
 order, each in its own transaction; a failed write is counted and dropped. Nothing here runs
@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -68,13 +68,6 @@ class Journal:
         conversation = None
         if record.token_epoch is not None:
             conversation = await self.conversation(db, record)
-        jev, luna = record.jev or {}, record.luna or {}
-        agreed = (
-            record.http_status == 200
-            and luna.get("agreement") == "agree"
-            and jev.get("input_is_question") is True
-            and jev.get("choice") is not None
-        )
         row = await db.scalar(
             insert(JournalTurn)
             .values(
@@ -96,22 +89,12 @@ class Journal:
                 luna=record.luna,
                 facts=record.facts,
                 versions=record.versions,
-                asked_question=record.asked_question,
-                resolution=record.resolution,
                 tokens=tokens(record.question),
-                # JL-01: Jev at least 0.7 and Luna sure of the same situation, on the typed
-                # question, delivered.
-                agreed_situation=jev["choice"] if agreed else None,
-                agreed_source="jev_luna" if agreed else None,
             )
             .on_conflict_do_nothing(index_elements=["request_id"])
             .returning(JournalTurn.id)
         )
-        if row is None:
-            return False
-        if record.http_status == 200 and record.resolution is not None and conversation is not None:
-            await self.confirm(db, conversation, row, record.resolution)
-        return True
+        return row is not None
 
     @staticmethod
     async def conversation(db: AsyncSession, record: TurnRecord) -> int:
@@ -139,39 +122,6 @@ class Journal:
         )
         assert identity is not None
         return int(identity)
-
-    @staticmethod
-    async def confirm(
-        db: AsyncSession, conversation: int, row: int, resolution: dict[str, Any]
-    ) -> None:
-        """JL-02: label the latest earlier asking row of the conversation that is not a
-        repeat, when it is unlabelled and the confirmed situation is one of its options.
-        Older rows are never tried and an existing label is never replaced."""
-        target = (
-            await db.execute(
-                select(JournalTurn.id, JournalTurn.agreed_situation, JournalTurn.asked_question)
-                .where(
-                    JournalTurn.conversation_id == conversation,
-                    JournalTurn.id < row,
-                    JournalTurn.http_status == 200,
-                    JournalTurn.answer.is_not(None),
-                    JournalTurn.asked_question.is_not(None),
-                    JournalTurn.asked_question["repeat"].as_boolean().is_(False),
-                )
-                .order_by(JournalTurn.id.desc())
-                .limit(1)
-            )
-        ).first()
-        if target is None or target.agreed_situation is not None:
-            return
-        situation = resolution.get("situation")
-        if situation not in target.asked_question.get("options", []):
-            return
-        await db.execute(
-            update(JournalTurn)
-            .where(JournalTurn.id == target.id)
-            .values(agreed_situation=situation, agreed_source="confirmed")
-        )
 
     def line(self) -> str:
         """JS-01: the current queue length and the counters since the last line."""

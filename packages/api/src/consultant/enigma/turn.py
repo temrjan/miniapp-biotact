@@ -106,9 +106,7 @@ class EnigmaTurn:
         self.selection, self.ambulance = selection, ambulance
         self.customers = [p.question for p in request.history] + [request.question]
         self.signs = [nets.signs(text) for text in self.customers]
-        self.carry = replace(
-            carry, pg=carry.pg or any(s.pregnancy for s in self.signs), flow=None, check=None
-        )
+        self.carry = replace(carry, pg=carry.pg or any(s.pregnancy for s in self.signs))
         self.more = bool(selection) and more_reply(request.question)
         self.names = checks.Names.of(evidence.aliases)
         self.cards: dict[int, dict[str, Any]] = {}
@@ -293,8 +291,7 @@ class EnigmaTurn:
     async def call(
         self, brief: dict[str, Any], found: rules.Candidates, second: bool
     ) -> luna.Parsed:
-        """FT-01: one Luna call with the registration, reservation, usage and waiting rules
-        of the hybrid turn's call."""
+        """FT-01: one Luna call with registration, reservation, usage and waiting."""
         c = self.c
         payload = luna.payload(brief)
         part = self.record.luna_part()
