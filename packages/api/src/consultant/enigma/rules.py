@@ -29,7 +29,7 @@ class Candidate:
 @dataclass(frozen=True)
 class Candidates:
     units: tuple[Candidate, ...]
-    item: Item | None
+    items: tuple[Item, ...]
     intolerance: bool
     diarrhea: bool
     pregnancy: bool
@@ -42,7 +42,7 @@ def candidates(reading: Reading | None, signs: Iterable[Signs]) -> Candidates:
     diarrhea = any(s.diarrhea for s in seen)
     pregnancy = any(s.pregnancy for s in seen)
     if reading is None or intolerance:
-        return Candidates((), None, intolerance, diarrhea, pregnancy)
+        return Candidates((), (), intolerance, diarrhea, pregnancy)
     units: list[Candidate] = []
     for unit_id, probability in reading.units:
         unit = UNIT[unit_id]
@@ -61,5 +61,5 @@ def candidates(reading: Reading | None, signs: Iterable[Signs]) -> Candidates:
                 unit.pair_line if len(products) >= 2 else None,
             )
         )
-    item = ITEM[reading.item[0]] if reading.item else None
-    return Candidates(tuple(units), item, intolerance, diarrhea, pregnancy)
+    items = tuple(ITEM[item_id] for item_id, _ in reading.items)
+    return Candidates(tuple(units), items, intolerance, diarrhea, pregnancy)

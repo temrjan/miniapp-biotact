@@ -22,7 +22,10 @@ from src.consultant.context import (
 )
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
+from src.consultant.enigma import nets
 from src.consultant.enigma.cards import ITEM_PRODUCTS
+from src.consultant.enigma.checks import Names
+from src.consultant.enigma.data import CORES, SHOP, UNIT
 from src.consultant.enigma.data import DATA as ENIGMA_DATA
 from src.consultant.enigma.nets import Ambulance
 from src.consultant.enigma.shop import PUBLIC_CONTACTS, mask
@@ -60,18 +63,178 @@ RUSSIAN_PROSE = re.compile(
     re.I,
 )
 ORDINAL = re.compile(r"\b(?:first|перв\w*|birinchi\w*|second|втор\w*|ikkinchi\w*)\b")
+MAGNIY_IDS = frozenset(p.shop_id for p in UNIT["magniy"].products)
+PREGNANCY_IDS = frozenset(i for u in CORES.units for i in u.pregnancy)
+SUPPLEMENT_QUERY = re.compile(
+    r"(?:"
+    r"\b(?:цен[ауые]?|стоимост\w*|(?:скольк|скок)\w*(?:\s+\S+){0,2}\s+стоит|поч[её]м|"
+    r"narx\w*|qancha|necha\s+pul|неча\s+пул|нарх\w*|қанча|price|cost)\b"
+    r"|\b(?:в\s+наличии|наличи[еию]|в\s+продаже|bormi|bor\s*mi|mavjud|sotuvda|in\s+stock|available)\b"
+    r"|\b(?:состав\w*|ингредиент\w*|компонент\w*|что\s+входит|из\s+чего\s+состоит|"
+    r"tarkib\w*|таркиб\w*|nimalar\s+bor|nimalardan|composition|ingredients?)\b"
+    r"|\b(?:дозиров\w*|доз[ауые]|как\s+(?:его\s+|е[её]\s+|их\s+)?(?:пить|принимать|давать|употребл\w*)|"
+    r"способ\s+применен\w*|инструкц\w*|курс\w*|скольк\w*\s+(?:дней|пить|принимать)|"
+    r"в\s+день|(?:до|перед|после|во\s+время)\s+еды|"
+    r"qanday\s+(?:qilib\s+)?(?:uni\s+)?(?:ich\w*|qabul\s+qil\w*|ber\w*)|"
+    r"qancha\s+ich\w*|necha\s+kun|qabul\s+qilish|yo['‘’ʻʼ]?riqnom\w*|doza\w*|"
+    r"қандай\s+(?:қилиб\s+)?(?:уни\s+)?(?:ич\w*|қабул\s+қил\w*|бер\w*)|"
+    r"йўриқном\w*|неча\s+кун|қабул\s+қилиш|"
+    r"dosage|dose|how\s+to\s+take|instructions?)\b"
+    r"|\b(?:возраст\w*|с\s+какого\s+возраста|можно\s+(?:ли\s+)?детям|реб[её]нку\s+можно|детям\s+можно|"
+    r"беременн\w*|кормящ\w*|при\s+гв|лактац\w*|противопоказ\w*|побочн\w*|"
+    r"yoshdan|bolalarga|homilador\w*|emizikli\w*|qarshi\s+ko['‘’ʻʼ]?rsat\w*|nojo['‘’ʻʼ]?ya|"
+    r"ёшдан|болаларга|ҳомиладор\w*|эмизикли\w*|қарши\s+кўрсат\w*|age|pregnan\w*|contraindicat\w*)\b"
+    r"|\b(?:(?:это\s+|он\s+|она\s+)?от\s+чего|(?:это\s+|он\s+|она\s+)?для\s+чего|зачем(?:\s+(?:он|она|оно|это))?|"
+    r"что\s+это|что\s+за|расскаж\w*|подробн\w*|описан\w*|помогает\s+ли|поможет\s+ли|подойд[её]т\s+ли|"
+    r"bu\s+nima|nima\s+uchun|nimaga\s+kerak|nima\s+qiladi|bu\s+qanday|foyda\w*|"
+    r"бу\s+нима|нима\s+учун|нимага\s+кера[кг]|фойда\w*|what\s+is\s+this|what\s+for)\b"
+    r")"
+)
+SHOP_EXCLUSION_PREFIXES = (
+    *(
+        stem
+        for c in SHOP.conditions
+        for stem in (c.stems if c.concept == "cash" else c.customer_roots)
+    ),
+    "заказ",
+    "zakaz",
+    "buyurtm",
+    "буйуртм",
+    "оформ",
+    "корзин",
+    "savat",
+    "доставк",
+    "dostavk",
+    "yetkaz",
+    "етказ",
+    "курьер",
+    "kuryer",
+    "bts",
+    "оплат",
+    "to'lov",
+    "тўлов",
+    "payme",
+    "click",
+    "uzum",
+    "возврат",
+    "обмен",
+    "qaytar",
+    "almashtir",
+    "гарант",
+    "kafolat",
+    "контакт",
+    "телефон",
+    "aloqa",
+    "самовывоз",
+    "филиал",
+    "адрес",
+    "manzil",
+    "производит",
+    "сертификат",
+    "sertifikat",
+)
+SHOP_EXCLUSION_PHRASES = ("olib ket", "ishlab chiqar")
+ITEM_EXCLUSION_PREFIXES = (
+    "блендер",
+    "blender",
+    "чайник",
+    "choynak",
+    "чойнак",
+    "аэрогрил",
+    "aerogril",
+    "тостер",
+    "toster",
+    "соковыжимал",
+    "рюкзак",
+    "ryukzak",
+    "сумк",
+    "органайзер",
+    "шоппер",
+    "sumka",
+    "organayzer",
+    "shopper",
+    "жилет",
+    "nimcha",
+    "нимча",
+    "шапк",
+    "shapk",
+    "маникюр",
+    "manikyur",
+    "браслет",
+    "bilaguzuk",
+    "билагузук",
+    "термос",
+    "termos",
+    "кружк",
+    "krujk",
+    "таблетниц",
+    "tabletnits",
+)
+ITEM_EXCLUSION_PHRASES = ("sharbat siqqich",)
+SET_WORDS = re.compile(
+    r"\b(?:сет(?:а|у|ом|е|ы|ов)?|набор\w*|комплект\w*|to['‘’ʻʼ]?plam\w*|тўплам\w*)\b"
+)
 
 
-def product_subject(request: Turn, selection: list[int], evidence: Evidence) -> Subject | None:
-    """The subject of the named-product path, or None (graf-removal spec r3 G4-04): a named
-    product, or an ordinal or open-intent word with a displayed selection. An ordinal or
-    open-intent word without a displayed selection never routes to the product path."""
-    page = request.page_product_id if request.page_product_id in evidence.products else None
+def _excluded_layer1_query(question: str, evidence: Evidence) -> bool:
+    norm_q = nets.norm(question)
+    toks = nets.tokens(norm_q)
+    joined_toks = " ".join(toks)
+    if any(tok.startswith(SHOP_EXCLUSION_PREFIXES) for tok in toks):
+        return True
+    if any(phrase in joined_toks for phrase in SHOP_EXCLUSION_PHRASES):
+        return True
+    if any(tok.startswith(ITEM_EXCLUSION_PREFIXES) for tok in toks):
+        return True
+    if any(phrase in joined_toks for phrase in ITEM_EXCLUSION_PHRASES):
+        return True
+    if SET_WORDS.search(norm_q) is not None:
+        return True
+    named, _ = Names.of(evidence.aliases).find(question)
+    return any(ids & ITEM_PRODUCTS for ids in named)
+
+
+def _conversation_excludes(request: Turn, subject_ids: list[int], pg: bool) -> bool:
+    seen = [nets.signs(t) for t in [*(p.question for p in request.history), request.question]]
+    if any(s.doctor or s.number or s.intolerance for s in seen):
+        return True
+    if any(s.diarrhea for s in seen) and bool(set(subject_ids) & MAGNIY_IDS):
+        return True
+    return (pg or any(s.pregnancy for s in seen)) and not set(subject_ids).issubset(PREGNANCY_IDS)
+
+
+def product_subject(
+    request: Turn, selection: list[int], evidence: Evidence, *, pg: bool = False
+) -> Subject | None:
+    """The subject of the named-product path, or None (graf-removal spec r3 G4-04; amended by
+    UX-R01..UX-R03): a named product, an ordinal or open-intent word with a displayed selection,
+    or an unnamed supplement commercial/instruction/deictic query on selection or effective_page
+    that carries no shop/item/set cues and no conversation-wide compliance exclusion."""
+    effective_page = (
+        request.page_product_id
+        if (request.page_context is None or request.page_context.view == "product")
+        and request.page_product_id in evidence.products
+        else None
+    )
     subject = resolve(
-        request.question, evidence.aliases, selection, page, request.context_token is None
+        request.question,
+        evidence.aliases,
+        selection,
+        effective_page,
+        request.context_token is None,
     )
     ordinal = ORDINAL.search(request.question.casefold()) is not None
-    if subject.explicit or (selection and (ordinal or subject.open_intent)):
+    if subject.explicit:
+        return subject
+    if selection and (ordinal or subject.open_intent):
+        return subject
+    if (
+        subject.ids
+        and all(i in evidence.products for i in subject.ids)
+        and SUPPLEMENT_QUERY.search(nets.norm(request.question)) is not None
+        and not _excluded_layer1_query(request.question, evidence)
+        and not _conversation_excludes(request, subject.ids, pg)
+    ):
         return subject
     return None
 
@@ -234,7 +397,7 @@ class Consultant:
         assert self.enigma is not None
         known = [i for i in selection if i in evidence.products]
         if ambulance is None:
-            subject = product_subject(request, selection, evidence)
+            subject = product_subject(request, selection, evidence, pg=carry.pg)
             # A reply about a shown item card ('первый') stays with Enigma.
             if subject is not None and all(i in evidence.products for i in subject.ids):
                 record.path = "product"

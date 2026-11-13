@@ -2593,6 +2593,42 @@
    "pair_line": null,
    "problems": [
     {
+     "id": "bones_support",
+     "line": {
+      "ru": "Укрепляет кости, снижает риск переломов.",
+      "uz": "Suyaklarni mustahkamlaydi, sinish xavfini pasaytiradi."
+     },
+     "phrases": {
+      "ru": [
+       "укрепить кости",
+       "поддержка костей",
+       "слабые кости",
+       "для крепких костей взрослым",
+       "витамины для костей"
+      ],
+      "uz_latn": [
+       "suyaklarni mustahkamlash",
+       "suyaklar uchun qo'llab-quvvatlash",
+       "zaif suyaklar",
+       "kattalar uchun suyaklarni mustahkamlash",
+       "suyaklar uchun vitaminlar"
+      ],
+      "uz_cyrl": [
+       "суякларни мустаҳкамлаш",
+       "суяклар учун қўллаб-қувватлаш",
+       "заиф суяклар",
+       "катталар учун суякларни мустаҳкамлаш",
+       "суяклар учун витаминлар"
+      ]
+     },
+     "diagnoses": {
+      "ru": [],
+      "uz_latn": [],
+      "uz_cyrl": []
+     },
+     "applies_to": null
+    },
+    {
      "id": "bones_50plus",
      "line": {
       "ru": "Остеопороз и возраст 50+ – поддержка костей, снижение риска переломов.",

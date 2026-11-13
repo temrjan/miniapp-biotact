@@ -8,14 +8,22 @@ cards.
 
 import asyncio
 import json
+import re
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from src.consultant.context import FORMS, Context, normalize
-from src.consultant.contracts import Fault, Turn
+from src.consultant.contracts import Fault, PageView, Turn
 from src.consultant.enigma import checks, luna, nets, rules, shop
-from src.consultant.enigma.cards import ITEM_PRODUCTS, item_cards
-from src.consultant.enigma.data import CORES, RULES, Text
+from src.consultant.enigma.cards import (
+    ITEM_PRODUCTS,
+    SUPPLEMENT_IDS,
+    active_category,
+    format_price,
+    item_cards,
+    page_set_card,
+)
+from src.consultant.enigma.data import CORES, RULES, UNIT, Text
 from src.consultant.enigma.jev import Attempt, Jev, Reading
 from src.consultant.knowledge import Evidence
 from src.consultant.record import TurnRecord
@@ -33,6 +41,16 @@ STATUS = {
     "shop": "answer",
 }
 SIGNS = ("doctor", "number", "intolerance", "diarrhea", "pregnancy")
+MAGNIY_IDS = frozenset(p.shop_id for p in UNIT["magniy"].products)
+PREGNANCY_IDS = frozenset(i for u in CORES.units for i in u.pregnancy)
+ITEM_BY_PRODUCT = {p.shop_id: item for item in CORES.items for p in item.products}
+UNIT_BY_PRODUCT = {prod.shop_id: (unit, prod) for unit in CORES.units for prod in unit.products}
+SHARED_FORMS: dict[frozenset[int], dict[str, int]] = {
+    frozenset(p.shop_id for p in unit.products): {str(p.form): p.shop_id for p in unit.products}
+    for unit in CORES.units
+    if len({p.form for p in unit.products}) == 2 and len(unit.products) == 2
+}
+PRIVACY_NOTE = "Private account and order records are not transmitted to the consultant."
 
 
 class Failure(Exception):
@@ -110,8 +128,17 @@ class EnigmaTurn:
         self.more = bool(selection) and more_reply(request.question)
         self.names = checks.Names.of(evidence.aliases)
         self.cards: dict[int, dict[str, Any]] = {}
+        self.page_set: dict[str, Any] | None = None
+        self.page_category: str | None = None
         # spec.shop-core r4 SJ-02, SR-02: the chosen shop topics; none on an ambulance hit.
         self.topics: tuple[str, ...] = ()
+
+    def _page_view(self) -> PageView | None:
+        if self.request.page_context is not None:
+            return self.request.page_context.view
+        if self.request.page_product_id is not None:
+            return "product"
+        return None
 
     # -- steps ---------------------------------------------------------------------------------
 
@@ -135,6 +162,18 @@ class EnigmaTurn:
             record.luna_part()["shop"] = list(self.topics)
         found = rules.candidates(reading, self.signs)
         await self.load_cards(found)
+        pid = self.request.page_product_id
+        if (
+            self._page_view() == "product"
+            and pid is not None
+            and pid in ITEM_PRODUCTS
+            and pid in self.cards
+            and self.ambulance is None
+            and not found.intolerance
+        ):
+            page_item = ITEM_BY_PRODUCT[pid]
+            if all(it.id != page_item.id for it in found.items):
+                found = replace(found, items=(*found.items, page_item))
         failed: str | None = None
         trigger: tuple[str, str | None] = ("luna", None)
         for second in (False, True):
@@ -178,14 +217,124 @@ class EnigmaTurn:
         return earlier, self.customers[index]
 
     async def load_cards(self, found: rules.Candidates) -> None:
-        """Supplement cards come from the knowledge snapshot, item cards from the catalogue."""
+        """Supplement cards come from the knowledge snapshot, item/set/category data from the
+        catalogue in one short detached DB session."""
+        view = self._page_view()
+        pid = self.request.page_product_id
         wanted = [i for i in self.selection if i in ITEM_PRODUCTS]
-        if found.item is not None:
-            wanted += [p.shop_id for p in found.item.products]
+        for item in found.items:
+            wanted += [p.shop_id for p in item.products]
+        on_active_product_page = (
+            view == "product"
+            and pid is not None
+            and self.ambulance is None
+            and not found.intolerance
+        )
+        if on_active_product_page and pid in ITEM_PRODUCTS:
+            assert pid is not None
+            wanted += [p.shop_id for p in ITEM_BY_PRODUCT[pid].products]
+        load_page_set = (
+            on_active_product_page
+            and pid is not None
+            and pid not in SUPPLEMENT_IDS
+            and pid not in ITEM_PRODUCTS
+        )
+        cat_id = (
+            self.request.page_context.category_id
+            if self.request.page_context is not None
+            and self.request.page_context.view == "catalogue"
+            else None
+        )
         self.cards = dict(self.evidence.products)
-        if wanted:
+        self.page_set = None
+        self.page_category = None
+        if wanted or load_page_set or cat_id is not None:
             async with self.c.knowledge.sessions() as db:
-                self.cards.update(await item_cards(db, wanted, self.request.language))
+                if wanted:
+                    self.cards.update(await item_cards(db, wanted, self.request.language))
+                if load_page_set:
+                    assert pid is not None
+                    self.page_set = await page_set_card(db, pid, self.request.language)
+                if cat_id is not None:
+                    self.page_category = await active_category(db, cat_id, self.request.language)
+
+    def _page_info(self, found: rules.Candidates) -> tuple[dict[str, Any] | None, list[int]]:
+        """Pure page descriptor for brief['page'] plus flattened product IDs allowed on
+        ask/no_product (UX-P02)."""
+        view = self._page_view()
+        if view is None or view == "invalid":
+            return None, []
+        if view == "home":
+            return {"view": "home"}, []
+        if view == "catalogue":
+            return {"view": "catalogue", "category": self.page_category}, []
+        if view in ("account", "order"):
+            return {"view": view, "privacy_note": PRIVACY_NOTE}, []
+
+        pid = self.request.page_product_id
+        if pid is None or self.ambulance is not None or found.intolerance:
+            return {"view": "product"}, []
+
+        language = self.request.language
+
+        def t(text: Text) -> str:
+            return text.ru if language == "ru" else text.uz
+
+        if pid in self.evidence.products:
+            if (found.diarrhea and pid in MAGNIY_IDS) or (
+                self.carry.pg and pid not in PREGNANCY_IDS
+            ):
+                return {"view": "product"}, []
+            unit, prod = UNIT_BY_PRODUCT[pid]
+            problems = list(
+                dict.fromkeys(
+                    t(pr.line)
+                    for pr in unit.problems
+                    if pr.applies_to is None or pid in pr.applies_to
+                )
+            )
+            return {
+                "view": "product",
+                "kind": "supplement",
+                "unit_id": unit.id,
+                "name": prod.name,
+                "form": prod.form,
+                "for_whom": t(prod.for_whom),
+                "problems": problems,
+            }, [pid]
+
+        if pid in ITEM_PRODUCTS and pid in self.cards:
+            item = ITEM_BY_PRODUCT[pid]
+            card = self.cards[pid]
+            return {
+                "view": "product",
+                "kind": "item",
+                "id": item.id,
+                "name": t(item.name),
+                "variants": [t(v.name) for v in item.products],
+                "what": t(item.what),
+                "price": format_price(card),
+                "in_stock": bool(card["is_in_stock"]),
+            }, [v.shop_id for v in item.products]
+
+        if self.page_set is not None:
+            desc = str(self.page_set.get("description") or "")
+            named, _ = self.names.find(desc)
+            constituent_ids = {i for group in named for i in group} & SUPPLEMENT_IDS
+            if (found.diarrhea and bool(constituent_ids & MAGNIY_IDS)) or (
+                self.carry.pg and not constituent_ids.issubset(PREGNANCY_IDS)
+            ):
+                return {"view": "product"}, []
+            return {
+                "view": "product",
+                "kind": "set",
+                "name": self.page_set["name"],
+                "description": desc,
+                "price": format_price(self.page_set),
+                "in_stock": bool(self.page_set["is_in_stock"]),
+            }, sorted(constituent_ids)
+
+        return {"view": "product"}, []
 
     # -- Luna ----------------------------------------------------------------------------------
 
@@ -232,10 +381,19 @@ class EnigmaTurn:
                 {
                     "id": item.id,
                     "name": t(item.name),
-                    "variants": [t(p.name) for p in item.products],
+                    "variants": [
+                        {
+                            "name": t(p.name),
+                            "price": format_price(self.cards[p.shop_id]),
+                            "in_stock": bool(self.cards[p.shop_id]["is_in_stock"]),
+                        }
+                        if p.shop_id in self.cards
+                        else {"name": t(p.name)}
+                        for p in item.products
+                    ],
                     "what": t(item.what),
                 }
-                for item in ([found.item] if found.item else [])
+                for item in found.items
             ],
             "jev": (
                 {k: round(v, 2) for k, v in reading.special.items()}
@@ -258,7 +416,17 @@ class EnigmaTurn:
                 ],
             },
             "intolerance": found.intolerance,
-            "shown_products": [self.cards[i]["name"] for i in self.selection if i in self.cards],
+            "shown_products": [
+                {
+                    "name": self.cards[i]["name"],
+                    "price": format_price(self.cards[i]),
+                    "in_stock": bool(self.cards[i]["is_in_stock"]),
+                }
+                if i in ITEM_PRODUCTS
+                else self.cards[i]["name"]
+                for i in self.selection
+                if i in self.cards
+            ],
             "more": self.more,
             "rules": {"wording": RULES.wording_rules, "offer": RULES.offer_rules},
             "texts": {
@@ -268,6 +436,9 @@ class EnigmaTurn:
                 "emergency": {k: t(getattr(RULES.emergency, k)) for k in nets.TEMPLATES},
             },
         }
+        page, _ = self._page_info(found)
+        if page is not None:
+            brief["page"] = page
         if self.topics:
             brief["shop"] = shop.brief(language, self.topics)
         if failed is not None:
@@ -286,6 +457,15 @@ class EnigmaTurn:
             if candidate["pair_line"]:
                 out.append(candidate["pair_line"])
         out += [item["what"] for item in brief["items"]]
+        page = brief.get("page")
+        if isinstance(page, dict):
+            kind = page.get("kind")
+            if kind == "supplement":
+                out += [page["for_whom"], *page["problems"]]
+            elif kind == "item":
+                out.append(page["what"])
+            elif kind == "set" and page.get("description"):
+                out.append(page["description"])
         return out
 
     async def call(
@@ -325,9 +505,7 @@ class EnigmaTurn:
             )
         else:
             await c.usage(reservation, self.owner, body.get("usage", {}))
-            ids = frozenset(
-                [u.unit.id for u in found.units] + ([found.item.id] if found.item else [])
-            )
+            ids = frozenset([u.unit.id for u in found.units] + [it.id for it in found.items])
             parsed = luna.parse(body, ids)
         c.counters.add("luna.calls")
         c.counters.add("luna.outcome." + (parsed.failure or "ok"))
@@ -349,19 +527,92 @@ class EnigmaTurn:
 
     # -- the answer ----------------------------------------------------------------------------
 
+    def _select_shown_round_robin(
+        self, answer_text: str, group_carded: list[list[int]]
+    ) -> list[int]:
+        """UX-C01: mention-ordered per-unit/item round-robin card selection with local-span
+        single-form narrowing on shared-name supplement pairs."""
+        norm_text = normalize(answer_text)
+        rest = norm_text
+        raw_spans: list[tuple[int, frozenset[int]]] = []
+        for name, ids in self.names.entries:
+            pattern = re.compile(r"(?<!\w)" + re.escape(name) + r"(?!\w)")
+            matches = list(pattern.finditer(rest))
+            if not matches:
+                continue
+            for m in matches:
+                raw_spans.append((m.start(), ids))
+            rest = pattern.sub(lambda m: " " * (m.end() - m.start()), rest)
+        raw_spans.sort(key=lambda item: item[0])
+
+        spans: list[tuple[int, frozenset[int]]] = []
+        for idx, (pos, ids) in enumerate(raw_spans):
+            if len(ids) == 2 and ids in SHARED_FORMS:
+                next_pos = raw_spans[idx + 1][0] if idx + 1 < len(raw_spans) else len(norm_text)
+                local_span = norm_text[0 if idx == 0 else pos : next_pos]
+                matched_forms = [form for form, pat in FORMS.items() if pat.search(local_span)]
+                if len(matched_forms) == 1:
+                    ids = frozenset((SHARED_FORMS[ids][matched_forms[0]],))
+            spans.append((pos, ids))
+
+        ranked_groups: list[tuple[tuple[bool, int, int], list[int]]] = []
+        for g_idx, g_cards in enumerate(group_carded):
+            earliest: dict[int, int] = {}
+            for pos, span_ids in spans:
+                for pid in g_cards:
+                    if pid in span_ids and pid not in earliest:
+                        earliest[pid] = pos
+            if earliest:
+                # Dict comprehension/order preserves g_cards display order for equal positions.
+                ordered_ids = sorted(earliest, key=lambda pid: earliest[pid])
+                ranked_groups.append(((False, min(earliest.values()), g_idx), ordered_ids))
+            elif g_cards:
+                ranked_groups.append(((True, 0, g_idx), list(g_cards)))
+
+        ranked_groups.sort(key=lambda item: item[0])
+        ordered_lists = [ids for _, ids in ranked_groups]
+
+        shown: list[int] = []
+        for pid_list in ordered_lists:
+            if len(shown) == 2:
+                break
+            for pid in pid_list:
+                if pid not in shown:
+                    shown.append(pid)
+                    break
+        if len(shown) < 2:
+            for pid_list in ordered_lists:
+                for pid in pid_list[1:]:
+                    if len(shown) == 2:
+                        break
+                    if pid not in shown:
+                        shown.append(pid)
+                if len(shown) == 2:
+                    break
+        return shown
+
     def products(self, answer: luna.Answer, found: rules.Candidates) -> tuple[list[int], list[int]]:
         """(the products a text may name, the products shown as cards) for a decision."""
         if answer.decision in ("doctor", "emergency"):
             return [], []
-        if answer.decision != "offer":
+        if answer.decision == "shop":
             return self.selection, self.selection
+        if answer.decision != "offer":
+            _, page_allowed = self._page_info(found)
+            return list(dict.fromkeys([*page_allowed, *self.selection])), self.selection
         units = {c.unit.id: c for c in found.units}
+        items_by_id = {it.id: it for it in found.items}
         offered: list[int] = []
+        group_carded: list[list[int]] = []
         for chosen in answer.offered:
             if chosen in units:
-                offered += [p.shop_id for p in units[chosen].products]
-            elif found.item is not None:
-                offered += [p.shop_id for p in found.item.products]
+                raw_ids = [p.shop_id for p in units[chosen].products]
+            elif chosen in items_by_id:
+                raw_ids = [p.shop_id for p in items_by_id[chosen].products]
+            else:
+                raw_ids = []
+            offered += raw_ids
+            group_carded.append([i for i in raw_ids if i in self.cards])
         carded = [i for i in offered if i in self.cards]
         if self.more:
             # FT-07: the next two; when none is left, the shown ones again.
@@ -369,7 +620,7 @@ class EnigmaTurn:
                 i for i in self.selection if i in self.cards
             ]
         else:
-            shown = carded[:2]
+            shown = self._select_shown_round_robin(answer.text, group_carded)
         if not shown:
             raise Failure("card")
         return [*offered, *shown], shown
@@ -389,7 +640,7 @@ class EnigmaTurn:
             decision=answer.decision,
             offered=answer.offered,
             candidates=[[c.unit.id, c.probability] for c in found.units]
-            + ([[found.item.id, None]] if found.item else []),
+            + [[it.id, None] for it in found.items],
             shop=list(self.topics),
         )
         cards = [self.cards[i] for i in shown if i in self.cards]
@@ -417,7 +668,8 @@ class EnigmaTurn:
             + [[k, p] for k, p in reading.special.items()]
             if reading
             else [],
-            "item": list(reading.item) if reading and reading.item else None,
+            "item": list(reading.items[0]) if reading and reading.items else None,
+            "items": [list(x) for x in reading.items] if reading else [],
             "name": list(reading.name) if reading and reading.name else None,
             # SO-02: the top topic option (may be 'none'), then the second chosen topic.
             "topic": [list(reading.topic), *[list(t) for t in reading.topics[1:]]]

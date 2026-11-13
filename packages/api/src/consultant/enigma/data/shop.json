@@ -106,7 +106,7 @@
    "id": "how_to_buy",
    "description": {
     "ru": "Как купить и оформить заказ на сайте или в мини-приложении: выбрать товар, корзина, оформление заказа.",
-    "uz": "Saytda yoki mini-ilovada qanday xarid qilish va buyurtma berish: mahsulot tanlash, savat, rasmiylashtirish."
+    "uz": "Saytda yoki mini-ilovada qanday xarid qilish va buyurtma berish: mahsulot tanlash, savat, rasmiylashtirish (zakaz, dostavka, заказ, доставка)."
    },
    "text": {
     "ru": "Выберите товар и нажмите на его карточке кнопку «В корзину». Добавленные товары будут в «Корзине» — это кнопка со значком корзинки.",
@@ -121,7 +121,7 @@
    "id": "delivery_tashkent",
    "description": {
     "ru": "Доставка по Ташкенту: сроки, стоимость, когда бесплатно, курьер.",
-    "uz": "Toshkent bo'ylab yetkazib berish: muddat, narx, qachon bepul, kuryer."
+    "uz": "Toshkent bo'ylab yetkazib berish: muddat, narx, qachon bepul, kuryer (zakaz, dostavka, заказ, доставка)."
    },
    "text": {
     "ru": "Доставка по Ташкенту\nСтандартная курьерская доставка\nЗаказы, оформленные до 13:00, доставляются в тот же день. После 13:00 — на следующий рабочий день\nСтоимость доставки — 30 000 сум\nДоставка осуществляется с понедельника по пятницу, ориентировочно с 16:00 до 20:00\nТолько предоплата — оплата до отправки заказа\nПри покупке от 250 000 сум — доставка по Ташкенту бесплатная",
@@ -136,7 +136,7 @@
    "id": "delivery_regions",
    "description": {
     "ru": "Доставка в регионы Узбекистана (Самарканд, Бухара, Фергана и другие): служба BTS Express, сроки и стоимость.",
-    "uz": "O'zbekiston viloyatlariga (Samarqand, Buxoro, Farg'ona va boshqalar) yetkazib berish: BTS Express, muddat va narx."
+    "uz": "O'zbekiston viloyatlariga (Samarqand, Buxoro, Farg'ona va boshqalar) yetkazib berish: BTS Express, muddat va narx (zakaz, dostavka, заказ, доставка)."
    },
    "text": {
     "ru": "Доставка по Узбекистану\nВсе регионы республики\nДоставка по регионам осуществляется курьерской службой BTS Express. Сроки и стоимость определяются на условиях службы доставки и оплачиваются клиентом отдельно",
@@ -253,10 +253,22 @@
    }
   },
   {
+   "id": "origin",
+   "description": {
+    "ru": "Производитель, страна производства, контроль качества, сертификаты и статус БАД: Biotact Deutschland GmbH (Германия), ISO 9001, ISO 22000, HACCP, TÜV THÜRINGEN, регистрация Минздрава Узбекистана, не лекарство.",
+    "uz": "Ishlab chiqaruvchi, ishlab chiqarilgan davlat, sifat nazorati, sertifikatlar va BFQ/BAD maqomi: Biotact Deutschland GmbH (Germaniya), ISO 9001, ISO 22000, HACCP, TÜV THÜRINGEN, O'zbekiston Sog'liqni saqlash vazirligi ro'yxatdan o'tkazishi, dori emas."
+   },
+   "text": {
+    "ru": "Биодобавки Biotact выпускаются по лицензии и под контролем Biotact Deutschland GmbH (Германия) на предприятии, сертифицированном по международным стандартам ISO 9001 и ISO 22000 (HACCP) органом TÜV THÜRINGEN (Германия), и зарегистрированы Министерством здравоохранения Республики Узбекистан как биологически активные добавки к пище (не являются лекарственными средствами). Сведения о конкретных товарах для дома и технике указаны в карточке товара и на упаковке.",
+    "uz": "Biotact biologik faol qo'shimchalari Biotact Deutschland GmbH (Germaniya) litsenziyasi va nazorati ostida, TÜV THÜRINGEN (Germaniya) tomonidan ISO 9001 va ISO 22000 (HACCP) xalqaro standartlari bo'yicha sertifikatlangan korxonada ishlab chiqariladi hamda O'zbekiston Respublikasi Sog'liqni saqlash vazirligi tomonidan ovqatga biologik faol qo'shimcha sifatida ro'yxatdan o'tkazilgan (dori vositasi hisoblanmaydi). Uy-ro'zg'or buyumlari va texnika haqidagi ma'lumotlar mahsulot kartochkasida va qadog'ida ko'rsatilgan."
+   },
+   "approved": null
+  },
+  {
    "id": "other_shop",
    "description": {
-    "ru": "Другой вопрос о магазине, заказе или компании, на который другие темы не отвечают: гарантия и поломка техники, самовывоз, часы работы, о компании, кто производитель и в какой стране производят, лекарство это или БАД, сертификаты, халяль, баллы, акции, скидки, промокоды, опт, сотрудничество и партнёрство.",
-    "uz": "Do'kon, buyurtma yoki kompaniya haqidagi boshqa savol: texnika kafolati va buzilishi, o'zi olib ketish, ish vaqti, kompaniya haqida, ishlab chiqaruvchi kim va qaysi davlatda ishlab chiqariladi, dorimi yoki BAD, sertifikatlar, halol, ballar, aksiyalar, chegirmalar, promokodlar, ulgurji, hamkorlik."
+    "ru": "Другой вопрос о магазине, заказе или компании, на который другие темы не отвечают: гарантия и поломка техники, самовывоз, часы работы, о компании, халяль, баллы, акции, скидки, промокоды, опт, сотрудничество и партнёрство.",
+    "uz": "Do'kon, buyurtma yoki kompaniya haqidagi boshqa savol: texnika kafolati va buzilishi, o'zi olib ketish, ish vaqti, kompaniya haqida, halol, ballar, aksiyalar, chegirmalar, promokodlar, ulgurji, hamkorlik."
    },
    "text": {
     "ru": "Если у Вас есть вопросы, можете обратиться\nпо номеру: 998 93 555 17 47\nили написать в телеграм: @Biotact_uz",

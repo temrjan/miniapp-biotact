@@ -138,18 +138,19 @@ def test_n03_number_rule_boundaries(text: str, expected: bool) -> None:
 def answer(
     unit: str,
     item: str = "none",
+    items: dict[str, float] | None = None,
     name: str = "none",
     topic: str = "none",
     topics: dict[str, float] | None = None,
     **units: float,
 ) -> dict[str, Any]:
-    """A Jev body whose top options are the given ones; `units` adds unit probabilities and
-    `topics` the probabilities of the shop topic question (spec.shop-core r4 SJ-01)."""
+    """A Jev body whose top options are the given ones; `units` adds unit probabilities,
+    `items` adds item probabilities (`UX-D01`), and `topics` the shop topic probabilities."""
     return {
         "model": SERVED,
         "answers": {
             "unit": {"choice": unit, "probabilities": {unit: 0.6, **units}},
-            "item": {"choice": item, "probabilities": {item: 0.9}},
+            "item": {"choice": item, "probabilities": items or {item: 0.9}},
             "name": {"choice": name, "probabilities": {name: 0.9}},
             "topic": {"choice": topic, "probabilities": topics or {topic: 0.9}},
         },
@@ -211,7 +212,7 @@ def test_j03_reading(
     reading = jev.read(body)
     assert isinstance(reading, jev.Reading)
     assert [u for u, _ in reading.units] == units
-    assert (reading.item[0] if reading.item else None) == item
+    assert [k for k, _ in reading.items] == ([item] if item else [])
     assert reading.named == named
     assert reading.name_only is name_only
     assert set(reading.special) == {"doctor", "no_product", "unclear"}
@@ -260,3 +261,130 @@ async def test_it01_item_cards_from_the_catalogue(test_db: Any) -> None:
     supplement = (await Knowledge(sessions).snapshot("ru")).products[20]
     assert set(cards[10]) == set(supplement)
     assert cards[10]["name"] == "Блендер"
+
+
+def test_ux_d01_multi_item_reading_and_candidates() -> None:
+    assert jev.ITEM_SECOND == 0.13
+    # Top "none" -> () even if another item is above threshold.
+    r_none = jev.read(answer("unclear", item="none", items={"none": 0.6, "blender": 0.3}))
+    assert isinstance(r_none, jev.Reading)
+    assert r_none.items == ()
+    # Single item with "none" second (even > 0.13) -> only top item.
+    r_one = jev.read(
+        answer("unclear", item="blender", items={"blender": 0.5, "none": 0.4, "chaynik": 0.1})
+    )
+    assert isinstance(r_one, jev.Reading)
+    assert r_one.items == (("blender", 0.5),)
+    # Second item >= 0.13 included (even if "none" sits in between).
+    r_two = jev.read(
+        answer("unclear", item="blender", items={"blender": 0.5, "none": 0.3, "chaynik": 0.13})
+    )
+    assert isinstance(r_two, jev.Reading)
+    assert r_two.items == (("blender", 0.5), ("chaynik", 0.13))
+    # Below 0.13 excluded.
+    r_below = jev.read(answer("unclear", item="blender", items={"blender": 0.5, "chaynik": 0.12}))
+    assert isinstance(r_below, jev.Reading)
+    assert r_below.items == (("blender", 0.5),)
+    # Equal probability tie broken by CORES.items display order.
+    first_id, second_id = data.CORES.items[0].id, data.CORES.items[1].id
+    r_tie = jev.read(
+        answer("unclear", item=second_id, items={second_id: 0.4, first_id: 0.4, "none": 0.2})
+    )
+    assert isinstance(r_tie, jev.Reading)
+    assert r_tie.items == ((first_id, 0.4), (second_id, 0.4))
+    # Candidates.items populated cleanly, and cleared to () on intolerance.
+    found_ok = rules.candidates(r_two, [nets.signs("есть блендер или чайник?")])
+    assert [it.id for it in found_ok.items] == ["blender", "chaynik"]
+    found_intol = rules.candidates(r_two, [nets.signs("у меня аллергия на всё, боюсь брать")])
+    assert found_intol.items == ()
+    assert found_intol.units == ()
+
+
+def test_ux_d02_pan_allergy_and_dermatitis_nets() -> None:
+    positives = [
+        "у меня аллергия на всё, боюсь брать",
+        "аллергия на все медикаменты",
+        "непереносимость любых препаратов и витаминов",
+        "hamma dorilarga allergiyam bor",
+        "ҳамма дорига аллергиям бор",
+        "аллергия на ваш магний",
+    ]
+    for msg in positives:
+        assert nets.signs(msg).intolerance is True, msg
+
+    negatives = [
+        "аллергический дерматит у взрослого",
+        "у ребенка аллергия на всё молочное",
+        "bahorda hamma narsa gullaganda allergiyam bor",
+        "баҳорда ҳамма нарса гуллаганда аллергиям бор",
+        "у меня аллергия на всё, даже на еду",
+        "боюсь пить магний, вдруг будет сонливость",
+    ]
+    for msg in negatives:
+        assert nets.signs(msg).intolerance is False, msg
+
+    # Zero false intolerance hits across phrases.json.
+    hits = [p["text"] for p in PHRASES if nets.signs(p["text"]).intolerance]
+    assert hits == []
+
+
+def test_ux_d04_bones_support_and_non_acute_pain_rule() -> None:
+    from src.consultant.enigma import checks
+
+    assert data.RULES.version == "compliance r3 (2026-11-13)"
+    assert data.RULES.treatment_stems == []
+    calciy = data.UNIT["calciy"]
+    bones = next(p for p in calciy.problems if p.id == "bones_support")
+    for text in bones.phrases.all():
+        assert "бол" not in text.lower()
+        assert "og'riq" not in text.lower()
+        assert "оғриқ" not in text.lower()
+    assert any("non-acute pain or aching in joints or bones" in r for r in data.RULES.offer_rules)
+
+    assert nets.signs("упала с лестницы, колено опухло и острая боль").doctor is True
+    assert nets.signs("у мамы болят суставы и кости").doctor is False
+
+    names = checks.Names.of({})
+    ru_answer = (
+        "Лучше обратиться к врачу, чтобы уточнить причину боли. Биодобавка не лечит боль и "
+        "заболевания суставов; для поддержки костей можно рассмотреть CALCIY® TRIACTIVE D3. "
+        f"{data.RULES.phrases['disease'].ru} {data.RULES.instruction_sentence.ru}"
+    )
+    uz_answer = (
+        "Og'riq sababini aniqlash uchun shifokorga murojaat qilgan ma'qul. Biologik faol qo'shimcha "
+        "og'riq yoki bo'g'im kasalligini davolamaydi; suyaklarni qo'llab-quvvatlash uchun "
+        f"CALCIY® TRIACTIVE D3 ni ko'rib chiqishingiz mumkin. {data.RULES.phrases['disease'].uz} "
+        f"{data.RULES.instruction_sentence.uz}"
+    )
+    for lang, txt, cust in (
+        ("ru", ru_answer, ("у мамы болят суставы и кости",)),
+        ("uz", uz_answer, ("onamning bo'g'imlari va suyaklari og'riyapti",)),
+    ):
+        subj = checks.Subject(
+            lang,
+            "offer",
+            frozenset({15}),
+            frozenset({15}),
+            frozenset(),
+            (
+                getattr(data.RULES.instruction_sentence, lang),
+                getattr(data.RULES.phrases["disease"], lang),
+                getattr(bones.line, lang),
+            ),
+            (),
+            cust,
+        )
+        assert checks.check(txt, subj, names) is None
+
+    no_instr = ru_answer.replace(f" {data.RULES.instruction_sentence.ru}", "")
+    subj_ru = checks.Subject(
+        "ru",
+        "offer",
+        frozenset({15}),
+        frozenset({15}),
+        frozenset(),
+        (data.RULES.instruction_sentence.ru, data.RULES.phrases["disease"].ru, bones.line.ru),
+        (),
+        ("у мамы болят суставы и кости",),
+    )
+    assert checks.check(no_instr, subj_ru, names) == "V-05"

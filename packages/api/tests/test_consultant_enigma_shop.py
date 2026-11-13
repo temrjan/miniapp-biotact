@@ -92,9 +92,11 @@ def test_sd01_sd03_the_released_topics_and_the_data_hash() -> None:
         "order_cancel",
         "channels",
         "storage_expiry",
+        "origin",
         "other_shop",
     ]
-    assert all(t.approved is not None for t in data.SHOP.topics)  # §5: no delivery otherwise
+    assert all(t.approved is not None for t in data.SHOP.topics if t.id != "origin")
+    assert data.TOPIC["origin"].approved is None
     assert data.DATA_FILES[-1] == "shop.json"
 
 
@@ -420,3 +422,30 @@ async def test_so02_the_record_of_shop_and_of_no_topic_turns(test_db: Any) -> No
         "shop",
         [["payment", 0.6], ["return", 0.4]],
     )
+
+
+@pytest.mark.parametrize("language", ["ru", "uz"])
+def test_ux_d03_origin_topic_text_passes_compliance_checks(language: Any) -> None:
+    from src.consultant.enigma import checks
+
+    origin = data.TOPIC["origin"]
+    txt = getattr(origin.text, language)
+    refs = shop.reference(language, ["origin"])
+    subj = checks.Subject(
+        language,
+        "shop",
+        frozenset(),
+        frozenset(),
+        checks.numbers(refs),
+        (
+            getattr(data.RULES.instruction_sentence, language),
+            getattr(data.RULES.opening_question, language),
+        ),
+        refs,
+        (
+            "кто производитель и есть ли сертификаты?"
+            if language == "ru"
+            else "ishlab chiqaruvchi kim va sertifikatlar bormi?",
+        ),
+    )
+    assert checks.check(txt, subj, checks.Names.of({})) is None
