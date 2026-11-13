@@ -338,7 +338,10 @@ def test_sv05_sv06_products_of_the_return_text_and_no_instruction_sentence() -> 
     assert verdict("IMMUNOCOMPLEX® можно вернуть.", "shop", ["return"]) == "V-02"
 
 
-def test_sv07_warranty_words_in_a_shop_answer() -> None:
+def test_sv07_warranty_words_in_a_shop_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        checks, "RULES", RULES.model_copy(update={"treatment_stems": ["гарант", "kafolat"]})
+    )
     assert verdict(f"По вопросам гарантии {SUPPORT}", "shop", ["contacts"]) is None
     assert verdict("Это гарантирует результат.", "shop", ["contacts"]) == "V-06"
     assert verdict("Это гарантирует результат?", "ask", ["contacts"]) == "V-06"

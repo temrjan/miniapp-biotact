@@ -418,16 +418,32 @@ UZ = RULES.instruction_sentence.uz
         ("ask", "Так делают уже 25 лет. Что беспокоит?", [], "V-04"),
         ("offer", "IMMUNOCOMPLEX® поддерживает иммунитет.", [7], "V-05"),
         ("uz offer", "IMMUNOCOMPLEX® immunitetni qo'llab-quvvatlaydi. " + UZ, [7], None),
-        ("ask", "Это вылечит простуду.", [], "V-06"),
-        ("ask", "Подходит после лечения кариеса.", [], None),
+        (
+            "offer",
+            "BIFOLAK® ACTIVE не гарантирует снижение веса, но может поддерживать пищеварение "
+            "в процессе похудения. " + SENTENCE,
+            [20],
+            None,
+        ),
+        ("v06 ask", "Это вылечит простуду.", [], "V-06"),
+        ("v06 ask", "Подходит после лечения кариеса.", [], None),
         ("doctor", RULES.phrases["disease"].ru, [], None),
         ("ask", "Сколько лет ребёнку?", [], "V-07"),
         ("ask", "Вы беременны?", [], "V-07"),
     ],
 )
 def test_v01_v07_text_checks(
-    decision: str, text: str, allowed: list[int], expected: str | None
+    monkeypatch: pytest.MonkeyPatch,
+    decision: str,
+    text: str,
+    allowed: list[int],
+    expected: str | None,
 ) -> None:
+    if decision.startswith("v06 "):
+        monkeypatch.setattr(
+            checks, "RULES", RULES.model_copy(update={"treatment_stems": ["вылеч", "лечен"]})
+        )
+        decision = decision.removeprefix("v06 ")
     language, _, kind = decision.rpartition(" ")
     subject = checks.Subject(
         "uz" if language else "ru",
