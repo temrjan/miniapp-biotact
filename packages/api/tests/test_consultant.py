@@ -1288,3 +1288,132 @@ async def test_ux_r03_layer1_routing_exclusions_and_user_path(test_db):
         assert [p["id"] for p in j3["products"]] == [20]
         assert "200" in j3["answer"]
         assert isinstance(SHOP.version, str)
+
+
+@pytest.mark.parametrize(
+    ("question", "language", "page_pid", "selection"),
+    [
+        # Positive commercial, stock, dosage/meal-timing, permission, and deictic queries -> product.
+        ("цена", "ru", 20, []),
+        ("сколько стоит?", "ru", 20, []),
+        ("narxi qancha?", "uz", 20, []),
+        ("состав", "ru", 20, []),
+        ("инструкция", "ru", 20, []),
+        ("как принимать?", "ru", 20, []),
+        ("до или после еды пить?", "ru", 20, []),
+        ("принимать до или после еды?", "ru", 20, []),
+        ("как принимать, до или после еды?", "ru", 20, []),
+        ("qanday ichiladi?", "uz", 20, []),
+        ("tarkibi", "uz", 20, []),
+        ("с какого возраста можно?", "ru", 20, []),
+        ("можно ли беременным?", "ru", 20, []),
+        ("можно ли его при беременности?", "ru", 20, []),
+        ("кормящим можно?", "ru", 20, []),
+        ("можно ли при ГВ?", "ru", 20, []),
+        ("можно детям?", "ru", 20, []),
+        ("homiladorlarga mumkinmi?", "uz", 20, []),
+        ("emiziklilarga mumkinmi?", "uz", 20, []),
+        ("bolalarga mumkinmi?", "uz", 20, []),
+        ("necha yoshdan mumkin?", "uz", 20, []),
+        ("есть ли он в наличии?", "ru", 20, []),
+        ("в продаже?", "ru", 20, []),
+        ("sotuvda bormi?", "uz", 20, []),
+        ("mavjudmi?", "uz", 20, []),
+        ("он bormi?", "uz", 20, []),
+        ("shu bormi?", "uz", 20, []),
+        ("расскажите про него", "ru", 20, []),
+        ("расскажите об этом препарате", "ru", 20, []),
+        ("какая от него польза?", "ru", 20, []),
+        ("uning foydasi nima?", "uz", 20, []),
+        ("расскажите подробнее", "ru", 20, []),
+        ("подойдёт ли он мне?", "ru", 20, []),
+        ("подойдёт ли он мне?", "ru", None, [20]),
+    ],
+)
+async def test_ux_r03_supplement_query_positive_boundaries(
+    test_db, question, language, page_pid, selection
+):
+    await seed(test_db)
+    bot = service(test_db, ProviderStub(source_only=False))
+    records = []
+    bot.recorder = records.append
+    tab = uuid4()
+    tok = bot.tokens.issue(tab, language, selection, "synthetic-release")[0] if selection else None
+    t = Turn.model_validate_json(
+        json.dumps(
+            {
+                "request_id": str(uuid4()),
+                "tab_id": str(tab),
+                "context_revision": 1,
+                "language": language,
+                "question": question,
+                "history": [],
+                "page_product_id": page_pid,
+                "page_context": {"view": "product", "category_id": None} if page_pid else None,
+                "context_token": tok,
+            }
+        )
+    )
+    res = await bot.turn(t)
+    assert records[-1].path == "product", (question, language, page_pid, selection)
+    assert [p["id"] for p in res["products"]] == [20], (question, language)
+
+
+@pytest.mark.parametrize(
+    ("question", "language", "page_pid", "selection"),
+    [
+        # 9 F-01 counterexamples + neighboring symptom/pain/discovery cases -> enigma.
+        ("я беременна, болят суставы и кости", "ru", 20, []),
+        ("я беременна, болят суставы и кости", "ru", 15, []),
+        ("я беременна, сильно выпадают волосы, что посоветуете?", "ru", 20, []),
+        ("кормящая мама, болят глаза от экрана", "ru", 20, []),
+        ("bolalarga immunitet uchun vitamin kerak", "uz", 4, []),
+        ("после еды вздутие и тяжесть в животе", "ru", 7, []),
+        ("ko'z uchun vitamin bormi?", "uz", 20, []),
+        ("расскажите, какие витамины есть для зрения?", "ru", 20, []),
+        ("поможет ли от боли в суставах и костях?", "ru", 15, []),
+        ("подойдёт ли он от боли в суставах?", "ru", 15, []),
+        ("после еды болит живот, как принимать?", "ru", 7, []),
+        ("кўзим оғрияпти, нима маслаҳат берасиз?", "uz", 20, []),
+        ("болаларга иммунитет учун витамин керак", "uz", 4, []),
+        ("подберите витамины для ребёнка", "ru", 20, [20]),
+    ],
+)
+async def test_ux_r03_supplement_query_negative_boundaries(
+    test_db, question, language, page_pid, selection
+):
+    from tests.test_consultant_enigma_core import answer as jev_body
+
+    await seed(test_db)
+    await _add_supplement(test_db, 7, "IMMUNOCOMPLEX®", "immunocomplex")
+    await _add_supplement(test_db, 15, "CALCIY® TRIACTIVE D3", "calciy")
+    bot, records, _ = _enigma_bot(
+        test_db,
+        jev_body("unclear"),
+        lambda _b: {
+            "decision": "ask",
+            "offered": [],
+            "text": "Aynan nima bezovta qilyapti?"
+            if language == "uz"
+            else "Что именно вас беспокоит?",
+        },
+    )
+    tab = uuid4()
+    tok = bot.tokens.issue(tab, language, selection, "synthetic-release")[0] if selection else None
+    t = Turn.model_validate_json(
+        json.dumps(
+            {
+                "request_id": str(uuid4()),
+                "tab_id": str(tab),
+                "context_revision": 1,
+                "language": language,
+                "question": question,
+                "history": [],
+                "page_product_id": page_pid,
+                "page_context": {"view": "product", "category_id": None} if page_pid else None,
+                "context_token": tok,
+            }
+        )
+    )
+    await bot.turn(t)
+    assert records[-1].path == "enigma", (question, language, page_pid, selection)
