@@ -11,6 +11,11 @@ from typing import Any, NamedTuple
 from uuid import UUID, uuid4
 
 from src.consultant.contracts import Fault, Turn
+from src.consultant.enigma.data import CORES
+
+SHARED_UNITS = tuple(
+    frozenset(p.shop_id for p in u.products) for u in CORES.units if len(u.products) > 1
+)
 
 SENSITIVE = re.compile(
     r"[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:\+?\d[\s()-]*){9,}|\b(?:sk-|Bearer\s|password\s*[:=]|пароль\s*[:=])",
@@ -268,8 +273,14 @@ def resolve(
         return Subject([chosen], bool(ids), False, opened)
     if ids:
         return Subject(ids[:2], True, len(ids) > 2 or (opened and len(ids) != 1), opened)
-    selected = selection or ([page] if fresh and page in aliases else [])
-    singular = len(selected) > 1 and bool(re.search(r"\b(?:его|этот|него|uni|this|it)\b", q))
+    del fresh
+    selected = selection or ([page] if page in aliases else [])
+    same_unit = len(selected) > 1 and any(set(selected) <= group for group in SHARED_UNITS)
+    singular = (
+        len(selected) > 1
+        and not same_unit
+        and bool(re.search(r"\b(?:его|этот|него|uni|this|it)\b", q))
+    )
     return Subject(
         selected,
         False,

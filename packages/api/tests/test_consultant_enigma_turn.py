@@ -235,18 +235,18 @@ async def test_user_path_offer_then_more_shows_the_next_cards(test_db: Any) -> N
         )
         assert one.status_code == 200
         a = one.json()
-        # FT-05, FT-06: three offered products, the first two shown.
-        assert (a["status"], [p["id"] for p in a["products"]]) == ("answer", [7, 14])
+        # FT-05, UX-C01: mention-ordered per-unit round-robin shows the first of each offered unit.
+        assert (a["status"], [p["id"] for p in a["products"]]) == ("answer", [7, 17])
         assert (a["sources"], a["cautions"], a["open_product_id"]) == ([], [], None)
         second = turn("ещё", a["context_token"], first.tab_id, (("часто болею", a["answer"]),))
         # SW-05: the token holds the shown ids.
         context = consultant.tokens.read(second)
-        assert context.ids == [7, 14]
+        assert context.ids == [7, 17]
         two = await client.post(
             "/api/v1/consultant/turns", json=json.loads(second.model_dump_json())
         )
-        # FT-07: the "more" turn shows the third product; Jev read the complaint again.
-        assert [p["id"] for p in two.json()["products"]] == [17]
+        # FT-07: the "more" turn shows the remaining product; Jev read the complaint again.
+        assert [p["id"] for p in two.json()["products"]] == [14]
         assert jev.states[1] == {"earlier": "", "message": "часто болею"}
     # FT-07: without a displayed selection "ещё" is an ordinary message; FT-06: a question.
     third = await consultant.turn(turn("ещё"))
@@ -737,3 +737,505 @@ async def test_journal_rows_equal_the_records_on_every_enigma_mode_path(test_db:
             plain(record.facts),
             plain(record.versions),
         )
+
+
+def _page_turn(
+    question: str,
+    *,
+    view: str | None = None,
+    category_id: int | None = None,
+    page_product_id: int | None = None,
+    language: str = "ru",
+    token: str | None = None,
+    tab: Any = None,
+    history: tuple[tuple[str, str], ...] = (),
+) -> Turn:
+    payload: dict[str, Any] = {
+        "request_id": uuid4(),
+        "tab_id": tab or uuid4(),
+        "context_revision": 1,
+        "language": language,
+        "question": question,
+        "history": [{"question": q, "answer": a} for q, a in history],
+        "page_product_id": page_product_id,
+        "context_token": token,
+    }
+    if view is not None:
+        payload["page_context"] = {"view": view, "category_id": category_id}
+    return Turn.model_validate(payload)
+
+
+async def test_ux_p01_page_set_card_and_active_category_on_pg16(test_db: Any) -> None:
+    from decimal import Decimal
+
+    from src.categories.models import Category
+    from src.consultant.enigma.cards import active_category, format_price, page_set_card
+
+    await seed(test_db)
+    test_db.add_all(
+        [
+            Category(
+                id=301, name="Пищеварение", name_uz="Hazm qilish", slug="digestion", is_active=True
+            ),
+            Category(id=302, name="Архив", name_uz=None, slug="archive", is_active=False),
+            Product(
+                id=8,
+                name="Мама и малыш",
+                slug="mama-i-malysh",
+                description="Набор: BIFOLAK® MAGNIY и IMMUNOCOMPLEX® KIDS.",
+                price=Decimal("96000.00"),
+                is_active=True,
+                is_in_stock=True,
+                category_id=301,
+            ),
+            Product(
+                id=9,
+                name="Неактивный набор",
+                slug="inactive-set",
+                price=50000,
+                is_active=False,
+                category_id=301,
+            ),
+            Product(
+                id=12,
+                name="Скрытый набор",
+                slug="hidden-cat-set",
+                price=50000,
+                is_active=True,
+                category_id=302,
+            ),
+            Product(
+                id=59,
+                name="Термос KD-775, 600 мл.",
+                slug="termos-59",
+                price=Decimal("96000.00"),
+                is_active=True,
+                is_in_stock=True,
+                category_id=301,
+            ),
+        ]
+    )
+    await test_db.commit()
+
+    set_ru = await page_set_card(test_db, 8, "ru")
+    set_uz = await page_set_card(test_db, 8, "uz")
+    assert set_ru is not None
+    assert set_ru["name"] == "Мама и малыш"
+    assert format_price(set_ru) == "96 000 UZS (96000)"
+    assert set_uz is not None
+    assert set_uz["name"] == "Мама и малыш"
+    assert await page_set_card(test_db, 9, "ru") is None
+    assert await page_set_card(test_db, 12, "ru") is None
+    assert await page_set_card(test_db, 20, "ru") is None  # supplement rejected
+    assert await page_set_card(test_db, 59, "ru") is None  # item rejected
+    assert await page_set_card(test_db, 99999, "ru") is None
+
+    assert await active_category(test_db, 301, "ru") == "Пищеварение"
+    assert await active_category(test_db, 301, "uz") == "Hazm qilish"
+    assert await active_category(test_db, 302, "ru") is None
+    assert await active_category(test_db, 99999, "ru") is None
+
+
+async def test_ux_p02_p03_page_context_live_prices_and_f06_degradation(test_db: Any) -> None:
+    from decimal import Decimal
+
+    from src.categories.models import Category
+
+    await seed(test_db)
+    test_db.add_all(
+        [
+            Category(id=301, name="Наборы", name_uz="To'plamlar", slug="sets", is_active=True),
+            Category(id=302, name="Архивная", name_uz=None, slug="arch-sets", is_active=False),
+            Product(
+                id=8,
+                name="Мама и малыш",
+                slug="set-8",
+                description="Включает BIFOLAK® MAGNIY и IMMUNOCOMPLEX® KIDS.",
+                price=Decimal("120000.00"),
+                sale_price=Decimal("96000.00"),
+                is_sale=True,
+                is_active=True,
+                is_in_stock=True,
+                category_id=301,
+            ),
+            Product(
+                id=26,
+                name="Мой вундеркинд",
+                slug="set-26",
+                description="Содержит NEUROCOMPLEX® KIDS.",
+                price=Decimal("150000.00"),
+                is_active=True,
+                is_in_stock=True,
+                category_id=301,
+            ),
+            Product(
+                id=22,
+                name="BIFOLAK® NEO",
+                slug="bifolak-neo",
+                price=100,
+                is_active=True,
+                is_in_stock=True,
+            ),
+            Product(
+                id=59,
+                name="Термос KD-775, 600 мл.",
+                slug="termos-59",
+                price=Decimal("96000.00"),
+                is_active=True,
+                is_in_stock=True,
+                category_id=301,
+            ),
+        ]
+    )
+    await test_db.commit()
+
+    # 1. Item page #59 with Jev item="none" enriches found.items, brief["page"], attaches [59].
+    bot_item = bot(
+        test_db,
+        JevDouble(answer("unclear")),
+        say("offer", f"Термос KD-775, 600 мл. стоит 96 000 сум. {SENTENCE}", "termos"),
+    )
+    res_item = await bot_item.turn(
+        _page_turn("сколько стоит термос?", view="product", page_product_id=59)
+    )
+    assert [p["id"] for p in res_item["products"]] == [59]
+    b_item = bot_item.provider.briefs[0]  # type: ignore[attr-defined]
+    assert b_item["page"]["kind"] == "item"
+    assert b_item["page"]["price"] == "96 000 UZS (96000)"
+    assert any(it["id"] == "termos" for it in b_item["items"])
+    assert bot_item.records[0].jev["item"] is None  # type: ignore[attr-defined]
+    assert bot_item.records[0].jev["items"] == []  # type: ignore[attr-defined]
+
+    # 2. Item ask, Supplement ask, Set ask with selection=[] name page product/price and keep products=[].
+    bot_asks = bot(
+        test_db,
+        JevDouble(answer("unclear")),
+        say("ask", "Термос KD-775, 600 мл. стоит 96000 so'm."),
+        say("ask", "BIFOLAK® ACTIVE подходит для микрофлоры."),
+        say("ask", "Набор стоит 96 000 сум, включает BIFOLAK® MAGNIY и IMMUNOCOMPLEX® KIDS."),
+    )
+    r_ask_item = await bot_asks.turn(_page_turn("это для чая?", view="product", page_product_id=59))
+    r_ask_supp = await bot_asks.turn(_page_turn("привет", view="product", page_product_id=20))
+    r_ask_set = await bot_asks.turn(
+        _page_turn("что внутри набора?", view="product", page_product_id=8)
+    )
+    assert r_ask_item["products"] == r_ask_supp["products"] == r_ask_set["products"] == []
+    b_supp, b_set = bot_asks.provider.briefs[1], bot_asks.provider.briefs[2]  # type: ignore[attr-defined]
+    assert b_supp["page"]["kind"] == "supplement"
+    assert "price" not in b_supp["page"]
+    assert b_set["page"]["kind"] == "set"
+    assert b_set["page"]["price"] == "96 000 UZS (96000)"
+
+    # 3. Shown item follow-up with Jev item="none" exposes live price in shown_products, passes V-04;
+    #    shown supplement keeps plain string without price.
+    tab_59, tok_59 = shown(bot_asks, [59])
+    tok_20 = bot_asks.tokens.issue(tab_59, "ru", [20], str(uuid4()))[0]
+    bot_shown = bot(
+        test_db,
+        JevDouble(answer("unclear")),
+        say("ask", "Термос KD-775, 600 мл. стоит 96 000 сум."),
+        say("ask", QUESTION),
+    )
+    r_59 = await bot_shown.turn(_page_turn("сколько стоит?", view="home", token=tok_59, tab=tab_59))
+    assert r_59["status"] == "clarification"
+    b_59 = bot_shown.provider.briefs[0]  # type: ignore[attr-defined]
+    assert b_59["shown_products"] == [
+        {"name": "Термос KD-775, 600 мл.", "price": "96 000 UZS (96000)", "in_stock": True}
+    ]
+    await bot_shown.turn(_page_turn("привет", view="home", token=tok_20, tab=tab_59))
+    b_20 = bot_shown.provider.briefs[1]  # type: ignore[attr-defined]
+    assert b_20["shown_products"] == ["BIFOLAK® ACTIVE"]
+
+    # 4. F-06 degradation: set #8 + diarrhea degrades brief["page"] & rejects naming MAGNIY;
+    #    set #26 + pregnancy degrades brief["page"] & rejects naming NEUROCOMPLEX KIDS.
+    bot_f06 = bot(
+        test_db,
+        JevDouble(answer("no_product")),
+        say("ask", "В составе есть BIFOLAK® MAGNIY."),
+        say("ask", QUESTION),
+        say("ask", "В составе есть NEUROCOMPLEX® KIDS."),
+        say("ask", QUESTION),
+    )
+    await bot_f06.turn(
+        _page_turn("у малыша понос, этот набор подойдёт?", view="product", page_product_id=8)
+    )
+    assert bot_f06.provider.briefs[0]["page"] == {"view": "product"}  # type: ignore[attr-defined]
+    assert bot_f06.records[0].luna["calls"][0]["check_id"] == "V-02"  # type: ignore[attr-defined]
+
+    await bot_f06.turn(
+        _page_turn("я беременна, этот набор подойдёт?", view="product", page_product_id=26)
+    )
+    assert bot_f06.provider.briefs[2]["page"] == {"view": "product"}  # type: ignore[attr-defined]
+    assert bot_f06.records[1].luna["calls"][0]["check_id"] == "V-02"  # type: ignore[attr-defined]
+
+    # 5. Ambulance/intolerance degradation & other views (catalogue, account, order, home, invalid, None)
+    #    & SV-05 preserved on decision == "shop" on #product?id=7.
+    bot_views = bot(
+        test_db,
+        JevDouble(answer("unclear", topic="payment")),
+        say("emergency", RULES.emergency.general.ru),
+        say("no_product", "Не могу подобрать товар."),
+        say("ask", QUESTION),
+        say("ask", QUESTION),
+        say("ask", QUESTION),
+        say("ask", QUESTION),
+        say("ask", QUESTION),
+        say("ask", QUESTION),
+        say("shop", "Советуем IMMUNOCOMPLEX® — оплата онлайн."),
+        say("shop", "Оплата производится онлайн."),
+    )
+    await bot_views.turn(_page_turn("давит в груди", view="product", page_product_id=20))
+    await bot_views.turn(
+        _page_turn("аллергия на всё, боюсь брать", view="product", page_product_id=20)
+    )
+    await bot_views.turn(_page_turn("что здесь?", view="catalogue", category_id=301))
+    await bot_views.turn(_page_turn("что здесь?", view="catalogue", category_id=302))
+    await bot_views.turn(_page_turn("что видно?", view="account"))
+    await bot_views.turn(_page_turn("что видно?", view="order"))
+    await bot_views.turn(_page_turn("привет", view="home"))
+    await bot_views.turn(_page_turn("привет", view="invalid"))
+    await bot_views.turn(_page_turn("оплата?", view="product", page_product_id=7))
+    briefs = bot_views.provider.briefs  # type: ignore[attr-defined]
+    assert briefs[0]["page"] == {"view": "product"}
+    assert briefs[1]["page"] == {"view": "product"}
+    assert briefs[2]["page"] == {"view": "catalogue", "category": "Наборы"}
+    assert briefs[3]["page"] == {"view": "catalogue", "category": None}
+    assert briefs[4]["page"]["view"] == "account"
+    assert "privacy_note" in briefs[4]["page"]
+    assert briefs[5]["page"]["view"] == "order"
+    assert "privacy_note" in briefs[5]["page"]
+    assert briefs[6]["page"] == {"view": "home"}
+    assert "page" not in briefs[7]
+    # On #product?id=7 with decision == "shop", SV-05 rejects naming IMMUNOCOMPLEX on first call.
+    assert bot_views.records[-1].luna["calls"][0]["check_id"] == "V-02"  # type: ignore[attr-defined]
+
+
+async def test_ux_c01_mention_ordered_round_robin_card_selection(test_db: Any) -> None:
+    import hashlib
+
+    from sqlalchemy import text
+
+    from src.consultant.models import Membership, Section, Source
+    from src.consultant.provider import EMBEDDING_PROFILE
+
+    await seed(test_db)
+    extra_supplements = [
+        (4, "DERMACOMPLEX", "dermacomplex-c01", "capsule"),
+        (18, "BIFOLAK® MAGNIY (capsules)", "magniy-cap-c01", "capsule"),
+        (19, "BIFOLAK® MAGNIY (sticks)", "magniy-stick-c01", "stick"),
+        (21, "BIFOLAK® ACTIVE (sticks)", "active-stick-c01", "stick"),
+        (22, "BIFOLAK® NEO", "neo-c01", "capsule"),
+    ]
+    for shop_id, name, slug, form in extra_supplements:
+        test_db.add(
+            Product(id=shop_id, name=name, slug=slug, price=100, is_active=True, is_in_stock=True)
+        )
+        await test_db.flush()
+        for lang in ("ru", "uz"):
+            sid = f"g{shop_id}{lang}"
+            test_db.add(
+                Source(
+                    id=sid,
+                    product_id=shop_id,
+                    language=lang,
+                    provenance={
+                        "title": name,
+                        "form": form,
+                        "revision": "fixture-1",
+                        "pdf_title": f"{slug}.pdf",
+                        "aliases": [name],
+                        "section_count": 2,
+                    },
+                    withdrawn=False,
+                )
+            )
+            await test_db.flush()
+            test_db.add(Membership(release_id="graf-release", source_id=sid))
+            for ordinal in range(2):
+                body_txt = f"{name} section {ordinal}."
+                test_db.add(
+                    Section(
+                        id=f"{sid}:{ordinal}",
+                        source_id=sid,
+                        ordinal=ordinal,
+                        body=body_txt,
+                        body_hash=hashlib.sha256(body_txt.encode()).hexdigest(),
+                        heading=f"Section {ordinal}",
+                        caution=False,
+                        pdf_page=1,
+                    )
+                )
+                await test_db.flush()
+                await test_db.execute(
+                    text(
+                        "INSERT INTO consultant_embeddings(section_id,profile,vector) VALUES (:id,:profile,CAST(:vector AS vector))"
+                    ),
+                    {
+                        "id": f"{sid}:{ordinal}",
+                        "profile": EMBEDDING_PROFILE,
+                        "vector": str([1.0] + [0.0] * 1535),
+                    },
+                )
+    await test_db.commit()
+
+    cases = [
+        # (jev_body, offered_units, answer_text, expected_ids, lang)
+        (
+            answer("active", neo=0.3),
+            ["active", "neo"],
+            f"BIFOLAK® ACTIVE и BIFOLAK® NEO поддержат микрофлору. {SENTENCE}",
+            [20, 22],
+            "ru",
+        ),
+        (
+            answer("active", zincum=0.3),
+            ["active", "zincum"],
+            f"BIFOLAK® ACTIVE и BIFOLAK® ZINCUM подойдут для поддержки. {SENTENCE}",
+            [20, 17],
+            "ru",
+        ),
+        (
+            answer("active", zincum=0.3),
+            ["active", "zincum"],
+            f"BIFOLAK® ZINCUM, а также BIFOLAK® ACTIVE поддержат организм. {SENTENCE}",
+            [17, 20],
+            "ru",
+        ),
+        (
+            answer("immunocomplex"),
+            ["immunocomplex"],
+            f"IMMUNOCOMPLEX® KIDS для детей, IMMUNOCOMPLEX® для взрослых. {SENTENCE}",
+            [14, 7],
+            "ru",
+        ),
+        (
+            answer("immunocomplex"),
+            ["immunocomplex"],
+            f"IMMUNOCOMPLEX® KIDS подойдёт ребёнку. {SENTENCE}",
+            [14],
+            "ru",
+        ),
+        (
+            answer("immunocomplex"),
+            ["immunocomplex"],
+            f"Bolalar uchun IMMUNOCOMPLEX® KIDS mos keladi. {RULES.instruction_sentence.uz}",
+            [14],
+            "uz",
+        ),
+        (
+            answer("active", dermacomplex=0.3),
+            ["active", "dermacomplex"],
+            f"BIFOLAK® ACTIVE и DERMACOMPLEX подойдут вместе. {SENTENCE}",
+            [20, 4],
+            "ru",
+        ),
+        (
+            answer("magniy", active=0.3),
+            ["magniy", "active"],
+            f"BIFOLAK® MAGNIY в стиках утром, BIFOLAK® ACTIVE в капсулах вечером. {SENTENCE}",
+            [19, 20],
+            "ru",
+        ),
+        (
+            answer("zincum_c_d3", active=0.3),
+            ["zincum_c_d3", "active"],
+            f"BIFOLAK® ZINCUM+C+D3 и BIFOLAK® ACTIVE в стиках подойдут вам. {SENTENCE}",
+            [16, 21],
+            "ru",
+        ),
+        (
+            answer("magniy"),
+            ["magniy"],
+            f"BIFOLAK® MAGNIY в разных формах, есть BIFOLAK® MAGNIY в стиках. {SENTENCE}",
+            [18, 19],
+            "ru",
+        ),
+        (
+            answer("immunocomplex", zincum_c_d3=0.3),
+            ["immunocomplex", "zincum_c_d3"],
+            f"IMMUNOCOMPLEX® KIDS и IMMUNOCOMPLEX®, а также BIFOLAK® ZINCUM+C+D3. {SENTENCE}",
+            [14, 16],
+            "ru",
+        ),
+        (
+            answer("unclear", item="ryukzak"),
+            ["ryukzak"],
+            f"Рюкзак Healthy Lifestyle удобен каждый день. {SENTENCE}",
+            [36, 37],
+            "ru",
+        ),
+    ]
+    for jbody, off, text_out, expected, lang in cases:
+        consultant = bot(test_db, JevDouble(jbody), say("offer", text_out, *off))
+        res = await consultant.turn(_page_turn("что подойдёт?", language=lang))
+        assert [p["id"] for p in res["products"]] == expected, (off, text_out)
+
+
+async def test_ux_d01_d02_two_item_offer_journal_and_conversation_intolerance(test_db: Any) -> None:
+    await seed(test_db)
+    test_db.add_all(
+        [
+            Product(
+                id=10,
+                name="Блендер",
+                slug="blender-d01",
+                price=400000,
+                is_active=True,
+                is_in_stock=True,
+            ),
+            Product(
+                id=13,
+                name="Чайник",
+                slug="chaynik-d01",
+                price=300000,
+                is_active=True,
+                is_in_stock=True,
+            ),
+        ]
+    )
+    await test_db.commit()
+
+    consultant = bot(
+        test_db,
+        JevDouble(
+            answer("unclear", item="blender", items={"blender": 0.6, "chaynik": 0.25, "none": 0.1})
+        ),
+        say(
+            "offer",
+            "Ручной блендер Healthy Lifestyle стоит 400 000 сум, а Электрический чайник "
+            f"Healthy Lifestyle стоит 300 000 сум. {SENTENCE}",
+            "blender",
+            "chaynik",
+        ),
+    )
+    res = await consultant.turn(turn("у вас есть блендер или чайник?"))
+    assert [p["id"] for p in res["products"]] == [10, 13]
+    rec = consultant.records[0]  # type: ignore[attr-defined]
+    assert rec.jev["item"] == ["blender", 0.6]
+    assert rec.jev["items"] == [["blender", 0.6], ["chaynik", 0.25]]
+    sessions = async_sessionmaker(test_db.bind, expire_on_commit=False)
+    await Journal(sessions).write(rec)
+    async with sessions() as db:
+        row = (await db.scalars(select(JournalTurn))).one()
+    assert row.jev["item"] == ["blender", 0.6]
+    assert row.jev["items"] == [["blender", 0.6], ["chaynik", 0.25]]
+
+    # Conversation-wide FT-04(a): Turn 1 pan-allergy clears both units and items on follow-up turn.
+    consultant_intol = bot(
+        test_db,
+        JevDouble(answer("magniy", item="blender", items={"blender": 0.7, "none": 0.3})),
+        say("no_product", "Не рекомендуем без консультации врача."),
+    )
+    tab_intol, tok_intol = shown(consultant_intol, [])
+    await consultant_intol.turn(
+        _page_turn(
+            "что подойдёт?",
+            token=tok_intol,
+            tab=tab_intol,
+            history=(("у меня аллергия на всё, боюсь брать", "Уточню."),),
+        )
+    )
+    b_intol = consultant_intol.provider.briefs[0]  # type: ignore[attr-defined]
+    assert b_intol["intolerance"] is True
+    assert b_intol["candidates"] == []
+    assert b_intol["items"] == []

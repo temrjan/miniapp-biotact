@@ -1,5 +1,5 @@
 {
- "version": "compliance r2 (2026-11-10)",
+ "version": "compliance r3 (2026-11-13)",
  "wording_rules": [
   "No promise or statement that a product cures, treats or removes a disease («вылечит», «излечивает», «лечение», «избавит от болезни»).",
   "No diagnosis.",
@@ -19,7 +19,8 @@
   "A child under 1 year: BIFOLAK® ZINCUM is not named.",
   "The customer writes that she is pregnant or breastfeeding: offer only the products given to you, and add the pregnancy or the breastfeeding phrase.",
   "The customer writes that the child is under 3 years: offer a product whose for-whom line covers that age, and add the child phrase.",
-  "The customer names a chronic disease, a medicine, or a current illness that is not a red flag: offer the product and add the disease phrase word for word."
+  "The customer names a chronic disease, a medicine, or a current illness that is not a red flag: offer the product and add the disease phrase word for word.",
+  "The customer writes about non-acute pain or aching in joints or bones (not pain in the back, lower back, spine, neck or head, for which name no product and tell the customer to see a doctor) without trauma, swelling or another red flag of §2.1, and calciy is a candidate: tell the customer it is best to see a doctor to clarify the cause, state that a dietary supplement does not treat pain or joint disease, gently offer CALCIY® TRIACTIVE D3 to consider for bone support, and include the disease phrase and the instruction sentence word for word."
  ],
  "phrases": {
   "pregnancy": {

@@ -6,12 +6,18 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Language = Literal["ru", "uz"]
+PageView = Literal["home", "catalogue", "product", "account", "order", "invalid"]
 ProductId = Annotated[int, Field(strict=True, gt=0, le=9007199254740991)]
 Text = Annotated[str, Field(min_length=1)]
 
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class PageContext(Strict):
+    view: PageView
+    category_id: ProductId | None = None
 
 
 class Pair(Strict):
@@ -30,6 +36,7 @@ class Turn(Strict):
     history: list[Pair]
     page_product_id: ProductId | None
     context_token: Annotated[str, Field(max_length=2048)] | None
+    page_context: PageContext | None = None
 
     @model_validator(mode="after")
     def bounds(self) -> "Turn":

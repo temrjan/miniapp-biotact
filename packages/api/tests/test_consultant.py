@@ -286,7 +286,10 @@ def test_tokens_and_resolver_are_bound_to_current_order():
     aliases = {4: ["DERMACOMPLEX"], 20: ["ACTIVE"]}
     assert resolve("открой второй", aliases, [4, 20], None, False).ids == [20]
     assert resolve("DERMACOMPLEX второй", aliases, [4, 20], None, False).clarify
-    assert resolve("цена", aliases, [], 20, False).clarify
+    resolved_page = resolve("цена", aliases, [], 20, False)
+    assert resolved_page.ids == [20]
+    assert not resolved_page.clarify
+    assert resolve("цена", aliases, [], None, False).clarify
     turn = request()
     tokens = Tokens(KEY)
     token, _ = tokens.issue(turn.tab_id, "ru", [4, 20], "epoch", 100)
@@ -887,3 +890,530 @@ async def test_question_is_capped_at_1000_characters(test_db, length, status):
         assert bot.provider.calls == []
         with pytest.raises(ValidationError):
             Turn.model_validate_json(json.dumps(raw))
+
+
+async def _add_supplement(db, shop_id, name, slug):
+    db.add(Product(id=shop_id, name=name, slug=slug, price=250, is_active=True, is_in_stock=True))
+    await db.flush()
+    for language in ("ru", "uz"):
+        sid = f"s{shop_id}{language}"
+        db.add(
+            Source(
+                id=sid,
+                product_id=shop_id,
+                language=language,
+                provenance={
+                    "title": name,
+                    "form": "capsule",
+                    "revision": "fixture-1",
+                    "pdf_title": f"{slug}.pdf",
+                    "aliases": [name],
+                    "section_count": 2,
+                },
+                withdrawn=False,
+            )
+        )
+        await db.flush()
+        db.add(Membership(release_id="synthetic-release", source_id=sid))
+        for ordinal in range(2):
+            body = f"{name} section {ordinal}."
+            db.add(
+                Section(
+                    id=f"{sid}:{ordinal}",
+                    source_id=sid,
+                    ordinal=ordinal,
+                    body=body,
+                    body_hash=hashlib.sha256(body.encode()).hexdigest(),
+                    heading=f"Section {ordinal}",
+                    caution=False,
+                    pdf_page=1,
+                )
+            )
+            await db.flush()
+            await db.execute(
+                text(
+                    "INSERT INTO consultant_embeddings(section_id,profile,vector) VALUES (:id,:profile,CAST(:vector AS vector))"
+                ),
+                {
+                    "id": f"{sid}:{ordinal}",
+                    "profile": EMBEDDING_PROFILE,
+                    "vector": str([1.0] + [0.0] * 1535),
+                },
+            )
+    await db.commit()
+
+
+def _enigma_bot(db, jev_payload, luna_payload, *, product_stub=None):
+    from tests.consultant_doubles import LunaStub
+
+    class _MuxProvider(ProviderStub):
+        def __init__(self):
+            super().__init__()
+            self._luna = LunaStub([luna_payload])
+
+        async def call(self, endpoint, payload):
+            if endpoint == "responses":
+                raw = payload["input"][1]["content"]
+                text_body = raw[0]["text"] if isinstance(raw, list) else raw
+                if "candidates" in json.loads(text_body):
+                    return await self._luna.call(endpoint, payload)
+            raise AssertionError(f"unexpected Luna call: {endpoint}")
+
+    sessions = async_sessionmaker(db.bind, expire_on_commit=False)
+    controls = Controls(sessions, KEY, True)
+    seen_jev = []
+
+    def jev_handler(req):
+        seen_jev.append(json.loads(req.content)["state"])
+        return httpx.Response(200, json=jev_payload)
+
+    provider = product_stub or _MuxProvider()
+    consultant = Consultant(
+        controls,
+        Knowledge(sessions),
+        provider,
+        Tokens(KEY),
+        Enigma(Jev(httpx.AsyncClient(transport=httpx.MockTransport(jev_handler)), "fixture-key")),
+    )
+    records = []
+    consultant.recorder = records.append
+    return consultant, records, seen_jev
+
+
+async def test_ux_w01_page_context_wire_validation(test_db):
+    await seed(test_db)
+    app = create_app()
+    bot = service(test_db)
+    app.state.consultant = bot
+    app.state.consultant_origins = ["https://shop.test"]
+    base = json.loads(request("ACTIVE").model_dump_json())
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://shop.test"
+    ) as client:
+        for view in ("home", "catalogue", "product", "account", "order", "invalid"):
+            payload = {**base, "request_id": str(uuid4()), "page_context": {"view": view}}
+            if view == "catalogue":
+                payload["page_context"]["category_id"] = 3
+            res = await client.post("/api/v1/consultant/turns", json=payload)
+            assert res.status_code == 200, (view, res.text)
+
+        res_null = await client.post(
+            "/api/v1/consultant/turns",
+            json={**base, "request_id": str(uuid4()), "page_context": None},
+        )
+        assert res_null.status_code == 200
+
+        bad_cases = [
+            {"view": "search"},
+            {"view": "catalogue", "category_id": 0},
+            {"view": "catalogue", "category_id": True},
+            {"view": "catalogue", "category_id": "3"},
+            {"view": "catalogue", "category_id": 3, "search_query": "магний"},
+        ]
+        for bad in bad_cases:
+            res = await client.post(
+                "/api/v1/consultant/turns",
+                json={**base, "request_id": str(uuid4()), "page_context": bad},
+            )
+            assert res.status_code == 422, bad
+            assert res.json()["code"] == "invalid_input"
+
+
+async def test_ux_r01_r02_resolver_and_product_page_two_turn_followup(test_db):
+    from src.consultant.enigma.data import RULES
+
+    await seed(test_db)
+    await _add_supplement(test_db, 18, "BIFOLAK® MAGNIY (capsules)", "magniy_cap")
+    await _add_supplement(test_db, 19, "BIFOLAK® MAGNIY (sticks)", "magniy_stick")
+
+    aliases = {
+        7: ["IMMUNOCOMPLEX®"],
+        17: ["BIFOLAK® ZINCUM"],
+        18: ["BIFOLAK® MAGNIY"],
+        19: ["BIFOLAK® MAGNIY"],
+        20: ["BIFOLAK® ACTIVE"],
+        21: ["BIFOLAK® ACTIVE"],
+    }
+    r_sel = resolve("цена", aliases, [7], 20, False)
+    assert r_sel.ids == [7]
+    assert not r_sel.clarify
+    r_mag = resolve("как его пить?", aliases, [18, 19], None, False)
+    assert r_mag.ids == [18, 19]
+    assert not r_mag.clarify
+    r_act = resolve("uni qanday ichiladi?", aliases, [20, 21], None, False)
+    assert r_act.ids == [20, 21]
+    assert not r_act.clarify
+    assert resolve("как его пить?", aliases, [7, 17], None, False).clarify
+
+    from tests.test_consultant_enigma_core import answer as jev_body
+
+    def ask_body(_b):
+        return {"decision": "ask", "offered": [], "text": RULES.opening_question.ru}
+
+    consultant, records, _ = _enigma_bot(test_db, jev_body("unclear"), ask_body)
+    t1 = request("привет")
+    r1 = await consultant.turn(t1)
+    assert records[-1].path == "enigma"
+    assert r1["status"] == "clarification"
+    assert r1["products"] == []
+
+    # Turn 2 non-fresh on #product?id=20 with empty selection: Layer 1 routes to Consultant.product.
+    bot_prod = service(test_db, ProviderStub(source_only=False))
+    prod_records = []
+    bot_prod.recorder = prod_records.append
+    t2 = request("сколько стоит?", r1["context_token"], t1.tab_id)
+    r2 = await bot_prod.turn(t2)
+    assert prod_records[-1].path == "product"
+    assert [p["id"] for p in r2["products"]] == [20]
+    assert "200" in r2["answer"]
+
+    # Shared-unit selection [18, 19] with "как его пить?" routes to product path without clarify.
+    tok_18_19 = bot_prod.tokens.issue(t1.tab_id, "ru", [18, 19], "synthetic-release")[0]
+    r3 = await bot_prod.turn(request("как его пить?", tok_18_19, t1.tab_id))
+    assert prod_records[-1].path == "product"
+    assert r3["status"] == "answer"
+    assert len(r3["products"]) >= 1
+    assert {p["id"] for p in r3["products"]} <= {18, 19}
+
+
+async def test_ux_r03_layer1_routing_exclusions_and_user_path(test_db):
+    from src.consultant.enigma.data import RULES, SHOP, TOPIC
+    from tests.test_consultant_enigma_core import answer as jev_body
+
+    await seed(test_db)
+    await _add_supplement(test_db, 14, "IMMUNOCOMPLEX® KIDS", "immuno_kids")
+    await _add_supplement(test_db, 17, "BIFOLAK® ZINCUM", "bifolak_zincum")
+    await _add_supplement(test_db, 18, "BIFOLAK® MAGNIY (capsules)", "magniy_cap")
+    await _add_supplement(test_db, 19, "BIFOLAK® MAGNIY (sticks)", "magniy_stick")
+
+    bot_prod = service(test_db, ProviderStub(source_only=False))
+    prod_records = []
+    bot_prod.recorder = prod_records.append
+    tab = uuid4()
+    tok_empty = bot_prod.tokens.issue(tab, "ru", [], "synthetic-release")[0]
+    tok_empty_uz = bot_prod.tokens.issue(tab, "uz", [], "synthetic-release")[0]
+    tok_18_19 = bot_prod.tokens.issue(tab, "ru", [18, 19], "synthetic-release")[0]
+    tok_17 = bot_prod.tokens.issue(tab, "ru", [17], "synthetic-release")[0]
+
+    # Positive Layer 1 routes on #product?id=20 and selection=[18, 19] (with unreachable Jev!).
+    for q in ("цена", "почём?", "как его пить?", "есть в наличии?", "в наличии?"):
+        res = await bot_prod.turn(request(q, tok_empty, tab))
+        assert prod_records[-1].path == "product", q
+        assert [p["id"] for p in res["products"]] == [20], q
+    res_uz = await bot_prod.turn(request("narxi qancha?", tok_empty_uz, tab, language="uz"))
+    assert prod_records[-1].path == "product"
+    assert [p["id"] for p in res_uz["products"]] == [20]
+
+    res_shared = await bot_prod.turn(request("как его пить?", tok_18_19, tab))
+    assert prod_records[-1].path == "product"
+    assert sorted(p["id"] for p in res_shared["products"]) == [18, 19]
+
+    # Selection [17] with diarrhea still routes BIFOLAK ZINCUM (not MAGNIY) to product path.
+    res_zinc = await bot_prod.turn(
+        Turn.model_validate_json(
+            json.dumps(
+                {
+                    **json.loads(request("как его пить?", tok_17, tab).model_dump_json()),
+                    "page_product_id": None,
+                    "history": [{"question": "у ребенка понос", "answer": "Уточню."}],
+                }
+            )
+        )
+    )
+    assert prod_records[-1].path == "product"
+    assert [p["id"] for p in res_zinc["products"]] == [17]
+
+    # Pregnancy on #product?id=20 (in PREGNANCY_IDS) routes to product path.
+    res_pg20 = await bot_prod.turn(
+        Turn.model_validate_json(
+            json.dumps(
+                {
+                    **json.loads(request("цена", tok_empty, tab).model_dump_json()),
+                    "history": [{"question": "я беременна", "answer": "Понятно."}],
+                }
+            )
+        )
+    )
+    assert prod_records[-1].path == "product"
+    assert [p["id"] for p in res_pg20["products"]] == [20]
+
+    # Exclusions & non-trapping controls MUST reach EnigmaTurn (never Layer 1).
+    enigma_cases = [
+        ("можно оплатить наличными?", 20, tok_empty, []),
+        ("наличкой можно?", 20, tok_empty, []),
+        ("сколько стоит доставка в Бухару?", 20, tok_empty, []),
+        ("у вас есть термос?", 20, tok_empty, []),
+        ("что входит в этот набор?", 20, tok_empty, []),
+        ("болят глаза", 20, tok_empty, []),
+        ("привет", 20, tok_empty, []),
+        ("у ребенка понос, как его пить?", 18, tok_empty, []),
+        ("как его пить?", 18, tok_empty, [{"question": "у ребенка понос", "answer": "..."}]),
+        ("как его пить?", None, tok_18_19, [{"question": "у ребенка понос", "answer": "..."}]),
+        (
+            "цена",
+            20,
+            tok_empty,
+            [{"question": "у меня аллергия на всё, боюсь брать", "answer": "..."}],
+        ),
+        (
+            "как его пить?",
+            20,
+            tok_empty,
+            [{"question": "температура 39 уже два дня", "answer": "..."}],
+        ),
+        ("цена", 14, tok_empty, [{"question": "я беременна", "answer": "..."}]),
+    ]
+    for q, pid, tok, hist in enigma_cases:
+        bot_e, recs_e, _ = _enigma_bot(
+            test_db,
+            jev_body("unclear"),
+            lambda _b: {
+                "decision": "no_product",
+                "offered": [],
+                "text": "К сожалению, я не смогла подобрать вариант. Вы можете проконсультироваться с врачом.",
+            },
+        )
+        t = Turn.model_validate_json(
+            json.dumps(
+                {
+                    "request_id": str(uuid4()),
+                    "tab_id": str(tab),
+                    "context_revision": 1,
+                    "language": "ru",
+                    "question": q,
+                    "history": hist,
+                    "page_product_id": pid,
+                    "context_token": tok,
+                }
+            )
+        )
+        await bot_e.turn(t)
+        assert recs_e[-1].path == "enigma", (q, pid, hist)
+
+    # Emergency on chest pain stays N-01 emergency even with "сколько стоит?".
+    bot_emg, recs_emg, _seen_jev = _enigma_bot(
+        test_db,
+        jev_body("unclear"),
+        lambda _b: {"decision": "emergency", "offered": [], "text": RULES.emergency.general.ru},
+    )
+    res_emg = await bot_emg.turn(request("давит в груди, сколько стоит?"))
+    assert recs_emg[-1].path == "enigma"
+    assert "103" in res_emg["answer"]
+    assert recs_emg[-1].facts["ambulance"]
+
+    # Spec §3.2 user-path HTTP scenario on #product?id=20:
+    # Turn 1 "привет" -> Turn 2 "сколько стоит доставка в Бухару?" -> Turn 3 "а сам препарат почём?"
+    delivery_text = TOPIC["delivery_regions"].text.ru
+    bot_path, recs_path, _ = _enigma_bot(
+        test_db,
+        jev_body("unclear", topic="delivery_regions"),
+        lambda _b: {"decision": "ask", "offered": [], "text": RULES.opening_question.ru},
+    )
+    # Build an HTTP app switching from Enigma on turns 1-2 to product path on turn 3.
+    app = create_app()
+    app.state.consultant = bot_path
+    app.state.consultant_origins = ["https://shop.test"]
+    u_tab = uuid4()
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://shop.test"
+    ) as client:
+        r1 = await client.post(
+            "/api/v1/consultant/turns",
+            json={
+                "request_id": str(uuid4()),
+                "tab_id": str(u_tab),
+                "context_revision": 1,
+                "language": "ru",
+                "question": "привет",
+                "history": [],
+                "page_product_id": 20,
+                "context_token": None,
+                "page_context": {"view": "product", "category_id": None},
+            },
+        )
+        assert r1.status_code == 200
+        j1 = r1.json()
+        assert recs_path[-1].path == "enigma"
+        assert j1["products"] == []
+
+        # Switch Luna stub on bot_path for shop reply on Turn 2.
+        from tests.consultant_doubles import LunaStub
+
+        bot_path.provider._luna = LunaStub(
+            [lambda _b: {"decision": "shop", "offered": [], "text": delivery_text}]
+        )
+        r2 = await client.post(
+            "/api/v1/consultant/turns",
+            json={
+                "request_id": str(uuid4()),
+                "tab_id": str(u_tab),
+                "context_revision": 2,
+                "language": "ru",
+                "question": "сколько стоит доставка в Бухару?",
+                "history": [{"question": "привет", "answer": j1["answer"]}],
+                "page_product_id": 20,
+                "context_token": j1["context_token"],
+                "page_context": {"view": "product", "category_id": None},
+            },
+        )
+        assert r2.status_code == 200
+        j2 = r2.json()
+        assert recs_path[-1].path == "enigma"
+        assert j2["products"] == []
+        assert "BTS Express" in j2["answer"]
+
+        # Switch app.state.consultant to unreachable-Jev service for Turn 3 proof.
+        app.state.consultant = bot_prod
+        r3 = await client.post(
+            "/api/v1/consultant/turns",
+            json={
+                "request_id": str(uuid4()),
+                "tab_id": str(u_tab),
+                "context_revision": 3,
+                "language": "ru",
+                "question": "а сколько стоит сам препарат?",
+                "history": [
+                    {"question": "привет", "answer": j1["answer"]},
+                    {"question": "сколько стоит доставка в Бухару?", "answer": j2["answer"]},
+                ],
+                "page_product_id": 20,
+                "context_token": j2["context_token"],
+                "page_context": {"view": "product", "category_id": None},
+            },
+        )
+        assert r3.status_code == 200
+        j3 = r3.json()
+        assert prod_records[-1].path == "product"
+        assert [p["id"] for p in j3["products"]] == [20]
+        assert "200" in j3["answer"]
+        assert isinstance(SHOP.version, str)
+
+
+@pytest.mark.parametrize(
+    ("question", "language", "page_pid", "selection"),
+    [
+        # Positive commercial, stock, dosage/meal-timing, permission, and deictic queries -> product.
+        ("цена", "ru", 20, []),
+        ("сколько стоит?", "ru", 20, []),
+        ("narxi qancha?", "uz", 20, []),
+        ("состав", "ru", 20, []),
+        ("инструкция", "ru", 20, []),
+        ("как принимать?", "ru", 20, []),
+        ("до или после еды пить?", "ru", 20, []),
+        ("принимать до или после еды?", "ru", 20, []),
+        ("как принимать, до или после еды?", "ru", 20, []),
+        ("qanday ichiladi?", "uz", 20, []),
+        ("tarkibi", "uz", 20, []),
+        ("с какого возраста можно?", "ru", 20, []),
+        ("можно ли беременным?", "ru", 20, []),
+        ("можно ли его при беременности?", "ru", 20, []),
+        ("кормящим можно?", "ru", 20, []),
+        ("можно ли при ГВ?", "ru", 20, []),
+        ("можно детям?", "ru", 20, []),
+        ("homiladorlarga mumkinmi?", "uz", 20, []),
+        ("emiziklilarga mumkinmi?", "uz", 20, []),
+        ("bolalarga mumkinmi?", "uz", 20, []),
+        ("necha yoshdan mumkin?", "uz", 20, []),
+        ("есть ли он в наличии?", "ru", 20, []),
+        ("в продаже?", "ru", 20, []),
+        ("sotuvda bormi?", "uz", 20, []),
+        ("mavjudmi?", "uz", 20, []),
+        ("он bormi?", "uz", 20, []),
+        ("shu bormi?", "uz", 20, []),
+        ("расскажите про него", "ru", 20, []),
+        ("расскажите об этом препарате", "ru", 20, []),
+        ("какая от него польза?", "ru", 20, []),
+        ("uning foydasi nima?", "uz", 20, []),
+        ("расскажите подробнее", "ru", 20, []),
+        ("подойдёт ли он мне?", "ru", 20, []),
+        ("подойдёт ли он мне?", "ru", None, [20]),
+    ],
+)
+async def test_ux_r03_supplement_query_positive_boundaries(
+    test_db, question, language, page_pid, selection
+):
+    await seed(test_db)
+    bot = service(test_db, ProviderStub(source_only=False))
+    records = []
+    bot.recorder = records.append
+    tab = uuid4()
+    tok = bot.tokens.issue(tab, language, selection, "synthetic-release")[0] if selection else None
+    t = Turn.model_validate_json(
+        json.dumps(
+            {
+                "request_id": str(uuid4()),
+                "tab_id": str(tab),
+                "context_revision": 1,
+                "language": language,
+                "question": question,
+                "history": [],
+                "page_product_id": page_pid,
+                "page_context": {"view": "product", "category_id": None} if page_pid else None,
+                "context_token": tok,
+            }
+        )
+    )
+    res = await bot.turn(t)
+    assert records[-1].path == "product", (question, language, page_pid, selection)
+    assert [p["id"] for p in res["products"]] == [20], (question, language)
+
+
+@pytest.mark.parametrize(
+    ("question", "language", "page_pid", "selection"),
+    [
+        # 9 F-01 counterexamples + neighboring symptom/pain/discovery cases -> enigma.
+        ("я беременна, болят суставы и кости", "ru", 20, []),
+        ("я беременна, болят суставы и кости", "ru", 15, []),
+        ("я беременна, сильно выпадают волосы, что посоветуете?", "ru", 20, []),
+        ("кормящая мама, болят глаза от экрана", "ru", 20, []),
+        ("bolalarga immunitet uchun vitamin kerak", "uz", 4, []),
+        ("после еды вздутие и тяжесть в животе", "ru", 7, []),
+        ("ko'z uchun vitamin bormi?", "uz", 20, []),
+        ("расскажите, какие витамины есть для зрения?", "ru", 20, []),
+        ("поможет ли от боли в суставах и костях?", "ru", 15, []),
+        ("подойдёт ли он от боли в суставах?", "ru", 15, []),
+        ("после еды болит живот, как принимать?", "ru", 7, []),
+        ("кўзим оғрияпти, нима маслаҳат берасиз?", "uz", 20, []),
+        ("болаларга иммунитет учун витамин керак", "uz", 4, []),
+        ("подберите витамины для ребёнка", "ru", 20, [20]),
+    ],
+)
+async def test_ux_r03_supplement_query_negative_boundaries(
+    test_db, question, language, page_pid, selection
+):
+    from tests.test_consultant_enigma_core import answer as jev_body
+
+    await seed(test_db)
+    await _add_supplement(test_db, 7, "IMMUNOCOMPLEX®", "immunocomplex")
+    await _add_supplement(test_db, 15, "CALCIY® TRIACTIVE D3", "calciy")
+    bot, records, _ = _enigma_bot(
+        test_db,
+        jev_body("unclear"),
+        lambda _b: {
+            "decision": "ask",
+            "offered": [],
+            "text": "Aynan nima bezovta qilyapti?"
+            if language == "uz"
+            else "Что именно вас беспокоит?",
+        },
+    )
+    tab = uuid4()
+    tok = bot.tokens.issue(tab, language, selection, "synthetic-release")[0] if selection else None
+    t = Turn.model_validate_json(
+        json.dumps(
+            {
+                "request_id": str(uuid4()),
+                "tab_id": str(tab),
+                "context_revision": 1,
+                "language": language,
+                "question": question,
+                "history": [],
+                "page_product_id": page_pid,
+                "page_context": {"view": "product", "category_id": None} if page_pid else None,
+                "context_token": tok,
+            }
+        )
+    )
+    await bot.turn(t)
+    assert records[-1].path == "enigma", (question, language, page_pid, selection)

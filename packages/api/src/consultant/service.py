@@ -22,7 +22,10 @@ from src.consultant.context import (
 )
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
+from src.consultant.enigma import nets
 from src.consultant.enigma.cards import ITEM_PRODUCTS
+from src.consultant.enigma.checks import Names
+from src.consultant.enigma.data import CORES, SHOP, UNIT
 from src.consultant.enigma.data import DATA as ENIGMA_DATA
 from src.consultant.enigma.nets import Ambulance
 from src.consultant.enigma.shop import PUBLIC_CONTACTS, mask
@@ -60,18 +63,242 @@ RUSSIAN_PROSE = re.compile(
     re.I,
 )
 ORDINAL = re.compile(r"\b(?:first|перв\w*|birinchi\w*|second|втор\w*|ikkinchi\w*)\b")
+MAGNIY_IDS = frozenset(p.shop_id for p in UNIT["magniy"].products)
+PREGNANCY_IDS = frozenset(i for u in CORES.units for i in u.pregnancy)
+SUPPLEMENT_QUERY = re.compile(
+    r"(?:"
+    r"\b(?:цен[ауые]?|стоимост\w*|(?:скольк|скок)\w*(?:\s+\S+){0,2}\s+стоит|поч[её]м|"
+    r"narx\w*|qancha|necha\s+pul|неча\s+пул|нарх\w*|қанча|price|cost)\b"
+    r"|\b(?:в\s+наличии|наличи[еию]|в\s+продаже|"
+    r"(?:sotuvda|omborda|bu|shu|u|o['‘’ʻʼ]?sha|mahsulot\w*|он)\s+bor\s*mi|mavjud\w*|sotuvda|"
+    r"(?:сотувда|омборда|бу|шу|у|ўша|маҳсулот\w*|он)\s+бор\s*ми|мавжуд\w*|сотувда|"
+    r"in\s+stock|available)\b"
+    r"|^\s*(?:а\s+)?bor\s*mi\s*[?!.]?\s*$"
+    r"|\b(?:состав\w*|ингредиент\w*|компонент\w*|что\s+входит|из\s+чего\s+состоит|"
+    r"tarkib\w*|таркиб\w*|nimalar\s+bor|nimalardan|composition|ingredients?)\b"
+    r"|\b(?:дозиров\w*|доз[ауые]|как\s+(?:его\s+|е[её]\s+|их\s+)?(?:пить|принимать|давать|употребл\w*)|"
+    r"способ\s+применен\w*|инструкц\w*|курс\w*|скольк\w*\s+(?:дней|пить|принимать)|сколько\s+(?:раз\s+)?в\s+день|"
+    r"(?:пить|принимать|давать|употребл\w*)(?:\s+\S+){0,4}\s+(?:в\s+день|(?:до|перед|после|во\s+время)\s+еды)|"
+    r"(?:(?:до|перед|после|во\s+время)\s+еды|в\s+день)(?:\s+\S+){0,3}\s+(?:пить|принимать|давать|употребл\w*)|"
+    r"(?:до|перед|во\s+время)\s+или\s+после\s+еды|"
+    r"qanday\s+(?:qilib\s+)?(?:uni\s+)?(?:ich\w*|qabul\s+qil\w*|ber\w*)|"
+    r"qancha\s+ich\w*|necha\s+kun|qabul\s+qilish|yo['‘’ʻʼ]?riqnom\w*|doza\w*|"
+    r"(?:ovqatdan\s+(?:oldin|keyin|so['‘’ʻʼ]?ng)|ovqat\s+paytida)\s+(?:ich\w*|qabul|ber\w*)|"
+    r"(?:ich\w*|qabul\s+qil\w*|ber\w*)\s+ovqatdan\s+(?:oldin|keyin|so['‘’ʻʼ]?ng)|"
+    r"қандай\s+(?:қилиб\s+)?(?:уни\s+)?(?:ич\w*|қабул\s+қил\w*|бер\w*)|"
+    r"йўриқном\w*|неча\s+кун|қабул\s+қилиш|"
+    r"dosage|dose|how\s+to\s+take|instructions?)\b"
+    r"|\b(?:(?:с\s+какого|до\s+какого|для\s+какого|какой)\s+возраста|возрастн\w*\s+ограничен\w*|"
+    r"можно\s+(?:ли\s+)?(?:его\s+|е[её]\s+|это\s+)?(?:пить\s+|принимать\s+|давать\s+)?(?:детям|реб[её]нку)|"
+    r"(?:детям|реб[её]нку)\s+(?:можно|разрешен\w*|противопоказ\w*|подход\w*)|"
+    r"можно\s+(?:ли\s+)?(?:его\s+|е[её]\s+|это\s+)?(?:пить\s+|принимать\s+)?(?:беременн\w*|кормящ\w*|при\s+(?:беременност\w*|гв|лактац\w*|грудном\s+вскармливании))|"
+    r"(?:беременн\w*|кормящ\w*|при\s+(?:беременност\w*|гв|лактац\w*|грудном\s+вскармливании))(?:\s+мамам?)?\s+(?:можно|нельзя|разрешен\w*|противопоказ\w*|подход\w*)|"
+    r"противопоказ\w*|побочн\w*|"
+    r"(?:necha|qaysi|qancha)\s+yoshdan|yoshdan\s+(?:mumkin|bo['‘’ʻʼ]?ladimi|ichish|qabul|berish)|yosh\s+cheklov\w*|"
+    r"(?:bolalarga|bolaga|homilador\w*|emizikli\w*)\s+(?:mumkin\w*|bo['‘’ʻʼ]?ladimi|ichsa|ichish\w*|berish\w*|qabul)|"
+    r"(?:homiladorlik\w*|emizish\w*)\s+(?:davrida\s+)?(?:mumkin\w*|bo['‘’ʻʼ]?ladimi|ichsa|ichish\w*|qabul)|"
+    r"qarshi\s+ko['‘’ʻʼ]?rsat\w*|nojo['‘’ʻʼ]?ya|"
+    r"(?:неча|қайси|қанча)\s+ёшдан|ёшдан\s+(?:мумкин|бўладими|ичиш|қабул|бериш)|ёш\s+чеклов\w*|"
+    r"(?:болаларга|болага|ҳомиладор\w*|эмизикли\w*)\s+(?:мумкин\w*|бўладими|ичса|ичиш\w*|бериш\w*|қабул)|"
+    r"(?:ҳомиладорлик\w*|эмизиш\w*)\s+(?:даврида\s+)?(?:мумкин\w*|бўладими|ичса|ичиш\w*|қабул)|"
+    r"қарши\s+кўрсат\w*|ножўя|"
+    r"(?:from\s+what|what)\s+age|"
+    r"(?:safe|allowed|suitable)\s+(?:for\s+(?:children|kids)|(?:during|in|for)\s+(?:pregnan\w*|breastfeed\w*))|"
+    r"contraindicat\w*)\b"
+    r"|\b(?:(?:это|он|она|оно|препарат\w*|продукт\w*|товар\w*)\s+(?:от|для)\s+чего|"
+    r"(?:от|для)\s+чего\s+(?:это|он|она|оно|нуж\w*|препарат\w*|продукт\w*|товар\w*)|"
+    r"зачем\s+(?:он|она|оно|это|нуж\w*)|"
+    r"что\s+(?:это(?:\s+за\s+(?:препарат|продукт|товар|средство|добавк\w*))?|за\s+(?:препарат|продукт|товар|средство|добавк\w*))|"
+    r"(?:расскаж\w*|подробн\w*)\s+(?:про\s+(?:него|не[её]|это|этот\s+(?:препарат|продукт|товар))|"
+    r"о\s+(?:н[её]м|ней|товар\w*|препарат\w*|продукт\w*)|об\s+этом(?:\s+(?:товар\w*|препарат\w*|продукт\w*))?)|"
+    r"(?:описание|подробн\w*\s+описание)(?:\s+(?:товар\w*|препарат\w*|продукт\w*))?|"
+    r"какая\s+(?:от\s+(?:него|не[её]|этого)\s+)?польз\w*|польз\w*\s+(?:от\s+)?(?:него|не[её]|этого)|(?:его|е[её])\s+польз\w*|"
+    r"подойд[её]т\s+ли(?:\s+(?:он|она|оно|это|мне|нам))?|(?:он|она|оно|это)\s+(?:мне\s+)?подойд[её]т|"
+    r"(?:помогает|поможет)\s+ли\s+(?:он|она|оно|это)\b|(?:он|она|оно|это)\s+(?:мне\s+)?помо(?:гает|жет)|"
+    r"(?:bu|shu|u)\s+(?:nima(?:\s+uchun|\s+qiladi)?|qanday|nimaga\s+kerak)|"
+    r"(?:uning|buning|shuning|bu|shu|mahsulot\w*)\s+foyda\w*|foydasi\s+(?:nima|qanday|bormi)|(?:qanday|nima)\s+foydasi\s+bor|"
+    r"(?:бу|шу|у)\s+(?:нима(?:\s+учун|\s+қилади)?|қандай|нимага\s+кера[кг])|"
+    r"(?:унинг|бунинг|шунинг|бу|шу|маҳсулот\w*)\s+фойда\w*|фойдаси\s+(?:нима|қандай|борми)|(?:қандай|нима)\s+фойдаси\s+бор|"
+    r"what\s+is\s+this|what(?:'s|\s+is)\s+(?:this|it)\s+for)\b"
+    r"|^\s*(?:а\s+)?(?:от\s+чего|для\s+чего|зачем|что\s+это|расскаж\w*(?:\s+подробн\w*)?|подробн\w*(?:\s+можно)?|"
+    r"nima\s+uchun|nimaga\s+kerak|nima\s+qiladi|нима\s+учун|нимага\s+кера[кг]|нима\s+қилади)\s*[?!.]?\s*$"
+    r")"
+)
+COMPLAINT_OR_DISCOVERY = re.compile(
+    r"(?:"
+    r"\b(?:боль|боли|болит|болят|болел\w*|больно|болям|болях|ломит|ломота|но[ею]т|"
+    r"вздут\w*|тяжест\w*\s+в\s+живот\w*|тошнот\w*|тошнит|рвот\w*|изжог\w*|запор\w*|метеоризм\w*|"
+    r"усталост\w*|слабост\w*|бессонниц\w*|выпада\w*\s+волос\w*|судорог\w*|онемен\w*|"
+    r"головокруж\w*|сып[ьи]|зуд\w*|от[её]к\w*|воспал\w*|температур\w*|кашл\w*|кашель|"
+    r"насморк\w*|одышк\w*|простуд\w*|грипп\w*|орви|диаре\w*|понос\w*)\b"
+    r"|\b(?:og'\s*ri\w*|ogri\w*|shish\w*|qichish\w*|toshma\w*|charcho\w*|holsiz\w*|uyqusiz\w*|"
+    r"ko'ngil\s+ayn\w*|qus\w*|qabziyat\w*|ich\s+ket\w*|dam\s+bo'lish\w*|soch\s+to'kil\w*|"
+    r"bosh\s+aylan\w*|shamollash\w*|yo'tal\w*|tumov\w*|isitma\w*|harorat\w*)\b"
+    r"|\b(?:оғри\w*|огри\w*|шиш\w*|қичиш\w*|тошма\w*|чарчо\w*|ҳолсиз\w*|уйқусиз\w*|"
+    r"кўнгил\s+айн\w*|қус\w*|қабзият\w*|ич\s+кет\w*|дам\s+бўлиш\w*|соч\s+тўкил\w*|"
+    r"бош\s+айлан\w*|шамоллаш\w*|йўтал\w*|тумов\w*|иситма\w*|ҳарорат\w*)\b"
+    r"|\b(?:pain\w*|ache\w*|bloating|nausea|rash|fever|cough|insomnia|fatigue|hair\s+loss)\b"
+    r"|\b(?:посовету\w*|порекоменду\w*|подбер\w*|подобрать|"
+    r"какие\s+(?:у\s+вас\s+)?(?:есть\s+)?(?:витамин\w*|препарат\w*|добавк\w*|бад\w*|средств\w*|комплекс\w*)|"
+    r"какой\s+(?:витамин\w*|препарат\w*|бад\w*|комплекс\w*)\s+(?:лучше|подойд|помож|выбрать|взять|пить|принимать)|"
+    r"(?:нужен|нужны|нужна|ищу)\s+(?:витамин\w*|препарат\w*|средств\w*|добавк\w*|бад\w*|комплекс\w*)|"
+    r"(?:витамин\w*|добавк\w*|бад\w*)\s+(?:для|от|при))\b"
+    r"|\b(?:(?:qaysi|qanday)\s+(?:vitamin\w*|dori\w*|preparat\w*|qo'shimcha\w*|bfq\w*)|"
+    r"(?:nima(?:ni)?\s+)?tavsiya\s+qil\w*|maslahat\s+ber\w*|tanlab\s+ber\w*|"
+    r"vitamin\w*\s+kerak|uchun\s+vitamin\w*)\b"
+    r"|\b(?:(?:қайси|қандай)\s+(?:витамин\w*|дори\w*|препарат\w*|қўшимча\w*|бфқ\w*)|"
+    r"(?:нима(?:ни)?\s+)?тавсия\s+қил\w*|маслаҳат\s+бер\w*|танлаб\s+бер\w*|"
+    r"витамин\w*\s+керак|учун\s+витамин\w*)\b"
+    r"|\b(?:(?:which|what)\s+vitamins?|recommend|suggest|vitamins?\s+for)\b"
+    r")"
+)
+SHOP_EXCLUSION_PREFIXES = (
+    *(
+        stem
+        for c in SHOP.conditions
+        for stem in (c.stems if c.concept == "cash" else c.customer_roots)
+    ),
+    "заказ",
+    "zakaz",
+    "buyurtm",
+    "буйуртм",
+    "оформ",
+    "корзин",
+    "savat",
+    "доставк",
+    "dostavk",
+    "yetkaz",
+    "етказ",
+    "курьер",
+    "kuryer",
+    "bts",
+    "оплат",
+    "to'lov",
+    "тўлов",
+    "payme",
+    "click",
+    "uzum",
+    "возврат",
+    "обмен",
+    "qaytar",
+    "almashtir",
+    "гарант",
+    "kafolat",
+    "контакт",
+    "телефон",
+    "aloqa",
+    "самовывоз",
+    "филиал",
+    "адрес",
+    "manzil",
+    "производит",
+    "сертификат",
+    "sertifikat",
+)
+SHOP_EXCLUSION_PHRASES = ("olib ket", "ishlab chiqar")
+ITEM_EXCLUSION_PREFIXES = (
+    "блендер",
+    "blender",
+    "чайник",
+    "choynak",
+    "чойнак",
+    "аэрогрил",
+    "aerogril",
+    "тостер",
+    "toster",
+    "соковыжимал",
+    "рюкзак",
+    "ryukzak",
+    "сумк",
+    "органайзер",
+    "шоппер",
+    "sumka",
+    "organayzer",
+    "shopper",
+    "жилет",
+    "nimcha",
+    "нимча",
+    "шапк",
+    "shapk",
+    "маникюр",
+    "manikyur",
+    "браслет",
+    "bilaguzuk",
+    "билагузук",
+    "термос",
+    "termos",
+    "кружк",
+    "krujk",
+    "таблетниц",
+    "tabletnits",
+)
+ITEM_EXCLUSION_PHRASES = ("sharbat siqqich",)
+SET_WORDS = re.compile(
+    r"\b(?:сет(?:а|у|ом|е|ы|ов)?|набор\w*|комплект\w*|to['‘’ʻʼ]?plam\w*|тўплам\w*)\b"
+)
 
 
-def product_subject(request: Turn, selection: list[int], evidence: Evidence) -> Subject | None:
-    """The subject of the named-product path, or None (graf-removal spec r3 G4-04): a named
-    product, or an ordinal or open-intent word with a displayed selection. An ordinal or
-    open-intent word without a displayed selection never routes to the product path."""
-    page = request.page_product_id if request.page_product_id in evidence.products else None
+def _excluded_layer1_query(question: str, evidence: Evidence) -> bool:
+    norm_q = nets.norm(question)
+    toks = nets.tokens(norm_q)
+    joined_toks = " ".join(toks)
+    if any(tok.startswith(SHOP_EXCLUSION_PREFIXES) for tok in toks):
+        return True
+    if any(phrase in joined_toks for phrase in SHOP_EXCLUSION_PHRASES):
+        return True
+    if any(tok.startswith(ITEM_EXCLUSION_PREFIXES) for tok in toks):
+        return True
+    if any(phrase in joined_toks for phrase in ITEM_EXCLUSION_PHRASES):
+        return True
+    if SET_WORDS.search(norm_q) is not None:
+        return True
+    if COMPLAINT_OR_DISCOVERY.search(norm_q) is not None:
+        return True
+    named, _ = Names.of(evidence.aliases).find(question)
+    return any(ids & ITEM_PRODUCTS for ids in named)
+
+
+def _conversation_excludes(request: Turn, subject_ids: list[int], pg: bool) -> bool:
+    seen = [nets.signs(t) for t in [*(p.question for p in request.history), request.question]]
+    if any(s.doctor or s.number or s.intolerance for s in seen):
+        return True
+    if any(s.diarrhea for s in seen) and bool(set(subject_ids) & MAGNIY_IDS):
+        return True
+    return (pg or any(s.pregnancy for s in seen)) and not set(subject_ids).issubset(PREGNANCY_IDS)
+
+
+def product_subject(
+    request: Turn, selection: list[int], evidence: Evidence, *, pg: bool = False
+) -> Subject | None:
+    """The subject of the named-product path, or None (graf-removal spec r3 G4-04; amended by
+    UX-R01..UX-R03): a named product, an ordinal or open-intent word with a displayed selection,
+    or an unnamed supplement commercial/instruction/deictic query on selection or effective_page
+    that carries no shop/item/set cues and no conversation-wide compliance exclusion."""
+    effective_page = (
+        request.page_product_id
+        if (request.page_context is None or request.page_context.view == "product")
+        and request.page_product_id in evidence.products
+        else None
+    )
     subject = resolve(
-        request.question, evidence.aliases, selection, page, request.context_token is None
+        request.question,
+        evidence.aliases,
+        selection,
+        effective_page,
+        request.context_token is None,
     )
     ordinal = ORDINAL.search(request.question.casefold()) is not None
-    if subject.explicit or (selection and (ordinal or subject.open_intent)):
+    if subject.explicit:
+        return subject
+    if selection and (ordinal or subject.open_intent):
+        return subject
+    if (
+        subject.ids
+        and all(i in evidence.products for i in subject.ids)
+        and SUPPLEMENT_QUERY.search(nets.norm(request.question)) is not None
+        and not _excluded_layer1_query(request.question, evidence)
+        and not _conversation_excludes(request, subject.ids, pg)
+    ):
         return subject
     return None
 
@@ -234,7 +461,7 @@ class Consultant:
         assert self.enigma is not None
         known = [i for i in selection if i in evidence.products]
         if ambulance is None:
-            subject = product_subject(request, selection, evidence)
+            subject = product_subject(request, selection, evidence, pg=carry.pg)
             # A reply about a shown item card ('первый') stays with Enigma.
             if subject is not None and all(i in evidence.products for i in subject.ids):
                 record.path = "product"

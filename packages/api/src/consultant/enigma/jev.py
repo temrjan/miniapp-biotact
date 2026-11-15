@@ -28,6 +28,8 @@ NONE = "none"
 CANDIDATES = 5
 # SJ-02: the second shop topic is chosen from this probability (M-03 run 2).
 TOPIC_SECOND = 0.13
+# UX-D01: the second item is chosen from this probability, matching SJ-02.
+ITEM_SECOND = 0.13
 
 _STATE = (
     "The state holds a conversation of a customer with an online shop of dietary supplements "
@@ -136,7 +138,7 @@ class Reading:
     model: str
     units: tuple[tuple[str, float], ...]
     special: dict[str, float]
-    item: tuple[str, float] | None
+    items: tuple[tuple[str, float], ...]
     name: tuple[str, float] | None
     name_only: bool
     # SJ-02: the top option of the topic question (may be 'none') and the chosen topics.
@@ -179,11 +181,16 @@ def _probabilities(answer: _Choice, options: dict[str, Any]) -> dict[str, float]
     return {k: found.get(k, 0.0) for k in options}
 
 
+def _rank_order(probabilities: dict[str, float], display_keys: list[str]) -> list[str]:
+    """Highest probability first; ties broken by display order with 'none' last."""
+    rank = {k: i for i, k in enumerate([*display_keys, NONE])}
+    return sorted(probabilities, key=lambda k: (-probabilities[k], rank[k]))
+
+
 def _ordered(probabilities: dict[str, float]) -> list[str]:
     """SJ-02: highest first; equal probabilities in the display order of the shop core, 'none'
     after every topic."""
-    rank = {k: i for i, k in enumerate([*(t.id for t in SHOP.topics), NONE])}
-    return sorted(probabilities, key=lambda k: (-probabilities[k], rank[k]))
+    return _rank_order(probabilities, [t.id for t in SHOP.topics])
 
 
 def _topic_top(probabilities: dict[str, float]) -> tuple[str, float]:
@@ -191,17 +198,28 @@ def _topic_top(probabilities: dict[str, float]) -> tuple[str, float]:
     return first, probabilities[first]
 
 
-def _chosen(probabilities: dict[str, float]) -> tuple[tuple[str, float], ...]:
-    """SJ-02: no topic when the top option is 'none'; otherwise the top topic and the next topic
-    (skipping 'none') when its probability is at least TOPIC_SECOND."""
-    order = _ordered(probabilities)
+def _chosen_pair(
+    order: list[str], probabilities: dict[str, float], threshold: float
+) -> tuple[tuple[str, float], ...]:
     if order[0] == NONE:
         return ()
     second = next((k for k in order[1:] if k != NONE), None)
     chosen = [order[0]]
-    if second is not None and probabilities[second] >= TOPIC_SECOND:
+    if second is not None and probabilities[second] >= threshold:
         chosen.append(second)
     return tuple((k, probabilities[k]) for k in chosen)
+
+
+def _chosen(probabilities: dict[str, float]) -> tuple[tuple[str, float], ...]:
+    """SJ-02: no topic when the top option is 'none'; otherwise the top topic and the next topic
+    (skipping 'none') when its probability is at least TOPIC_SECOND."""
+    return _chosen_pair(_ordered(probabilities), probabilities, TOPIC_SECOND)
+
+
+def _chosen_items(probabilities: dict[str, float]) -> tuple[tuple[str, float], ...]:
+    """UX-D01: 0-2 non-'none' items in CORES.items display-tiebreak order above ITEM_SECOND."""
+    order = _rank_order(probabilities, [i.id for i in CORES.items])
+    return _chosen_pair(order, probabilities, ITEM_SECOND)
 
 
 def _unit_of(name: str) -> str:
@@ -228,24 +246,21 @@ def read(value: object) -> Reading | str:
     topic = _probabilities(body.answers.topic, QUESTIONS["topic"]["criteria"])
     if unit is None or item is None or name is None or topic is None:
         return "invalid"
-    top_unit, top_item, top_name = (
-        body.answers.unit.choice,
-        body.answers.item.choice,
-        body.answers.name.choice,
-    )
+    top_unit, top_name = body.answers.unit.choice, body.answers.name.choice
     ranked = sorted(
         ((k, p) for k, p in unit.items() if k in UNIT and p > 0), key=lambda kp: -kp[1]
     )[:CANDIDATES]
     complaint = top_unit not in ("unclear", "no_product")
     if top_name != NONE and complaint and _unit_of(top_name) not in dict(ranked):
         ranked.append((_unit_of(top_name), unit[_unit_of(top_name)]))
+    chosen_items = _chosen_items(item)
     return Reading(
         model=body.model,
         units=tuple(ranked),
         special={k: unit[k] for k in SPECIAL},
-        item=(top_item, item[top_item]) if top_item != NONE else None,
+        items=chosen_items,
         name=(top_name, name[top_name]) if top_name != NONE else None,
-        name_only=top_name != NONE and not complaint and top_item == NONE,
+        name_only=top_name != NONE and not complaint and not chosen_items,
         topic=_topic_top(topic),
         topics=_chosen(topic),
     )
