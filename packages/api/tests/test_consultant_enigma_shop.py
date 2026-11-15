@@ -95,8 +95,12 @@ def test_sd01_sd03_the_released_topics_and_the_data_hash() -> None:
         "origin",
         "other_shop",
     ]
-    assert all(t.approved is not None for t in data.SHOP.topics if t.id != "origin")
-    assert data.TOPIC["origin"].approved is None
+    assert all(t.approved is not None for t in data.SHOP.topics)  # §5: no delivery otherwise
+    assert "zakaz" in TOPIC["how_to_buy"].description.uz
+    assert "dostavka" not in TOPIC["how_to_buy"].description.uz
+    for delivery_id in ("delivery_tashkent", "delivery_regions"):
+        assert "dostavka" in TOPIC[delivery_id].description.uz
+        assert "zakaz" not in TOPIC[delivery_id].description.uz
     assert data.DATA_FILES[-1] == "shop.json"
 
 

@@ -340,6 +340,9 @@ def test_ux_d04_bones_support_and_non_acute_pain_rule() -> None:
         assert "og'riq" not in text.lower()
         assert "оғриқ" not in text.lower()
     assert any("non-acute pain or aching in joints or bones" in r for r in data.RULES.offer_rules)
+    assert any(
+        "not pain in the back, lower back, spine, neck or head" in r for r in data.RULES.offer_rules
+    )
 
     assert nets.signs("упала с лестницы, колено опухло и острая боль").doctor is True
     assert nets.signs("у мамы болят суставы и кости").doctor is False
