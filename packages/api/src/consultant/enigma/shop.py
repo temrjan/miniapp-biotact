@@ -130,7 +130,11 @@ def check(
     found = handles(text)
     if found - handles(joined) or addresses(text) - addresses(joined):
         return "SV-02"
-    if decision == "shop" and (set(values(text)) & SUPPORT_VALUES or found) and not referral(text):
+    if (
+        decision == "shop"
+        and (set(values(text)) & SUPPORT_VALUES or found & SUPPORT_HANDLES)
+        and not referral(text)
+    ):
         return "SV-02"
     extra = claims(text) - claims(joined)
     if extra and referral(text):

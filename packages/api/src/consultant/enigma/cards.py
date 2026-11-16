@@ -70,8 +70,7 @@ async def active_category(db: AsyncSession, category_id: int, language: Language
     return category.name_uz if language == "uz" and category.name_uz else category.name
 
 
-def format_price(card: Mapping[str, Any]) -> str:
-    """Server-formatted live selling price without sale/discount labels (UX-P03)."""
+def _price_parts(card: Mapping[str, Any]) -> tuple[str, str, str]:
     raw = (
         card["sale_price"]
         if card.get("is_sale") and card.get("sale_price") is not None
@@ -81,8 +80,20 @@ def format_price(card: Mapping[str, Any]) -> str:
     amount = raw if isinstance(raw, Decimal) else Decimal(str(raw))
     if amount == amount.to_integral_value():
         whole = int(amount)
-        return f"{whole:,}".replace(",", " ") + f" {currency} ({whole})"
+        return f"{whole:,}".replace(",", " "), str(whole), currency
     norm_str = format(amount.normalize(), "f")
     whole_str, _, frac_str = norm_str.partition(".")
     spaced_whole = f"{int(whole_str):,}".replace(",", " ")
-    return f"{spaced_whole}.{frac_str} {currency} ({norm_str})"
+    return f"{spaced_whole}.{frac_str}", norm_str, currency
+
+
+def display_price(card: Mapping[str, Any]) -> str:
+    """Customer-facing live selling price without sale/discount labels (D-2)."""
+    spaced, _, currency = _price_parts(card)
+    return f"{spaced} {currency}"
+
+
+def format_price(card: Mapping[str, Any]) -> str:
+    """Server-formatted live selling price without sale/discount labels (UX-P03)."""
+    spaced, plain, currency = _price_parts(card)
+    return f"{spaced} {currency} ({plain})"

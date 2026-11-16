@@ -23,7 +23,7 @@ from src.consultant.context import (
 from src.consultant.contracts import ContextArgs, Fault, Proposal, Turn
 from src.consultant.control import Controls
 from src.consultant.enigma import nets
-from src.consultant.enigma.cards import ITEM_PRODUCTS
+from src.consultant.enigma.cards import ITEM_PRODUCTS, display_price
 from src.consultant.enigma.checks import Names
 from src.consultant.enigma.data import CORES, SHOP, UNIT
 from src.consultant.enigma.data import DATA as ENIGMA_DATA
@@ -562,7 +562,7 @@ class Consultant:
     @staticmethod
     def prices(request: Turn, products: list[dict[str, Any]], labels: list[str]) -> str:
         return "\n".join(
-            f"{label}: {p['sale_price'] if p['is_sale'] else p['price']} {p['currency']} — "
+            f"{label}: {display_price(p)} — "
             + (
                 ("в наличии" if p["is_in_stock"] else "нет в наличии")
                 if request.language == "ru"

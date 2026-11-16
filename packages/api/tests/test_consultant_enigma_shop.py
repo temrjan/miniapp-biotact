@@ -250,27 +250,53 @@ def test_sv01_a_shop_answer_may_name_a_shown_product_with_digits() -> None:
 
 
 @pytest.mark.parametrize(
-    ("text", "topics", "passes"),
+    ("text", "topics", "language", "passes"),
     [
-        ("Пишите нам на @biotact_support.", ["channels"], False),
-        ("Наш сайт biotact.com.", ["channels"], False),
-        ("Каталог на biotact.uz/catalog.", ["channels"], False),
-        (f"Позвоните по номеру {PHONE}.", ["contacts"], False),
+        ("Пишите нам на @biotact_support.", ["channels"], "ru", False),
+        ("Наш сайт biotact.com.", ["channels"], "ru", False),
+        ("Каталог на biotact.uz/catalog.", ["channels"], "ru", False),
+        (f"Позвоните по номеру {PHONE}.", ["contacts"], "ru", False),
+        # D-1: a non-support handle from `A` does not turn the answer into a support referral.
+        (
+            "Купить наши товары можно на сайте biotact.uz или в Telegram-приложении @BiotactBot.",
+            ["channels"],
+            "ru",
+            True,
+        ),
+        ("Купить можно в приложении @biotactbot.", ["channels"], "ru", True),
+        (
+            "Mahsulotlarimizni biotact.uz saytida yoki Telegramdagi @BiotactBot ilovasida "
+            "xarid qilishingiz mumkin.",
+            ["channels"],
+            "uz",
+            True,
+        ),
+        # D-1: the support handle (any case) or the support phone without its pair still fails.
+        ("Пишите нам в Telegram @Biotact_uz.", ["contacts"], "ru", False),
+        ("Пишите нам в Telegram @biotact_uz.", ["channels"], "ru", False),
+        (
+            "Купить можно в @BiotactBot; с вопросами пишите в @BIOTACT_UZ.",
+            ["channels"],
+            "ru",
+            False,
+        ),
+        (f"Купить можно в @BiotactBot, телефон {PHONE}.", ["channels"], "ru", False),
         (
             f"Купить можно на сайте biotact.uz или в Telegram-приложении @BiotactBot; {SUPPORT}",
             ["channels"],
+            "ru",
             True,
         ),
         # C-72: Jev chose `return` for a broken blender; the support answer passes.
-        (f"Если блендер сломался, {SUPPORT}", ["return"], True),
+        (f"Если блендер сломался, {SUPPORT}", ["return"], "ru", True),
         # Handles compare without case.
-        (f"Пишите в Telegram @biotact_uz или звоните по номеру {PHONE}.", ["contacts"], True),
+        (f"Пишите в Telegram @biotact_uz или звоните по номеру {PHONE}.", ["contacts"], "ru", True),
     ],
 )
 def test_sv02_handles_addresses_and_the_support_answer(
-    text: str, topics: list[str], passes: bool
+    text: str, topics: list[str], language: str, passes: bool
 ) -> None:
-    assert (verdict(text, "shop", topics) is None) is passes
+    assert verdict(text, "shop", topics, language) == (None if passes else "SV-02")
 
 
 @pytest.mark.parametrize(
