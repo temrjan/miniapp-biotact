@@ -16,6 +16,8 @@ from tests.test_buyer_auth_native import check_parity
 scratch = migration.scratch
 PREVIOUS = "b4f4c51eb14a"
 REVISION = "87688cb444f4"
+# The video banners migration follows event promotions; these tests check event promotions itself.
+SUCCESSOR = "c8f2b4a91e30"
 PROMOTION = (
     "INSERT INTO event_promotions (id,code,title,percent,starts_at,ends_at) "
     "VALUES (%s,%s,%s,%s,%s,%s)"
@@ -27,7 +29,7 @@ def test_single_head_round_trip_and_existing_line_discount_is_zero(scratch):
     cfg = Config(str(migration.API_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(migration.API_ROOT / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == [REVISION]
+    assert script.get_revision(SUCCESSOR).down_revision == REVISION
     assert script.get_revision(REVISION).down_revision == PREVIOUS
 
     scratch.migrate(target=PREVIOUS)

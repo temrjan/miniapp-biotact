@@ -14,11 +14,13 @@ from starlette.types import Message
 from src.uploads import router as uploads
 
 PATHS = ["/api/v1/uploads/products", "/api/v1/uploads/categories", "/api/v1/uploads/banners"]
+# U-03: parser-bound tests that do not rely on image extensions also cover the video upload route.
+ALL_UPLOAD_PATHS = [*PATHS, "/api/v1/uploads/banners/video"]
 IMAGE = b"\x89PNG\r\n\x1a\nsynthetic-upload-test"
 BAD_HEADERS = [b"X-Probe: " + b"x" * 5000 + b"\r\n", b"X-Probe: x\r\n" * 9]
 
 
-@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("path", ALL_UPLOAD_PATHS)
 @pytest.mark.parametrize("authorized", [False, True])
 async def test_upload_bounds_urlencoded_field_count(
     client: AsyncClient, admin_headers: dict[str, str], path: str, authorized: bool
@@ -30,7 +32,7 @@ async def test_upload_bounds_urlencoded_field_count(
     assert "Too many fields" in response.json()["detail"]
 
 
-@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("path", ALL_UPLOAD_PATHS)
 @pytest.mark.parametrize("authorized", [False, True])
 async def test_upload_bounds_urlencoded_field_size(
     client: AsyncClient, admin_headers: dict[str, str], path: str, authorized: bool
@@ -79,7 +81,7 @@ def test_multipart_parser_bounds_part_headers(header: bytes) -> None:
         parser.write(b"--upload-probe\r\n" + header + b"\r\nx\r\n--upload-probe--\r\n")
 
 
-@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("path", ALL_UPLOAD_PATHS)
 @pytest.mark.parametrize("header", BAD_HEADERS, ids=["oversized-header", "excess-headers"])
 async def test_upload_rejects_unbounded_part_headers(
     client: AsyncClient, path: str, header: bytes

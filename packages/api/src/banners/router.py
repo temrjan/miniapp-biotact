@@ -12,6 +12,56 @@ from src.products.cache import CatalogueReadRoute
 
 router = APIRouter(prefix="/banners", tags=["banners"], route_class=CatalogueReadRoute)
 
+_MEDIA_COMBINATION_ORDER = ("image_url", "video_url", "image_mobile_url")
+
+
+def _is_blank(value: str | None) -> bool:
+    return value is None or not value.strip()
+
+
+def _validate_banner_rules(
+    *,
+    image_url: str | None,
+    image_mobile_url: str | None,
+    video_url: str | None,
+    video_mobile_url: str | None,
+    title: str | None,
+    title_uz: str | None,
+    subtitle: str | None,
+    subtitle_uz: str | None,
+) -> None:
+    """Enforce B-05 media combination and B-03 video-banner text rules."""
+    missing_media: set[str] = set()
+    if (video_url is not None or image_mobile_url is not None) and image_url is None:
+        missing_media.add("image_url")
+    if video_mobile_url is not None:
+        if video_url is None:
+            missing_media.add("video_url")
+        if image_mobile_url is None:
+            missing_media.add("image_mobile_url")
+    if missing_media:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "banner_media_combination",
+                "fields": [f for f in _MEDIA_COMBINATION_ORDER if f in missing_media],
+            },
+        )
+
+    if video_url is not None:
+        missing_text: list[str] = []
+        if _is_blank(title):
+            missing_text.append("title")
+        if _is_blank(title_uz):
+            missing_text.append("title_uz")
+        if not _is_blank(subtitle) and _is_blank(subtitle_uz):
+            missing_text.append("subtitle_uz")
+        if missing_text:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "video_banner_text_required", "fields": missing_text},
+            )
+
 
 @router.get("", response_model=schemas.BannerList)
 async def get_banners(
@@ -62,6 +112,16 @@ async def create_banner(
     db: AsyncSession = Depends(get_db),
 ) -> Banner:
     """Create a new banner."""
+    _validate_banner_rules(
+        image_url=data.image_url,
+        image_mobile_url=data.image_mobile_url,
+        video_url=data.video_url,
+        video_mobile_url=data.video_mobile_url,
+        title=data.title,
+        title_uz=data.title_uz,
+        subtitle=data.subtitle,
+        subtitle_uz=data.subtitle_uz,
+    )
     banner = Banner(**data.model_dump())
     db.add(banner)
     await db.commit()
@@ -85,6 +145,17 @@ async def update_banner(
         raise HTTPException(status_code=404, detail="Banner not found")
 
     update_data = data.model_dump(exclude_unset=True)
+    _validate_banner_rules(
+        image_url=update_data.get("image_url", banner.image_url),
+        image_mobile_url=update_data.get("image_mobile_url", banner.image_mobile_url),
+        video_url=update_data.get("video_url", banner.video_url),
+        video_mobile_url=update_data.get("video_mobile_url", banner.video_mobile_url),
+        title=update_data.get("title", banner.title),
+        title_uz=update_data.get("title_uz", banner.title_uz),
+        subtitle=update_data.get("subtitle", banner.subtitle),
+        subtitle_uz=update_data.get("subtitle_uz", banner.subtitle_uz),
+    )
+
     for field, value in update_data.items():
         setattr(banner, field, value)
 
