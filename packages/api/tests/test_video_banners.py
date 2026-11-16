@@ -5,7 +5,7 @@ import struct
 from pathlib import Path
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,16 @@ WIDE_IMG = "https://app.biotact.uz/uploads/banners/wide.jpg"
 PHONE_IMG = "https://app.biotact.uz/uploads/banners/phone.jpg"
 WIDE_CLIP = "https://app.biotact.uz/uploads/banners/wide.mp4"
 PHONE_CLIP = "https://app.biotact.uz/uploads/banners/phone.mp4"
+BANNERS_URL = "/api/v1/banners"
+VIDEO_UPLOAD_URL = "/api/v1/uploads/banners/video"
+FIVE_MIB = 5 * 1024 * 1024
+_MP4_ERR = "File content is not an MP4 video"
+_ALL_MEDIA = {
+    "image_url": WIDE_IMG,
+    "image_mobile_url": PHONE_IMG,
+    "video_url": WIDE_CLIP,
+    "video_mobile_url": PHONE_CLIP,
+}
 
 
 def _make_mp4(major: bytes = b"isom", compat: tuple[bytes, ...] = (), tail: bytes = b"") -> bytes:
@@ -51,15 +61,18 @@ def _assert_validation_field(response_json: dict[str, object], field: str) -> No
     assert any(field in err.get("loc", []) for err in detail)
 
 
+def _assert_rule_error(res: Response, code: str, fields: list[str] | None) -> None:
+    assert res.status_code == 422
+    assert res.json() == {"detail": {"code": code, "fields": fields}}
+
+
 @pytest.mark.asyncio
 async def test_b02_create_read_and_patch_media_fields(
     client: AsyncClient, admin_headers: dict[str, str]
 ) -> None:
     """Prove B-02: new fields on create/read/patch, defaults, null clearing, and cache headers."""
     plain = await client.post(
-        "/api/v1/banners",
-        json={"title": "Plain banner", "image_url": WIDE_IMG},
-        headers=admin_headers,
+        BANNERS_URL, json={"title": "Plain banner", "image_url": WIDE_IMG}, headers=admin_headers
     )
     assert plain.status_code == 201
     plain_data = plain.json()
@@ -69,34 +82,27 @@ async def test_b02_create_read_and_patch_media_fields(
     assert plain_data["video_mobile_url"] is None
 
     full = await client.post(
-        "/api/v1/banners",
-        json={
-            "title": "Video banner",
-            "title_uz": "Video banner UZ",
-            "image_url": WIDE_IMG,
-            "image_mobile_url": PHONE_IMG,
-            "video_url": WIDE_CLIP,
-            "video_mobile_url": PHONE_CLIP,
-        },
+        BANNERS_URL,
+        json={"title": "Video banner", "title_uz": "Video banner UZ", **_ALL_MEDIA},
         headers=admin_headers,
     )
     assert full.status_code == 201
     full_id = full.json()["id"]
 
-    by_id = await client.get(f"/api/v1/banners/{full_id}")
+    by_id = await client.get(f"{BANNERS_URL}/{full_id}")
     assert by_id.status_code == 200
     assert by_id.headers["cache-control"] == "no-store"
     assert by_id.json()["video_url"] == WIDE_CLIP
     assert by_id.json()["image_mobile_url"] == PHONE_IMG
     assert by_id.json()["video_mobile_url"] == PHONE_CLIP
 
-    listing = await client.get("/api/v1/banners")
+    listing = await client.get(BANNERS_URL)
     assert listing.status_code == 200
     assert listing.headers["cache-control"] == "no-store"
     assert {item["id"] for item in listing.json()["items"]} == {plain_data["id"], full_id}
 
     cleared = await client.patch(
-        f"/api/v1/banners/{full_id}",
+        f"{BANNERS_URL}/{full_id}",
         json={"video_url": None, "video_mobile_url": None},
         headers=admin_headers,
     )
@@ -107,9 +113,7 @@ async def test_b02_create_read_and_patch_media_fields(
     assert cleared_data["image_mobile_url"] == PHONE_IMG
 
     set_again = await client.patch(
-        f"/api/v1/banners/{full_id}",
-        json={"video_url": WIDE_CLIP},
-        headers=admin_headers,
+        f"{BANNERS_URL}/{full_id}", json={"video_url": WIDE_CLIP}, headers=admin_headers
     )
     assert set_again.status_code == 200
     assert set_again.json()["video_url"] == WIDE_CLIP
@@ -146,14 +150,12 @@ async def test_b04_rejects_invalid_media_urls_on_create_and_update(
         "image_url": WIDE_IMG,
     }
     create_payload[field] = bad_url
-    create_res = await client.post("/api/v1/banners", json=create_payload, headers=admin_headers)
+    create_res = await client.post(BANNERS_URL, json=create_payload, headers=admin_headers)
     assert create_res.status_code == 422
     _assert_validation_field(create_res.json(), field)
 
     patch_res = await client.patch(
-        f"/api/v1/banners/{banner.id}",
-        json={field: bad_url},
-        headers=admin_headers,
+        f"{BANNERS_URL}/{banner.id}", json={field: bad_url}, headers=admin_headers
     )
     assert patch_res.status_code == 422
     _assert_validation_field(patch_res.json(), field)
@@ -170,18 +172,14 @@ async def test_b04_accepts_500_char_url_and_skips_unsent_stored_url(
     """Prove B-04: 500-char https URL accepted; unsent legacy relative stored URL not re-validated."""
     url_500 = "https://app.biotact.uz/" + "a" * (500 - len("https://app.biotact.uz/"))
     res = await client.post(
-        "/api/v1/banners",
-        json={"title": "Max URL", "image_url": url_500},
-        headers=admin_headers,
+        BANNERS_URL, json={"title": "Max URL", "image_url": url_500}, headers=admin_headers
     )
     assert res.status_code == 201
     assert res.json()["image_url"] == url_500
 
     legacy = await _seed_banner(test_db, image_url="/uploads/legacy.jpg")
     patch_res = await client.patch(
-        f"/api/v1/banners/{legacy.id}",
-        json={"sort_order": 5},
-        headers=admin_headers,
+        f"{BANNERS_URL}/{legacy.id}", json={"sort_order": 5}, headers=admin_headers
     )
     assert patch_res.status_code == 200
     assert patch_res.json()["image_url"] == "/uploads/legacy.jpg"
@@ -189,178 +187,159 @@ async def test_b04_accepts_500_char_url_and_skips_unsent_stored_url(
 
 
 @pytest.mark.asyncio
-async def test_b05_media_combination_rules_and_field_order(
-    client: AsyncClient, test_db: AsyncSession, admin_headers: dict[str, str]
+@pytest.mark.parametrize(
+    ("payload", "missing_fields"),
+    [
+        (
+            {
+                "title": "RU",
+                "title_uz": "UZ",
+                "image_url": WIDE_IMG,
+                "image_mobile_url": PHONE_IMG,
+                "video_mobile_url": PHONE_CLIP,
+            },
+            ["video_url"],
+        ),
+        ({"title": "RU", "title_uz": "UZ", "video_url": WIDE_CLIP}, ["image_url"]),
+        (
+            {"title": "RU", "video_url": WIDE_CLIP, "video_mobile_url": PHONE_CLIP},
+            ["image_url", "image_mobile_url"],
+        ),
+    ],
+    ids=["phone-clip-no-wide-clip", "wide-clip-no-image", "order-and-precedence-over-b03"],
+)
+async def test_b05_create_rejects_invalid_media_combination(
+    client: AsyncClient,
+    test_db: AsyncSession,
+    admin_headers: dict[str, str],
+    payload: dict[str, object],
+    missing_fields: list[str],
 ) -> None:
-    """Prove B-05: resulting-banner media combinations, error code/field order, and atomicity."""
-    no_wide_clip = await client.post(
-        "/api/v1/banners",
-        json={
-            "title": "RU",
-            "title_uz": "UZ",
-            "image_url": WIDE_IMG,
-            "image_mobile_url": PHONE_IMG,
-            "video_mobile_url": PHONE_CLIP,
-        },
-        headers=admin_headers,
-    )
-    assert no_wide_clip.status_code == 422
-    assert no_wide_clip.json() == {
-        "detail": {"code": "banner_media_combination", "fields": ["video_url"]}
-    }
-
-    no_wide_img = await client.post(
-        "/api/v1/banners",
-        json={"title": "RU", "title_uz": "UZ", "video_url": WIDE_CLIP},
-        headers=admin_headers,
-    )
-    assert no_wide_img.status_code == 422
-    assert no_wide_img.json() == {
-        "detail": {"code": "banner_media_combination", "fields": ["image_url"]}
-    }
-
-    multi_missing = await client.post(
-        "/api/v1/banners",
-        json={"title": "RU", "video_url": WIDE_CLIP, "video_mobile_url": PHONE_CLIP},
-        headers=admin_headers,
-    )
-    assert multi_missing.status_code == 422
-    assert multi_missing.json() == {
-        "detail": {
-            "code": "banner_media_combination",
-            "fields": ["image_url", "image_mobile_url"],
-        }
-    }
-
-    stored = await _seed_banner(
-        test_db,
-        image_url=WIDE_IMG,
-        image_mobile_url=PHONE_IMG,
-        video_url=WIDE_CLIP,
-        video_mobile_url=PHONE_CLIP,
-    )
-
-    clear_wide_only = await client.patch(
-        f"/api/v1/banners/{stored.id}",
-        json={"video_url": None},
-        headers=admin_headers,
-    )
-    assert clear_wide_only.status_code == 422
-    assert clear_wide_only.json() == {
-        "detail": {"code": "banner_media_combination", "fields": ["video_url"]}
-    }
-
-    clear_phone_img = await client.patch(
-        f"/api/v1/banners/{stored.id}",
-        json={"image_mobile_url": None},
-        headers=admin_headers,
-    )
-    assert clear_phone_img.status_code == 422
-    assert clear_phone_img.json() == {
-        "detail": {"code": "banner_media_combination", "fields": ["image_mobile_url"]}
-    }
-
-    await test_db.refresh(stored)
-    assert stored.video_url == WIDE_CLIP
-    assert stored.image_mobile_url == PHONE_IMG
-
-    clear_both = await client.patch(
-        f"/api/v1/banners/{stored.id}",
-        json={"video_url": None, "video_mobile_url": None},
-        headers=admin_headers,
-    )
-    assert clear_both.status_code == 200
-    assert clear_both.json()["video_url"] is None
-    assert clear_both.json()["video_mobile_url"] is None
+    """Prove B-05: create validates media combinations and refusal order before saving."""
+    res = await client.post(BANNERS_URL, json=payload, headers=admin_headers)
+    _assert_rule_error(res, "banner_media_combination", missing_fields)
+    assert (await test_db.execute(select(Banner))).scalars().all() == []
 
 
 @pytest.mark.asyncio
-async def test_b03_video_banner_text_rule_and_refusal_order(
-    client: AsyncClient, test_db: AsyncSession, admin_headers: dict[str, str]
+@pytest.mark.parametrize(
+    ("patch_payload", "expected_status", "missing_fields"),
+    [
+        ({"video_url": None}, 422, ["video_url"]),
+        ({"image_mobile_url": None}, 422, ["image_mobile_url"]),
+        ({"video_url": None, "video_mobile_url": None}, 200, None),
+    ],
+    ids=["clear-wide-clip", "clear-phone-image", "clear-both-clips"],
+)
+async def test_b05_patch_evaluates_resulting_media_combination(
+    client: AsyncClient,
+    test_db: AsyncSession,
+    admin_headers: dict[str, str],
+    patch_payload: dict[str, object],
+    expected_status: int,
+    missing_fields: list[str] | None,
 ) -> None:
-    """Prove B-03: text rules on resulting video banner, refusal order, and image exemption."""
-    bad_url_first = await client.post(
-        "/api/v1/banners",
+    """Prove B-05: PATCH evaluates stored row merged with payload and leaves row intact on 422."""
+    stored = await _seed_banner(test_db, **_ALL_MEDIA)
+    res = await client.patch(
+        f"{BANNERS_URL}/{stored.id}", json=patch_payload, headers=admin_headers
+    )
+    if expected_status == 422:
+        _assert_rule_error(res, "banner_media_combination", missing_fields)
+        await test_db.refresh(stored)
+        assert (stored.video_url, stored.image_mobile_url) == (WIDE_CLIP, PHONE_IMG)
+    else:
+        assert res.status_code == 200
+        assert (res.json()["video_url"], res.json()["video_mobile_url"]) == (None, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "missing_fields"),
+    [
+        ({"title": "RU", "image_url": WIDE_IMG, "video_url": WIDE_CLIP}, ["title_uz"]),
+        (
+            {
+                "title": "RU",
+                "title_uz": "UZ",
+                "subtitle": "Sub RU",
+                "subtitle_uz": "   ",
+                "image_url": WIDE_IMG,
+                "video_url": WIDE_CLIP,
+            },
+            ["subtitle_uz"],
+        ),
+    ],
+    ids=["missing-title-uz", "subtitle-without-subtitle-uz"],
+)
+async def test_b03_create_rejects_missing_video_text(
+    client: AsyncClient,
+    test_db: AsyncSession,
+    admin_headers: dict[str, str],
+    payload: dict[str, object],
+    missing_fields: list[str],
+) -> None:
+    """Prove B-03: creating a video banner requires Uzbek texts and saves nothing on 422."""
+    res = await client.post(BANNERS_URL, json=payload, headers=admin_headers)
+    _assert_rule_error(res, "video_banner_text_required", missing_fields)
+    assert (await test_db.execute(select(Banner))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_b03_refusal_order_and_image_only_exemption(
+    client: AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    """Prove B-03: B-04 runs before B-03, and image-only banners need only Russian title."""
+    bad_url = await client.post(
+        BANNERS_URL,
         json={"title": "RU", "image_url": "http://bad.example/w.jpg", "video_url": WIDE_CLIP},
         headers=admin_headers,
     )
-    assert bad_url_first.status_code == 422
-    _assert_validation_field(bad_url_first.json(), "image_url")
+    assert bad_url.status_code == 422
+    _assert_validation_field(bad_url.json(), "image_url")
+    ok = await client.post(
+        BANNERS_URL, json={"title": "Image only", "image_url": WIDE_IMG}, headers=admin_headers
+    )
+    assert ok.status_code == 201
 
-    no_uz = await client.post(
-        "/api/v1/banners",
-        json={"title": "RU", "image_url": WIDE_IMG, "video_url": WIDE_CLIP},
-        headers=admin_headers,
-    )
-    assert no_uz.status_code == 422
-    assert no_uz.json() == {
-        "detail": {"code": "video_banner_text_required", "fields": ["title_uz"]}
-    }
 
-    no_sub_uz = await client.post(
-        "/api/v1/banners",
-        json={
-            "title": "RU",
-            "title_uz": "UZ",
-            "subtitle": "Sub RU",
-            "subtitle_uz": "   ",
-            "image_url": WIDE_IMG,
-            "video_url": WIDE_CLIP,
-        },
-        headers=admin_headers,
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("seed_kwargs", "patch_payload", "expected_status", "missing_fields"),
+    [
+        ({"video_url": WIDE_CLIP}, {"title_uz": "  "}, 422, ["title_uz"]),
+        ({"title": "   ", "title_uz": None}, {"video_url": WIDE_CLIP}, 422, ["title", "title_uz"]),
+        (
+            {"title": "Legacy", "title_uz": None, **_ALL_MEDIA},
+            {"video_url": None, "video_mobile_url": None},
+            200,
+            None,
+        ),
+    ],
+    ids=["blank-title-uz", "stored-blank-title-attach-video", "clear-videos-no-uz"],
+)
+async def test_b03_patch_evaluates_resulting_video_text(
+    client: AsyncClient,
+    test_db: AsyncSession,
+    admin_headers: dict[str, str],
+    seed_kwargs: dict[str, object],
+    patch_payload: dict[str, object],
+    expected_status: int,
+    missing_fields: list[str] | None,
+) -> None:
+    """Prove B-03: PATCH checks resulting video-banner text and allows clearing both clips."""
+    banner = await _seed_banner(test_db, **seed_kwargs)
+    original_title_uz = banner.title_uz
+    res = await client.patch(
+        f"{BANNERS_URL}/{banner.id}", json=patch_payload, headers=admin_headers
     )
-    assert no_sub_uz.status_code == 422
-    assert no_sub_uz.json() == {
-        "detail": {"code": "video_banner_text_required", "fields": ["subtitle_uz"]}
-    }
-
-    image_only = await client.post(
-        "/api/v1/banners",
-        json={"title": "Image only", "image_url": WIDE_IMG},
-        headers=admin_headers,
-    )
-    assert image_only.status_code == 201
-
-    video_banner = await _seed_banner(test_db, video_url=WIDE_CLIP)
-    blank_uz_patch = await client.patch(
-        f"/api/v1/banners/{video_banner.id}",
-        json={"title_uz": "  "},
-        headers=admin_headers,
-    )
-    assert blank_uz_patch.status_code == 422
-    assert blank_uz_patch.json() == {
-        "detail": {"code": "video_banner_text_required", "fields": ["title_uz"]}
-    }
-    await test_db.refresh(video_banner)
-    assert video_banner.title_uz == "UZ Banner"
-
-    blank_title_stored = await _seed_banner(test_db, title="   ", title_uz=None, image_url=WIDE_IMG)
-    attach_video = await client.patch(
-        f"/api/v1/banners/{blank_title_stored.id}",
-        json={"video_url": WIDE_CLIP},
-        headers=admin_headers,
-    )
-    assert attach_video.status_code == 422
-    assert attach_video.json() == {
-        "detail": {"code": "video_banner_text_required", "fields": ["title", "title_uz"]}
-    }
-
-    video_no_uz = await _seed_banner(
-        test_db,
-        title="Legacy",
-        title_uz=None,
-        image_url=WIDE_IMG,
-        video_url=WIDE_CLIP,
-        video_mobile_url=PHONE_CLIP,
-        image_mobile_url=PHONE_IMG,
-    )
-    clear_videos = await client.patch(
-        f"/api/v1/banners/{video_no_uz.id}",
-        json={"video_url": None, "video_mobile_url": None},
-        headers=admin_headers,
-    )
-    assert clear_videos.status_code == 200
-    assert clear_videos.json()["video_url"] is None
+    if expected_status == 422:
+        _assert_rule_error(res, "video_banner_text_required", missing_fields)
+        await test_db.refresh(banner)
+        assert banner.title_uz == original_title_uz
+    else:
+        assert res.status_code == 200
+        assert res.json()["video_url"] is None
 
 
 @pytest.mark.asyncio
@@ -371,26 +350,20 @@ async def test_b06_title_non_blank_and_text_length_bounds(
     banner = await _seed_banner(test_db)
 
     long_uz = await client.patch(
-        f"/api/v1/banners/{banner.id}",
-        json={"title_uz": "x" * 201},
-        headers=admin_headers,
+        f"{BANNERS_URL}/{banner.id}", json={"title_uz": "x" * 201}, headers=admin_headers
     )
     assert long_uz.status_code == 422
     _assert_validation_field(long_uz.json(), "title_uz")
 
     long_sub = await client.patch(
-        f"/api/v1/banners/{banner.id}",
-        json={"subtitle_uz": "x" * 501},
-        headers=admin_headers,
+        f"{BANNERS_URL}/{banner.id}", json={"subtitle_uz": "x" * 501}, headers=admin_headers
     )
     assert long_sub.status_code == 422
     _assert_validation_field(long_sub.json(), "subtitle_uz")
 
     for bad_title in (None, "", "  "):
         patch_res = await client.patch(
-            f"/api/v1/banners/{banner.id}",
-            json={"title": bad_title},
-            headers=admin_headers,
+            f"{BANNERS_URL}/{banner.id}", json={"title": bad_title}, headers=admin_headers
         )
         assert patch_res.status_code == 422
         _assert_validation_field(patch_res.json(), "title")
@@ -401,7 +374,7 @@ async def test_b06_title_non_blank_and_text_length_bounds(
 
     for bad_create_title in ("", "   "):
         create_res = await client.post(
-            "/api/v1/banners",
+            BANNERS_URL,
             json={"title": bad_create_title, "image_url": WIDE_IMG},
             headers=admin_headers,
         )
@@ -423,17 +396,12 @@ async def test_u01_video_upload_auth_storage_and_response(
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path)
     clip = _make_mp4(b"isom", (b"iso2",), b"\x00" * 64)
 
-    unauth = await client.post(
-        "/api/v1/uploads/banners/video",
-        files={"file": ("clip.mp4", clip, "video/mp4")},
-    )
+    unauth = await client.post(VIDEO_UPLOAD_URL, files={"file": ("clip.mp4", clip, "video/mp4")})
     assert unauth.status_code == 401
     assert await asyncio.to_thread(lambda: list(tmp_path.rglob("*"))) == []
 
     res = await client.post(
-        "/api/v1/uploads/banners/video",
-        files={"file": ("Clip.MP4", clip, "video/mp4")},
-        headers=admin_headers,
+        VIDEO_UPLOAD_URL, files={"file": ("Clip.MP4", clip, "video/mp4")}, headers=admin_headers
     )
     assert res.status_code == 200
     data = res.json()
@@ -445,66 +413,64 @@ async def test_u01_video_upload_auth_storage_and_response(
 
 
 @pytest.mark.asyncio
-async def test_u02_video_upload_extension_size_and_ftyp_validation(
+async def test_u02_video_upload_accepts_exact_five_mib_boundary(
     client: AsyncClient,
     admin_headers: dict[str, str],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Prove U-02: 5 MiB boundary, .mp4 extension, ftyp brand check, and clean refusals."""
+    """Prove U-02: exact 5 MiB MP4 upload succeeds (independent literal)."""
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path)
-
-    max_header = _make_mp4(b"iso5", (b"mp42",))
-    exact_max = max_header + b"\x00" * (uploads.MAX_FILE_SIZE - len(max_header))
-    ok_max = await client.post(
-        "/api/v1/uploads/banners/video",
+    hdr = _make_mp4(b"iso5", (b"mp42",))
+    exact_max = hdr + b"\x00" * (FIVE_MIB - len(hdr))
+    res = await client.post(
+        VIDEO_UPLOAD_URL,
         files={"file": ("five-mib.mp4", exact_max, "video/mp4")},
         headers=admin_headers,
     )
-    assert ok_max.status_code == 200
-    (tmp_path / "banners" / ok_max.json()["filename"]).unlink()
+    assert res.status_code == 200
+    assert (tmp_path / "banners" / res.json()["filename"]).read_bytes() == exact_max
 
-    too_big = await client.post(
-        "/api/v1/uploads/banners/video",
-        files={"file": ("too-big.mp4", exact_max + b"\x00", "video/mp4")},
-        headers=admin_headers,
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filename", "payload", "content_type", "expected_status", "expected_detail"),
+    [
+        (
+            "too-big.mp4",
+            _make_mp4(b"isom") + b"\x00" * (FIVE_MIB + 1 - 16),
+            "video/mp4",
+            413,
+            ("File too large",),
+        ),
+        ("clip.mov", _make_mp4(b"isom"), "video/quicktime", 400, ("File type not allowed", ".mp4")),
+        ("fake.mp4", b"\x89PNG\r\n\x1a\n" + b"\x00" * 16, "video/mp4", 400, _MP4_ERR),
+        ("heic.mp4", _make_mp4(b"heic", (b"mif1",)), "video/mp4", 400, _MP4_ERR),
+        ("qt.mp4", _make_mp4(b"qt  ", (b"mif1",)), "video/mp4", 400, _MP4_ERR),
+        ("spoof.mp4", _make_mp4(b"heic", (), tail=b"isom"), "video/mp4", 400, _MP4_ERR),
+    ],
+    ids=["over-5mib", "bad-ext", "png-bytes", "heic-brand", "qt-brand", "isom-outside-box"],
+)
+async def test_u02_video_upload_refuses_invalid_inputs_without_writing(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    filename: str,
+    payload: bytes,
+    content_type: str,
+    expected_status: int,
+    expected_detail: str | tuple[str, ...],
+) -> None:
+    """Prove U-02: each size, extension, and ftyp brand refusal answers properly and stores nothing."""
+    monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path)
+    res = await client.post(
+        VIDEO_UPLOAD_URL, files={"file": (filename, payload, content_type)}, headers=admin_headers
     )
-    assert too_big.status_code == 413
-    assert "File too large" in too_big.json()["detail"]
-
-    bad_ext = await client.post(
-        "/api/v1/uploads/banners/video",
-        files={"file": ("clip.mov", _make_mp4(b"isom"), "video/quicktime")},
-        headers=admin_headers,
-    )
-    assert bad_ext.status_code == 400
-    assert "File type not allowed" in bad_ext.json()["detail"]
-    assert ".mp4" in bad_ext.json()["detail"]
-
-    png_bytes = await client.post(
-        "/api/v1/uploads/banners/video",
-        files={"file": ("fake.mp4", b"\x89PNG\r\n\x1a\n" + b"\x00" * 16, "video/mp4")},
-        headers=admin_headers,
-    )
-    assert png_bytes.status_code == 400
-    assert png_bytes.json() == {"detail": "File content is not an MP4 video"}
-
-    for bad_brand in (b"heic", b"qt  "):
-        brand_res = await client.post(
-            "/api/v1/uploads/banners/video",
-            files={"file": ("wrong-brand.mp4", _make_mp4(bad_brand, (b"mif1",)), "video/mp4")},
-            headers=admin_headers,
-        )
-        assert brand_res.status_code == 400
-        assert brand_res.json() == {"detail": "File content is not an MP4 video"}
-
-    spoofed_tail = await client.post(
-        "/api/v1/uploads/banners/video",
-        files={"file": ("spoof.mp4", _make_mp4(b"heic", (), tail=b"isom"), "video/mp4")},
-        headers=admin_headers,
-    )
-    assert spoofed_tail.status_code == 400
-    assert spoofed_tail.json() == {"detail": "File content is not an MP4 video"}
-
-    remaining = await asyncio.to_thread(lambda: [p for p in tmp_path.rglob("*") if p.is_file()])
-    assert remaining == []
+    assert res.status_code == expected_status
+    detail = res.json()["detail"]
+    if isinstance(expected_detail, str):
+        assert detail == expected_detail
+    else:
+        assert all(text in detail for text in expected_detail)
+    assert await asyncio.to_thread(lambda: [p for p in tmp_path.rglob("*") if p.is_file()]) == []

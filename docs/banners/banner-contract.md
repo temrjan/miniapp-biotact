@@ -93,7 +93,7 @@ Clients **MUST** ignore any unknown fields returned in the JSON payload.
 ### Client URL validation and resilience
 
 - **Clips (`video_url`, `video_mobile_url`):** usable **only** if the value is a string containing an absolute `https:` URL with no username and no password.
-- **Phone still image (`image_mobile_url`):** usable if it is such an `https:` URL **or** a host-relative path beginning with a single `/` and containing no backslash (`\`). (Clients keep the same rule for `image_url`.)
+- **Phone still image (`image_mobile_url`):** usable if it is such an `https:` URL **or** a site-relative path beginning with a single `/` (never `//`) and containing no backslash (`\`). (Clients keep the same rule for `image_url`.) Because native apps have no document origin, if a legacy row contains a site-relative path, resolve it against the Shop media origin (`https://app.biotact.uz`, matching the API upload base URL); note that all URLs written through the current API are already absolute `https:` URLs.
 - Clients **MUST** refuse any other scheme (`http:`, `javascript:`, `file:`, etc.) and any URL containing credentials (`user:pass@` or `user@`).
 - An absent key is treated identically to `null`.
 - An unusable or absent value **MUST NOT** fail parsing or drop a banner (except `image_url`):
@@ -111,7 +111,7 @@ Every client classifies its carousel container into one of two layout classes:
 - **Wide layout:** desktop and tablet viewports.
 - **Narrow layout:** phones.
 
-Reference breakpoints of the web clients:
+Reference breakpoints of the web clients (in density-independent CSS `px`; native apps map `px` values in this contract to density-independent logical units — `dp` on Android, `pt` on iOS):
 - Website switches at `700` px carousel width (narrow when `<= 700` px).
 - Mini App switches at `768` px screen width (narrow when `< 768` px).
 
@@ -165,7 +165,7 @@ Clips and still images produced for banners follow this specification:
 
 Keep these two definitions strictly distinct:
 
-- **Video banner:** a displayed banner with a usable `video_url` and a usable `image_url`. It **always** displays the drawn text (§7) and button label (§7) in every layout state and playback state (wide, phone format, 3:1 fallback, still-only, playing, paused, ended).
+- **Video banner:** a displayed banner with a usable `video_url` and a usable `image_url`. It **always** displays the drawn text (§7) in every layout state and playback state (wide, phone format, 3:1 fallback, still-only, playing, paused, ended), and displays the button label (§7) in the wide layout and the phone format (not in the 3:1 fallback).
 - **Video slide:** a slide whose chosen rendition (§4) includes a clip (`video_url` in wide / 3:1 fallback; `video_mobile_url` in phone format). Only a **video slide** loads/plays a clip and displays the play/pause control.
 
 **Worked case (video banner without a phone clip on a phone in 3:2):**
@@ -174,7 +174,7 @@ Suppose banner #1 has usable `image_url`, `video_url`, `image_mobile_url`, `titl
 ### Loading priority and active-slide isolation
 
 1. The still image of the first slide **MUST** be requested first and at high priority.
-2. No other slide's still image and no clip **MUST** be requested until the first slide's still image has finished loading or failed.
+2. Other slides' still images and all clips **MUST NOT** be requested until the first slide's still image has finished loading or failed.
 3. Other slides' still images may then load.
 4. A clip is requested **only** for the currently active video slide, and **only** after that active slide's still image has loaded. Non-active video slides show their still image and **MUST NOT** attach or request their clip source.
 
@@ -195,7 +195,7 @@ Suppose banner #1 has usable `image_url`, `video_url`, `image_mobile_url`, `titl
 
 ### Video play/pause control rules
 
-- **Placement & look:** one small circular/compact button placed in the top-right corner of the media area *(reference position)*, visually distinct from any carousel auto-rotation toggle if present, with a localized accessible label (`Пауза` / `Воспроизвести` or Uzbek equivalents) different from any rotation toggle's label.
+- **Placement & look:** one small circular/compact button placed in the top-right corner of the media area *(reference position)*, visually distinct from any carousel auto-rotation toggle if present, with a localized accessible label for pausing and playing the clip from the client's own translations in the visitor's language, distinct from any rotation toggle's label.
 - **Visibility:**
   - Never drawn in any **still-only** state (reduced motion, data saver, media error, start budget expired) or on a banner without a clip in the active rendition.
   - Drawn on every other video slide (including **refused** state as play, **playing** as pause, **paused** as play, and **ended** as play when stopped).
@@ -205,7 +205,7 @@ Suppose banner #1 has usable `image_url`, `video_url`, `image_mobile_url`, `titl
 
 ## 7. Text and button label
 
-Text and the button label are drawn **only** on **video banners** (§3, §6) and in **every** state of a video banner (including still-only states and the phone 3:2 still-only case). A carousel with no video banners draws no text overlay, no scrim, and no reserved text area.
+Drawn text appears **only** on **video banners** (§3, §6) and in **every** state of a video banner (including still-only states and the phone 3:2 still-only case). The button label appears on **video banners** in the wide layout and the phone format only (not in the 3:1 fallback). A carousel with no video banners draws no text overlay, no button label, no scrim, and no reserved text area.
 
 ### Language selection
 
@@ -216,7 +216,7 @@ Text and the button label are drawn **only** on **video banners** (§3, §6) and
 
 ### Placement, scrim, and reference visual values
 
-All numeric pixel/opacity dimensions below are **reference values** (tuned on real devices in PR-3 and synchronized here in PR-4):
+All numeric dimensions (`px` = density-independent logical units: `dp` on Android, `pt` on iOS) and opacity values below are **starting reference values** (to be tuned on real devices in the web clients and synchronized here; see §10):
 
 | Element | Wide layout | Phone format (3:2) | 3:1 fallback (narrow without phone format) |
 |---|---|---|---|
@@ -289,7 +289,7 @@ GET /api/v1/settings/banner_interval
 ## 10. Change policy
 
 - **Additive compatibility:** all new banner fields (`image_mobile_url`, `video_url`, `video_mobile_url`) are additive and nullable; the API has no version bump.
-- **Reference values:** values labeled *reference values* in this document (start budget `4000 ms`, layout breakpoints, text placement offsets, font/pill sizes, scrim opacities, control corner position) are owned by this contract document. Any tuning measured on real devices in web clients is updated here first so native clients share the exact tuned constants.
+- **Reference values:** values labeled *reference values* in this document (start budget `4000 ms`, layout breakpoints, text placement offsets, font/pill sizes, scrim opacities, control corner position) are owned by this contract document. Any tuning measured on real devices in the web clients will be updated here first so native clients share the exact tuned constants.
 
 ---
 
@@ -298,15 +298,9 @@ GET /api/v1/settings/banner_interval
 > This section is the only place in the contract that references web-specific APIs, CSS, DOM attributes, and file paths.
 
 - **Website (`web-biotact`, `src/Hero.tsx`, `src/hero.css`, `src/catalogue.ts`, `src/navigation.ts`):**
-  - Layout class uses CSS container query `@container hero (max-width: 700px)`; while loading in narrow layout, `.hero-loading` uses 3:2 height.
-  - Media element is `<video>` with `muted`, `playsInline`, `poster=<still>`, and no `controls`; playback visibility swaps poster/still to `<video>` on the `playing` event; end/error/autoplay refusal use `ended`, `error`, and `play()` promise rejection.
-  - Reduced motion and data saving read `window.matchMedia("(prefers-reduced-motion: reduce)")` and `navigator.connection?.saveData === true`. Background/offscreen pause uses `document.hidden` and `IntersectionObserver`.
-  - Multi-banner website keeps the existing `.hero-rotation` button solely for toggling carousel auto-rotation (`playing` flag in `Hero.tsx`). While auto-rotation is active, `.hero-rotation` serves as the pause control and the video control appears only on `play()` refusal (as play); once the visitor stops auto-rotation (via `.hero-rotation`, dot/arrow navigation, or keyboard focus), the separate video play/pause control appears beside `.hero-rotation` with its own accessible label in the visitor's language (`--bt-action` highlights the button pill).
-  - Inactive banner preview is opened via `/#home?preview_banner=<id>&lang=ru|uz`, which fetches `GET /api/v1/banners/{id}` instead of the list.
-  - `bannerTarget()` implements §8 strictly, falling back non-`https:` or credentialed external URLs and unknown routes to `#catalogue`.
+  - *Existing today:* layout width uses CSS container query `@container hero (max-width: 700px)`; the existing `.hero-rotation` button toggles carousel auto-rotation (`playing` flag in `Hero.tsx`); `bannerTarget()` implements §8 strictly, falling back non-`https:` or credentialed external URLs and unknown routes to `#catalogue`.
+  - *Planned for the website video-banner update:* in narrow layout while loading, `.hero-loading` uses 3:2 height; the media element is `<video>` with `muted`, `playsInline`, `poster=<still>`, and no `controls`; playback visibility swaps still image to `<video>` on the `playing` event; end/error/autoplay refusal use `ended`, `error`, and `play()` promise rejection; reduced motion and data saving read `window.matchMedia("(prefers-reduced-motion: reduce)")` and `navigator.connection?.saveData === true`; background/offscreen pause uses `document.hidden` and `IntersectionObserver`; while auto-rotation is active, `.hero-rotation` serves as pause and the video control appears only on `play()` refusal (as play), whereas once the visitor stops auto-rotation (via `.hero-rotation`, dot/arrow navigation, or keyboard focus), the separate video play/pause control appears beside `.hero-rotation` with its own accessible label in the visitor's language (`--bt-action` highlights the button pill); inactive banner preview opens via `/#home?preview_banner=<id>&lang=ru|uz`, fetching `GET /api/v1/banners/{id}` instead of the list.
 
 - **Telegram Mini App (`miniapp-biotact`, `packages/frontend/src/pages/HomePage.tsx`, `src/api/catalogue.ts`):**
-  - Layout class uses Tailwind's `md` breakpoint (`768px` screen width); outside phone format, media container keeps `h-32` / `md:h-72`.
-  - `parseBanner()` treats wrongly typed values on the three new fields as absent so a malformed field never rejects the whole list read.
-  - On every video slide (when not still-only), the single video control is rendered directly (the Mini App has no `.hero-rotation` button).
-  - Existing `handleBannerClick` routes non-`http` `link_url` values directly to the Mini App router and calls `window.open(..., '_blank')` for `http`/`https` links (unchanged by this task).
+  - *Existing today:* layout class uses Tailwind's `md` breakpoint (`768px` screen width) and keeps `h-32` / `md:h-72` outside phone format; `handleBannerClick` routes non-`http` `link_url` values directly to the Mini App router and calls `window.open(..., '_blank')` for `http`/`https` links (unchanged by this task).
+  - *Planned for the Mini App video-banner update:* `parseBanner()` will treat wrongly typed values on the three new fields as absent so a malformed field never rejects the whole list read; on every video slide (when not still-only), the single video control will render directly (the Mini App has no `.hero-rotation` button).
