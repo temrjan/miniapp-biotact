@@ -3,6 +3,7 @@
 import hashlib
 import json
 import time
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -14,6 +15,7 @@ from src.consultant.contracts import Fault, Pair
 from src.consultant.knowledge import Evidence
 from src.consultant.models import Control, Embedding, Membership, Release, Run, Section, Source
 from src.consultant.provider import EMBEDDING_PROFILE, Provider, encode
+from src.consultant.service import Consultant
 from src.products.models import Product
 from tests.test_consultant import ProviderStub, request, seed, service
 
@@ -269,7 +271,9 @@ async def test_explicit_price_switch_and_short_composition_keep_new_subject(
     price = await bot.turn(turn)
     assert price["status"] == "answer"
     assert [p["id"] for p in price["products"]] == [4]
-    assert "104000" in price["answer"]
+    assert "104 000 UZS" in price["answer"]
+    assert "104000" not in price["answer"]
+    assert ("стоит" if language == "ru" else "narxi") not in price["answer"]
     assert price["sources"] == []
     assert price["open_product_id"] is None
     assert bot.tokens.read(turn.model_copy(update={"context_token": price["context_token"]}))[
@@ -439,7 +443,7 @@ async def test_same_name_prices_label_admitted_forms_in_current_order(test_db, l
         else {20: "mavjud", 21: "mavjud emas"}
     )
     assert reply["answer"].splitlines() == [
-        f"BIFOLAK® ACTIVE ({forms[pid]}): {120000.0 if pid == 20 else 121000.0} UZS — {states[pid]}"
+        f"BIFOLAK® ACTIVE ({forms[pid]}): {'120 000' if pid == 20 else '121 000'} UZS — {states[pid]}"
         for pid in ids
     ]
     assert [p["id"] for p in reply["products"]] == ids
@@ -874,7 +878,9 @@ async def test_catalogue_only_refinement_uses_current_facts_and_narrows_token(
     result = await bot.turn(turn)
     assert result["status"] == "answer"
     assert [p["id"] for p in result["products"]] == [21]
-    assert "119000" in result["answer"]
+    assert "119 000 UZS" in result["answer"]
+    assert "119000" not in result["answer"]
+    assert "130 000" not in result["answer"]
     assert "130000" not in result["answer"]
     assert ("стики" if language == "ru" else "stik") in result["answer"]
     assert result["sources"] == result["cautions"] == []
@@ -929,7 +935,7 @@ async def test_discarded_commercial_prose_never_delivers_advice_dose_or_links(te
     )
     assert result["status"] == "answer"
     assert result["sources"] == result["cautions"] == []
-    assert result["answer"] == "BIFOLAK ACTIVE (стики): 119000.0 UZS — в наличии"
+    assert result["answer"] == "BIFOLAK ACTIVE (стики): 119 000 UZS — в наличии"
     assert answer not in result["answer"]
 
 
@@ -1002,6 +1008,7 @@ async def test_catalogue_refinement_rechecks_facts_and_admission_before_delivery
     assert result["status"] == ("clarification" if change == "price" else "limited")
     assert result["products"] == []
     assert result["open_product_id"] is None
+    assert "119 000" not in result["answer"]
     assert "119000" not in result["answer"]
 
 
@@ -1048,6 +1055,7 @@ async def test_explicit_filtered_subset_is_not_expanded_to_named_candidates(
     turn = refinement_turn(bot, language, question)
     result = await bot.turn(turn)
     assert [p["id"] for p in result["products"]] == [21]
+    assert "130 000" not in result["answer"]
     assert "130000" not in result["answer"]
     assert len(provider.calls) == (1 if source else 2)
     assert bot.tokens.read(turn.model_copy(update={"context_token": result["context_token"]}))[
@@ -1069,7 +1077,7 @@ async def test_spaced_commercial_proposal_is_discarded_before_delivered_text_che
     result = await bot.turn(turn)
     assert result["status"] == "answer"
     assert [p["id"] for p in result["products"]] == [21]
-    assert "119000" in result["answer"]
+    assert result["answer"] == "BIFOLAK ACTIVE (stik): 119 000 UZS — mavjud"
     assert "120 000" not in result["answer"]
 
 
@@ -1217,3 +1225,62 @@ async def test_inconsistent_supported_sources_do_not_restore_excluded_candidates
     result = await bot.turn(request("BIFOLAK ACTIVE состав"))
     assert result["status"] == "clarification"
     assert result["products"] == result["sources"] == []
+
+
+@pytest.mark.parametrize(
+    ("product", "expected"),
+    [
+        (
+            {
+                "price": 75500.0,
+                "sale_price": None,
+                "is_sale": False,
+                "currency": "UZS",
+                "is_in_stock": True,
+            },
+            "BIFOLAK ACTIVE: 75 500 UZS — в наличии",
+        ),
+        (
+            {
+                "price": 90000.0,
+                "sale_price": 75500.0,
+                "is_sale": True,
+                "currency": "UZS",
+                "is_in_stock": True,
+            },
+            "BIFOLAK ACTIVE: 75 500 UZS — в наличии",
+        ),
+        (
+            {
+                "price": 90000.0,
+                "sale_price": 75500.0,
+                "is_sale": False,
+                "currency": "UZS",
+                "is_in_stock": False,
+            },
+            "BIFOLAK ACTIVE: 90 000 UZS — нет в наличии",
+        ),
+        (
+            {
+                "price": 75500.5,
+                "sale_price": None,
+                "is_sale": False,
+                "currency": "UZS",
+                "is_in_stock": True,
+            },
+            "BIFOLAK ACTIVE: 75 500.5 UZS — в наличии",
+        ),
+        (
+            {
+                "price": Decimal("75500.25"),
+                "sale_price": None,
+                "is_sale": False,
+                "currency": "UZS",
+                "is_in_stock": True,
+            },
+            "BIFOLAK ACTIVE: 75 500.25 UZS — в наличии",
+        ),
+    ],
+)
+def test_d2_consultant_prices_format_whole_sale_and_fractional_amounts(product, expected):
+    assert Consultant.prices(request("цена"), [product], ["BIFOLAK ACTIVE"]) == expected
