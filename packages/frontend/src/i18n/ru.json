@@ -338,5 +338,12 @@
     "contactsTitle": "Контакты",
     "contactsSupport": "Сервис поддержки в Приложении {bot}",
     "ruOnlyNotice": "Документ доступен на русском языке. Версия на узбекском языке будет опубликована позднее."
+  },
+  "banners": {
+    "cta": "Подробнее",
+    "pauseVideo": "Пауза видео",
+    "playVideo": "Воспроизвести видео",
+    "slideLabel": "Баннер {index} из {total}",
+    "defaultTitle": "Баннер {index}"
   }
 }

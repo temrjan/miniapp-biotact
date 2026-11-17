@@ -63,3 +63,54 @@ it('reads every active banner and rejects a malformed later banner rather than a
   malformed = true;
   await expect(loadActiveBanners('ru')).rejects.toThrow();
 });
+
+it.each([
+  'image_mobile_url',
+  'video_url',
+  'video_mobile_url',
+] as const)('D-03 / M-02: validates %s scheme, credentials, relative rules and non-string safety without dropping the banner', async (field) => {
+  const base = {
+    id: 10,
+    title: 'Banner',
+    title_uz: 'Banner UZ',
+    subtitle: 'Sub',
+    subtitle_uz: 'Sub UZ',
+    image_url: 'https://cdn.example.test/wide.jpg',
+    gradient: null,
+    link_url: '/product/1',
+    sort_order: 0,
+    is_active: true,
+  };
+  const validHttps = `https://cdn.example.test/${field}`;
+  const pathAtHandle = `https://cdn.example.test/@biotact/${field}`;
+  const relative = '/uploads/banners/mobile.jpg';
+  const payloads = [
+    base,
+    { ...base, id: 11, [field]: validHttps },
+    { ...base, id: 12, [field]: pathAtHandle },
+    { ...base, id: 13, [field]: `http://cdn.example.test/${field}` },
+    { ...base, id: 14, [field]: `https://user:pass@cdn.example.test/${field}` },
+    { ...base, id: 15, [field]: `https://user@cdn.example.test/${field}` },
+    { ...base, id: 16, [field]: `https://@cdn.example.test/${field}` },
+    { ...base, id: 17, [field]: 'javascript:alert(1)' },
+    { ...base, id: 18, [field]: relative },
+    { ...base, id: 19, [field]: '//evil.example/media' },
+    { ...base, id: 20, [field]: '/\\evil/media' },
+    { ...base, id: 21, [field]: 12345 },
+    { ...base, id: 22, [field]: { url: validHttps } },
+  ];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ items: payloads, total: payloads.length })))
+  );
+
+  const banners = await loadActiveBanners('ru');
+  expect(banners).toHaveLength(payloads.length);
+  expect(banners[0]?.[field]).toBeNull();
+  expect(banners[1]?.[field]).toBe(validHttps);
+  expect(banners[2]?.[field]).toBe(pathAtHandle);
+  for (const rejectedIdx of [3, 4, 5, 6, 7, 9, 10, 11, 12]) {
+    expect(banners[rejectedIdx]?.[field]).toBeNull();
+  }
+  expect(banners[8]?.[field]).toBe(field === 'image_mobile_url' ? relative : null);
+});

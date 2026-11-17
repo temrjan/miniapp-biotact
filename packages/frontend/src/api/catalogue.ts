@@ -32,6 +32,9 @@ export interface CatalogueBanner {
   subtitle: string | null;
   subtitle_uz: string | null;
   image_url: string | null;
+  image_mobile_url: string | null;
+  video_url: string | null;
+  video_mobile_url: string | null;
   gradient: string | null;
   link_url: string | null;
   sort_order: number;
@@ -91,10 +94,40 @@ export function parseCategory(value: unknown): CatalogueCategory {
   const c = record(value);
   return { id: integer(c.id, 1), name: text(c.name), slug: text(c.slug), image_url: nullableText(c.image_url) };
 }
+/** Accept absolute HTTPS URLs without credentials, plus site-relative paths for stills (D-03). */
+export function safeMedia(value: unknown, video = false): string | null {
+  if (typeof value !== 'string' || !value || value.trim() !== value) {
+    return null;
+  }
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 32 || code === 127) {
+      return null;
+    }
+  }
+  if (!video && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\')) {
+    return value;
+  }
+  try {
+    const u = new URL(value);
+    return u.protocol === 'https:' &&
+      Boolean(u.hostname) &&
+      !u.username &&
+      !u.password &&
+      !/^https:\/\/[^/?#]*@/i.test(value)
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
 function parseBanner(value: unknown): CatalogueBanner {
   const b = record(value);
   return { id: integer(b.id, 1), title: text(b.title), title_uz: nullableText(b.title_uz),
     subtitle: nullableText(b.subtitle), subtitle_uz: nullableText(b.subtitle_uz), image_url: nullableText(b.image_url),
+    image_mobile_url: safeMedia(b.image_mobile_url, false),
+    video_url: safeMedia(b.video_url, true),
+    video_mobile_url: safeMedia(b.video_mobile_url, true),
     gradient: nullableText(b.gradient), link_url: nullableText(b.link_url),
     sort_order: typeof b.sort_order === 'number' && Number.isInteger(b.sort_order) ? b.sort_order : integer(undefined),
     is_active: boolean(b.is_active) };
