@@ -338,5 +338,11 @@
     "contactsTitle": "Kontaktlar",
     "contactsSupport": "Ilovadagi qo'llab-quvvatlash xizmati {bot}",
     "ruOnlyNotice": "Hujjat rus tilida mavjud. O'zbek tilidagi versiyasi keyinroq e'lon qilinadi."
+  },
+  "banners": {
+    "pauseVideo": "Videoni to'xtatish",
+    "playVideo": "Videoni ijro etish",
+    "slideLabel": "Banner {index} / {total}",
+    "defaultTitle": "Banner {index}"
   }
 }

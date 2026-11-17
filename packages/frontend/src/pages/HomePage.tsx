@@ -6,6 +6,7 @@ import { ChevronRight, ChevronDown, ShoppingCart } from 'lucide-react';
 import { ROUTES } from '@/utils/constants';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loading } from '@components/ui/Loading';
+import { BannerCarousel } from '@components/features/BannerCarousel';
 import { loadCategories, loadProducts, loadActiveBanners, type CatalogueCategory as ApiCategory, type CatalogueProduct as ApiProduct, type CatalogueBanner as ApiBanner } from '@/api/catalogue';
 import { api } from '@/api/client';
 import { useCartStore } from '@/stores/cartStore';
@@ -328,8 +329,6 @@ export function HomePage() {
   const [banners, setBanners] = useState<ApiBanner[]>([]);
   const [bannerInterval, setBannerInterval] = useState(DEFAULT_INTERVAL_MS);
   const [loading, setLoading] = useState(true);
-  const [currentBanner, setCurrentBanner] = useState(0);
-  const [loadedImages, setLoadedImages] = useState<Set<number>>(new Set());
 
 
   // Fetch data
@@ -349,13 +348,16 @@ export function HomePage() {
         setProducts(prodsRes.map(mapApiProductToProduct));
         setSaleProducts(salesRes.map(mapApiProductToProduct));
         setBanners(bannersRes);
-        setCurrentBanner(0);
-        setLoadedImages(new Set());
 
         try {
           const intervalRes = await api.get<{ value: string }>('/settings/banner_interval');
-          if (active && intervalRes.value) {
-            setBannerInterval(Number(intervalRes.value) || DEFAULT_INTERVAL_MS);
+          const parsedInterval = Number(intervalRes.value);
+          if (active) {
+            setBannerInterval(
+              Number.isFinite(parsedInterval) && parsedInterval > 0
+                ? parsedInterval
+                : DEFAULT_INTERVAL_MS
+            );
           }
         } catch {
           // Use default interval
@@ -376,20 +378,16 @@ export function HomePage() {
     return banners;
   }, [banners]);
 
-  // Banner auto-slide
-  useEffect(() => {
-    if (displayBanners.length <= 1) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setCurrentBanner((prev) => (prev + 1) % displayBanners.length);
-    }, bannerInterval);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [displayBanners.length, bannerInterval]);
+  const bannersSignature = useMemo(
+    () =>
+      displayBanners
+        .map(
+          (b) =>
+            `${b.id}:${b.image_url ?? ''}:${b.image_mobile_url ?? ''}:${b.video_url ?? ''}:${b.video_mobile_url ?? ''}`
+        )
+        .join('|'),
+    [displayBanners]
+  );
 
   // State for scroll hint animation
   const [scrollHintX, setScrollHintX] = useState(0);
@@ -425,10 +423,6 @@ export function HomePage() {
     },
     [navigate, categories]
   );
-
-  const handleBannerDotClick = useCallback((index: number) => {
-    setCurrentBanner(index);
-  }, []);
 
   // Computed: find categories by slug
   const productionCategory = useMemo(() => {
@@ -512,67 +506,20 @@ export function HomePage() {
   return (
     <div className="p-3 pt-2 space-y-6 max-w-4xl mx-auto">
       {/* Banner Slider */}
-      <div className="relative h-32 md:h-72 lg:h-72 overflow-hidden rounded-md">
-        {displayBanners.length === 0 ? (
-          /* Skeleton while banners are loading */
+      {displayBanners.length === 0 ? (
+        <div className="relative h-32 md:h-72 lg:h-72 overflow-hidden rounded-md">
+          {/* Skeleton while banners are loading */}
           <div className="absolute inset-0 bg-[var(--bg-tertiary)] animate-pulse" />
-        ) : (
-          <>
-            {displayBanners.map((banner, i) => (
-              <motion.div
-                key={banner.id}
-                initial={false}
-                animate={{
-                  opacity: i === currentBanner ? 1 : 0,
-                  zIndex: i === currentBanner ? 1 : 0,
-                }}
-                transition={{ duration: 0.5 }}
-                className="absolute inset-0 cursor-pointer overflow-hidden"
-                onClick={() => handleBannerClick(banner.link_url)}
-              >
-                {/* Skeleton while image loads */}
-                {banner.image_url && !loadedImages.has(banner.id) && (
-                  <div className="absolute inset-0 bg-[var(--bg-tertiary)] animate-pulse" />
-                )}
-                {/* Gradient fallback or loaded image */}
-                <div
-                  className="absolute inset-0 bg-center md:bg-bottom"
-                  style={{
-                    backgroundImage: banner.image_url
-                      ? `url(${banner.image_url})`
-                      : banner.gradient || undefined,
-                    backgroundSize: 'cover',
-                  }}
-                />
-                {/* Hidden img to track load */}
-                {banner.image_url && (
-                  <img
-                    src={banner.image_url}
-                    alt=""
-                    className="hidden"
-                    onLoad={() => setLoadedImages(prev => new Set(prev).add(banner.id))}
-                  />
-                )}
-              </motion.div>
-            ))}
-
-            {/* Banner Dots */}
-            {displayBanners.length > 1 && (
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 z-10">
-                {displayBanners.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleBannerDotClick(i)}
-                    className={`w-2 h-2 rounded-full transition-colors ${
-                      i === currentBanner ? 'bg-white' : 'bg-white/40'
-                    }`}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
+        </div>
+      ) : (
+        <BannerCarousel
+          key={bannersSignature}
+          banners={displayBanners}
+          language={language}
+          intervalMs={bannerInterval}
+          onBannerClick={handleBannerClick}
+        />
+      )}
 
       {saleProducts.length > 0 && (
         <section aria-label={t('sales.title')}>

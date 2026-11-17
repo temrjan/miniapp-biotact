@@ -216,17 +216,17 @@ Drawn text appears **only** on **video banners** (§3, §6) and in **every** sta
 
 ### Placement, scrim, and reference visual values
 
-All numeric dimensions (`px` = density-independent logical units: `dp` on Android, `pt` on iOS) and opacity values below are **starting reference values** (to be tuned on real devices in the web clients and synchronized here; see §10):
+All numeric dimensions (`px` = density-independent logical units: `dp` on Android, `pt` on iOS) and opacity values below are **reference values** confirmed across the website and Mini App implementations (further real-clip tuning moves to switch-on and will update this table first; see §10):
 
 | Element | Wide layout | Phone format (3:2) | 3:1 fallback (narrow without phone format) |
 |---|---|---|---|
-| **Text block** | Over media: inside left `45%` of frame, vertically centred, `6%` left inset | Over media: bottom-left, `16 px` side inset, bottom edge `28 px` above frame bottom (clear of dots), max `70%` width | Directly below media area, full width |
+| **Text block** | Over media: inside left `45%` of frame (`6%` left inset, `55%` right inset — bounding text and button label within `6%–45%`), vertically centred, `8 px` vertical gap (`4 px` between title and subtitle) | Over media: bottom-left, `16 px` side inset, bottom edge `28 px` above frame bottom (clear of dots), max `70%` width with `12 px` minimum gap to bottom-right button label (`4 px` between title and subtitle) | Directly below media area, full width (`4 px` between title and subtitle) |
 | **Title** | `28 px` / `34 px` line-height, bold | `18 px` / `22 px` line-height, bold | `16 px` / `20 px` line-height, bold |
 | **Subtitle** | `16 px` / `22 px` line-height | `13 px` / `17 px` line-height | `13 px` / `17 px` line-height |
 | **Text colour** | White on dark scrim | White on dark scrim | Standard page foreground text colour |
 | **Scrim** | Left-to-right gradient: `55%` black at left edge to transparent at `55%` width | Bottom-to-top gradient: `60%` black at bottom edge to transparent at `55%` height | None |
-| **Button label** | Below subtitle; pill `36 px` high; white background, brand action text colour (`#0c3d2b`) | Bottom-right, aligned with bottom of text block; pill `28 px` high; same colours | Not drawn |
-| **Reserved text area** | None | None | Reserve space for 2 title lines + 2 subtitle lines below every slide whenever ≥ 1 video banner exists in the carousel (image slides leave it blank with page background) |
+| **Button label** | Below subtitle (`6 px` top gap); pill `36 px` high (`16 px` horizontal padding, `14 px` bold); white background, brand action text colour (`#0c3d2b`) | Bottom-right, aligned with bottom of text block; pill `28 px` high (`12 px` horizontal padding, `13 px` bold); same colours | Not drawn |
+| **Reserved text area** | None | None | Fixed `92 px` height below every slide (`10 px` top, `4 px` bottom, `2 px` side padding — fits 2 title lines + 2 subtitle lines) whenever ≥ 1 video banner exists in the carousel (image slides leave it blank with page background) |
 
 ### Button label (`Подробнее` / `Batafsil`)
 
