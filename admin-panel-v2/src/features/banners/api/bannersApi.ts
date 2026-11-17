@@ -9,13 +9,40 @@ import type {
 } from '../types/banner.types'
 import type { Setting } from '@/shared/types'
 
+const BANNER_OPTIONAL_STRING_FIELDS = [
+  'title_uz',
+  'subtitle',
+  'subtitle_uz',
+  'image_url',
+  'image_mobile_url',
+  'video_url',
+  'video_mobile_url',
+  'gradient',
+  'link_url',
+] as const
+
 function isBanner(value: unknown): value is Banner {
   return isRecord(value) && typeof value.id === 'number' && Number.isSafeInteger(value.id) && value.id > 0 &&
     typeof value.title === 'string' && typeof value.is_active === 'boolean' &&
     typeof value.sort_order === 'number' && Number.isSafeInteger(value.sort_order) &&
     typeof value.created_at === 'string' && typeof value.updated_at === 'string' &&
-    ['title_uz', 'subtitle', 'subtitle_uz', 'image_url', 'gradient', 'link_url'].every(key =>
+    BANNER_OPTIONAL_STRING_FIELDS.every(key =>
       value[key] == null || typeof value[key] === 'string')
+}
+
+async function uploadBannerFile(endpoint: string, file: File): Promise<string> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await apiClient.post<{ url: string; filename: string }>(
+    endpoint,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  )
+  return response.data.url
 }
 
 export const bannersApi = {
@@ -59,20 +86,10 @@ export const bannersApi = {
   },
 
   // Upload banner image
-  uploadImage: async (file: File): Promise<string> => {
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await apiClient.post<{ url: string; filename: string }>(
-      ENDPOINTS.UPLOADS.BANNERS,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
-    )
-    return response.data.url
-  },
+  uploadImage: (file: File): Promise<string> => uploadBannerFile(ENDPOINTS.UPLOADS.BANNERS, file),
+
+  // Upload banner video clip
+  uploadVideo: (file: File): Promise<string> => uploadBannerFile(ENDPOINTS.UPLOADS.BANNERS_VIDEO, file),
 
   // Get banner interval setting
   getBannerInterval: async (): Promise<Setting> => {
