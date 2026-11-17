@@ -7,6 +7,9 @@ export interface Banner {
   subtitle?: string | null
   subtitle_uz?: string | null
   image_url?: string | null
+  image_mobile_url?: string | null
+  video_url?: string | null
+  video_mobile_url?: string | null
   gradient?: string | null
   link_url?: string | null
   sort_order: number
@@ -21,6 +24,9 @@ export interface BannerCreateData {
   subtitle?: string | null
   subtitle_uz?: string | null
   image_url?: string | null
+  image_mobile_url?: string | null
+  video_url?: string | null
+  video_mobile_url?: string | null
   gradient?: string | null
   link_url?: string | null
   sort_order?: number
@@ -33,6 +39,9 @@ export interface BannerUpdateData {
   subtitle?: string | null
   subtitle_uz?: string | null
   image_url?: string | null
+  image_mobile_url?: string | null
+  video_url?: string | null
+  video_mobile_url?: string | null
   gradient?: string | null
   link_url?: string | null
   sort_order?: number

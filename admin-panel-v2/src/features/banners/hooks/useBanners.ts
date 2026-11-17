@@ -84,6 +84,13 @@ export function useUploadBannerImage() {
   })
 }
 
+// Upload banner video clip
+export function useUploadBannerVideo() {
+  return useMutation<string, Error, File>({
+    mutationFn: bannersApi.uploadVideo,
+  })
+}
+
 // Get banner interval setting
 export function useBannerInterval() {
   return useQuery<Setting>({

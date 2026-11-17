@@ -51,6 +51,7 @@ export const ENDPOINTS = {
     PRODUCTS: "/uploads/products",
     CATEGORIES: "/uploads/categories",
     BANNERS: "/uploads/banners",
+    BANNERS_VIDEO: "/uploads/banners/video",
   },
   // Analytics
   // CRM
