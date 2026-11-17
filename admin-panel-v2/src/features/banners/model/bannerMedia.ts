@@ -193,8 +193,7 @@ export async function inspectClipFile(kind: 'wide' | 'phone', file: File): Promi
 /** Validate a selected still picture file against size and resolution levels before upload (A-02). */
 export async function inspectPictureFile(
   kind: 'wide' | 'phone',
-  file: File,
-  hasWideClip: boolean
+  file: File
 ): Promise<MediaCheckResult> {
   if (file.size > MAX_MEDIA_BYTES) {
     return { ok: false, error: 'Размер изображения превышает 5 МБ (5 МиБ). Загрузка отменена.' }
@@ -217,11 +216,5 @@ export async function inspectPictureFile(
     }
   }
 
-  const warnings: string[] = []
-  if (kind === 'wide') {
-    const dimWarning = getWideImageDimensionWarning(dimensions, hasWideClip)
-    if (dimWarning) warnings.push(dimWarning)
-  }
-
-  return { ok: true, dimensions, warnings }
+  return { ok: true, dimensions, warnings: [] }
 }

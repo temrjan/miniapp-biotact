@@ -34,20 +34,24 @@ import { Card } from '@/shared/components/ui/card'
 import { Badge } from '@/shared/components/ui/badge'
 import { cn } from '@/shared/lib/utils'
 
-interface PendingPhoneConfirm {
+interface PendingConfirm {
+  kind: 'phone-format' | 'discard-editor'
   title: string
   description: string
   confirmText: string
-  action: () => Promise<void>
+  cancelText?: string
+  action: () => Promise<void> | void
 }
 
 export function BannersListPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [editedInterval, setEditedInterval] = useState<string | null>(null)
+  const [savedInterval, setSavedInterval] = useState<string | null>(null)
   const [editingBannerId, setEditingBannerId] = useState<number | null>(null)
+  const [editorDirty, setEditorDirty] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
   const [createNotice, setCreateNotice] = useState<string | null>(null)
-  const [pendingPhoneConfirm, setPendingPhoneConfirm] = useState<PendingPhoneConfirm | null>(null)
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
 
   // Queries
   const { data, isLoading, error } = useBanners()
@@ -63,7 +67,8 @@ export function BannersListPage() {
 
   // Sort banners by sort_order
   const banners = data?.items?.slice().sort((a, b) => a.sort_order - b.sort_order) || []
-  const intervalValue = editedInterval ?? intervalData?.value ?? ''
+  const baselineInterval = savedInterval ?? intervalData?.value
+  const intervalValue = editedInterval ?? baselineInterval ?? ''
   const phoneFormat = getPhoneFormatStatus(banners)
 
   // Handle file upload and create banner hidden (A-05)
@@ -75,7 +80,7 @@ export function BannersListPage() {
     setPageError(null)
     setCreateNotice(null)
 
-    const check = await inspectPictureFile('wide', file, false)
+    const check = await inspectPictureFile('wide', file)
     if (!check.ok) {
       setPageError(check.error)
       return
@@ -107,7 +112,8 @@ export function BannersListPage() {
     const nextActive = !banner.is_active
 
     if (phoneFormat.isOn && nextActive && !hasPhonePicture(banner)) {
-      setPendingPhoneConfirm({
+      setPendingConfirm({
+        kind: 'phone-format',
         title: `Показать баннер «${banner.title}» без фото 3:2?`,
         description:
           'Сейчас у всех активных баннеров есть фото 3:2. После показа этого баннера все телефоны вернутся к узкой полосе 3:1, пока у этого баннера не появится картинка 3:2.',
@@ -174,6 +180,28 @@ export function BannersListPage() {
     }
   }
 
+  const requestSwitchEditor = (nextBannerId: number | null) => {
+    if (editingBannerId === null || !editorDirty) {
+      setEditorDirty(false)
+      setEditingBannerId(nextBannerId)
+      return
+    }
+    const activeBanner = banners.find((b) => b.id === editingBannerId)
+    const bannerTitle = activeBanner?.title || `#${editingBannerId}`
+    setPendingConfirm({
+      kind: 'discard-editor',
+      title: `Закрыть редактор баннера «${bannerTitle}» без сохранения?`,
+      description:
+        'В редакторе есть несохранённые изменения (тексты или прикреплённые файлы). Если закрыть его сейчас, они будут потеряны.',
+      confirmText: 'Закрыть без сохранения',
+      cancelText: 'Продолжить редактирование',
+      action: () => {
+        setEditorDirty(false)
+        setEditingBannerId(nextBannerId)
+      },
+    })
+  }
+
   // Delete banner
   const handleDelete = async (banner: Banner) => {
     if (!window.confirm(`Удалить баннер "${banner.title}"?`)) return
@@ -181,6 +209,7 @@ export function BannersListPage() {
     try {
       await deleteBanner.mutateAsync(banner.id)
       if (editingBannerId === banner.id) {
+        setEditorDirty(false)
         setEditingBannerId(null)
       }
     } catch (err) {
@@ -190,11 +219,13 @@ export function BannersListPage() {
 
   // Save interval setting
   const handleSaveInterval = async () => {
-    if (!intervalValue || intervalValue === intervalData?.value) return
+    if (!intervalValue || intervalValue === baselineInterval) return
+    const valueToSave = intervalValue
     setPageError(null)
     try {
-      await updateInterval.mutateAsync(intervalValue)
-      setEditedInterval(null)
+      await updateInterval.mutateAsync(valueToSave)
+      setSavedInterval(valueToSave)
+      setEditedInterval((prev) => (prev === valueToSave ? null : prev))
     } catch (err) {
       setPageError(formatBannerError(err, 'Не удалось сохранить интервал слайдера.'))
     }
@@ -254,7 +285,7 @@ export function BannersListPage() {
             variant="secondary"
             size="sm"
             onClick={handleSaveInterval}
-            disabled={updateInterval.isPending || !intervalValue || intervalValue === intervalData?.value}
+            disabled={updateInterval.isPending || !intervalValue || intervalValue === baselineInterval}
           >
             {updateInterval.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -396,7 +427,7 @@ export function BannersListPage() {
                         type="button"
                         variant={isEditing ? 'secondary' : 'outline'}
                         size="sm"
-                        onClick={() => setEditingBannerId(isEditing ? null : banner.id)}
+                        onClick={() => requestSwitchEditor(isEditing ? null : banner.id)}
                       >
                         <Pencil className="mr-1.5 h-3.5 w-3.5" />
                         {isEditing ? 'Свернуть' : 'Редактировать'}
@@ -461,7 +492,8 @@ export function BannersListPage() {
                       phoneFormatActive={phoneFormat.isOn}
                       onUpdate={updateBannerRecord}
                       onRequestPhoneFormatConfirm={(action, bannerTitle) => {
-                        setPendingPhoneConfirm({
+                        setPendingConfirm({
+                          kind: 'phone-format',
                           title: `Удалить фото 3:2 у баннера «${bannerTitle}»?`,
                           description:
                             'Все телефоны вернутся к узкой полосе 3:1, пока у этого баннера не появится картинка 3:2.',
@@ -469,7 +501,8 @@ export function BannersListPage() {
                           action,
                         })
                       }}
-                      onClose={() => setEditingBannerId(null)}
+                      onDirtyChange={setEditorDirty}
+                      onClose={() => requestSwitchEditor(null)}
                       uploadImage={(file) => uploadImage.mutateAsync(file)}
                       uploadVideo={(file) => uploadVideo.mutateAsync(file)}
                     />
@@ -482,19 +515,20 @@ export function BannersListPage() {
       </Card>
 
       <ConfirmDialog
-        open={pendingPhoneConfirm !== null}
+        open={pendingConfirm !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingPhoneConfirm(null)
+          if (!open) setPendingConfirm(null)
         }}
-        title={pendingPhoneConfirm?.title ?? ''}
-        description={pendingPhoneConfirm?.description ?? ''}
-        confirmText={pendingPhoneConfirm?.confirmText ?? 'Подтвердить'}
+        title={pendingConfirm?.title ?? ''}
+        description={pendingConfirm?.description ?? ''}
+        confirmText={pendingConfirm?.confirmText ?? 'Подтвердить'}
+        cancelText={pendingConfirm?.cancelText ?? 'Отмена'}
         variant="destructive"
-        isLoading={updateBanner.isPending}
+        isLoading={pendingConfirm?.kind === 'phone-format' && updateBanner.isPending}
         onConfirm={() => {
-          if (!pendingPhoneConfirm) return
-          const action = pendingPhoneConfirm.action
-          void action().finally(() => setPendingPhoneConfirm(null))
+          if (!pendingConfirm) return
+          const action = pendingConfirm.action
+          void Promise.resolve(action()).finally(() => setPendingConfirm(null))
         }}
       />
     </div>

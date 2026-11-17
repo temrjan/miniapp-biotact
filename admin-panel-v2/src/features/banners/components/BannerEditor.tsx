@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, Image as ImageIcon, Loader2, Save, Trash2, Upload, Video } from 'lucide-react'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
@@ -224,6 +224,7 @@ interface BannerEditorProps {
   phoneFormatActive: boolean
   onUpdate: (id: number, data: BannerUpdateData) => Promise<Banner>
   onRequestPhoneFormatConfirm: (confirmAction: () => Promise<void>, bannerTitle: string) => void
+  onDirtyChange?: (dirty: boolean) => void
   onClose: () => void
   uploadImage: (file: File) => Promise<string>
   uploadVideo: (file: File) => Promise<string>
@@ -234,6 +235,7 @@ export function BannerEditor({
   phoneFormatActive,
   onUpdate,
   onRequestPhoneFormatConfirm,
+  onDirtyChange,
   onClose,
   uploadImage,
   uploadVideo,
@@ -253,6 +255,16 @@ export function BannerEditor({
   const patch = buildBannerPatch(draft, baseline)
   const isDirty = Object.keys(patch).length > 0
   const busy = saving || uploadingSlot !== null
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
+
+  useEffect(() => {
+    return () => {
+      onDirtyChange?.(false)
+    }
+  }, [onDirtyChange])
 
   const wideWarning = getWideImageDimensionWarning(wideImageDimensions, Boolean(draft.video_url))
   const wideImageWarnings = wideWarning ? [wideWarning] : []
@@ -276,7 +288,7 @@ export function BannerEditor({
   const handleSelectPicture = async (slot: 'image_url' | 'image_mobile_url', file: File) => {
     setEditorError(null)
     setEditorSuccess(null)
-    const check = await inspectPictureFile(slot === 'image_url' ? 'wide' : 'phone', file, Boolean(draft.video_url))
+    const check = await inspectPictureFile(slot === 'image_url' ? 'wide' : 'phone', file)
     if (!check.ok) {
       setEditorError(check.error)
       return

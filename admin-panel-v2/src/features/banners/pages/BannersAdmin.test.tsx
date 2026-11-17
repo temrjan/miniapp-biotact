@@ -360,4 +360,85 @@ describe('PR-2 Banner Admin', () => {
     await waitFor(() => expect(patchSpy).toHaveBeenCalledTimes(1))
     expect(patchSpy).toHaveBeenCalledWith('/banners/1', { image_mobile_url: null })
   })
+
+  it('A-01 / F-01: keeps saved slider interval 5000 while re-read is in flight or fails', async () => {
+    let resolveSecondRead!: (value: unknown) => void
+    let rejectSecondRead!: (reason?: unknown) => void
+    let intervalReadCount = 0
+
+    vi.spyOn(apiClient, 'get').mockImplementation((endpoint) => {
+      if (endpoint === '/banners') {
+        return Promise.resolve({ data: { items: [], total: 0 } })
+      }
+      if (endpoint === '/settings/banner_interval') {
+        intervalReadCount += 1
+        if (intervalReadCount === 1) {
+          return Promise.resolve({
+            data: { id: 1, key: 'banner_interval', value: '4000', updated_at: '2026-11-16T00:00:00Z' },
+          })
+        }
+        return new Promise((resolve, reject) => {
+          resolveSecondRead = resolve
+          rejectSecondRead = reject
+        })
+      }
+      throw new Error(`Unexpected GET ${endpoint}`)
+    })
+
+    const putSpy = vi.spyOn(apiClient, 'put').mockResolvedValueOnce({
+      data: { id: 1, key: 'banner_interval', value: '5000', updated_at: '2026-11-17T00:00:00Z' },
+    })
+
+    const user = mountPage()
+    const intervalInput = screen.getByRole('spinbutton')
+    await waitFor(() => expect(intervalInput).toHaveValue(4000))
+
+    await user.clear(intervalInput)
+    await user.type(intervalInput, '5000')
+    expect(intervalInput).toHaveValue(5000)
+
+    const saveButton = screen.getByRole('button', { name: 'Сохранить' })
+    await user.click(saveButton)
+    await waitFor(() => expect(putSpy).toHaveBeenCalledWith('/settings/banner_interval', { value: '5000' }))
+    await waitFor(() => expect(intervalReadCount).toBeGreaterThanOrEqual(2))
+
+    // Second read is held in flight: field must still show 5000, never revert to cached 4000
+    expect(intervalInput).toHaveValue(5000)
+    expect(saveButton).toBeDisabled()
+
+    // Second read fails: field must still show 5000, and editing to a new value re-enables Save
+    rejectSecondRead(new Error('Network error'))
+    await waitFor(() => expect(intervalReadCount).toBeGreaterThanOrEqual(2))
+    expect(intervalInput).toHaveValue(5000)
+    expect(saveButton).toBeDisabled()
+
+    await user.clear(intervalInput)
+    await user.type(intervalInput, '6000')
+    expect(saveButton).toBeEnabled()
+    expect(resolveSecondRead).toBeTypeOf('function')
+  })
+
+  it('A-01, A-03 / F-01: keeps entered interval and shows Russian alert when interval save is refused', async () => {
+    mockGetRoutes(() => [])
+    vi.spyOn(apiClient, 'put').mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 500,
+        data: { detail: 'Database error' },
+      },
+    })
+
+    const user = mountPage()
+    const intervalInput = screen.getByRole('spinbutton')
+    await waitFor(() => expect(intervalInput).toHaveValue(4000))
+
+    await user.clear(intervalInput)
+    await user.type(intervalInput, '5000')
+    const saveButton = screen.getByRole('button', { name: 'Сохранить' })
+    await user.click(saveButton)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ошибка сервера (500)')
+    expect(intervalInput).toHaveValue(5000)
+    expect(saveButton).toBeEnabled()
+  })
 })
