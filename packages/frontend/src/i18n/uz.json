@@ -340,6 +340,7 @@
     "ruOnlyNotice": "Hujjat rus tilida mavjud. O'zbek tilidagi versiyasi keyinroq e'lon qilinadi."
   },
   "banners": {
+    "cta": "Batafsil",
     "pauseVideo": "Videoni to'xtatish",
     "playVideo": "Videoni ijro etish",
     "slideLabel": "Banner {index} / {total}",

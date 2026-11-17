@@ -416,23 +416,18 @@ export function BannerCarousel({
       setCurrentBanner((prev) => (prev + 1) % count);
     };
 
-    if (!isVideoSlide || effectiveClip.status === 'refused') {
-      const timer = setTimeout(advanceToNext, intervalMs);
-      return () => clearTimeout(timer);
-    }
+    const readyToAdvance =
+      !isVideoSlide ||
+      isEffectiveStillOnly ||
+      effectiveClip.status === 'refused' ||
+      effectiveClip.status === 'ended';
 
-    if (isEffectiveStillOnly) {
+    if (readyToAdvance) {
       const readyAt = Math.max(
         activatedAtRef.current + intervalMs,
-        effectiveClip.budgetExpiredAt ?? 0
+        isEffectiveStillOnly ? (effectiveClip.budgetExpiredAt ?? 0) : 0
       );
       const timer = setTimeout(advanceToNext, Math.max(0, readyAt - Date.now()));
-      return () => clearTimeout(timer);
-    }
-
-    if (effectiveClip.status === 'ended') {
-      const waitMs = Math.max(0, activatedAtRef.current + intervalMs - Date.now());
-      const timer = setTimeout(advanceToNext, waitMs);
       return () => clearTimeout(timer);
     }
 
@@ -552,7 +547,7 @@ export function BannerCarousel({
   const showVideoControl = isVideoSlide && !isEffectiveStillOnly;
   const videoControlIsPause = effectiveClip.status === 'playing';
   const controlLabel = videoControlIsPause ? t('banners.pauseVideo') : t('banners.playVideo');
-  const ctaLabel = t('orders.viewDetails');
+  const ctaLabel = t('banners.cta');
   const mediaHeightClass = layoutMode === 'phone' ? 'aspect-[3/2]' : 'h-32 md:h-72 lg:h-72';
 
   return (

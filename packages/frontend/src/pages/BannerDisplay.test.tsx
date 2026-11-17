@@ -48,6 +48,44 @@ let playBehavior: ((video: HTMLMediaElement) => Promise<void>) | null = null;
 let viewportWidth = 390;
 let reducedMotion = false;
 const wideListeners = new Set<() => void>();
+const intersectionObservers = new Set<{
+  target: Element;
+  callback: IntersectionObserverCallback;
+}>();
+const OriginalIntersectionObserver = window.IntersectionObserver;
+
+function stubIntersectionObserver() {
+  class TestIntersectionObserver {
+    private callback: IntersectionObserverCallback;
+    constructor(callback: IntersectionObserverCallback) {
+      this.callback = callback;
+    }
+    observe = vi.fn((el: Element) => {
+      intersectionObservers.add({ target: el, callback: this.callback });
+    });
+    unobserve = vi.fn();
+    disconnect = vi.fn(() => {
+      intersectionObservers.clear();
+    });
+    takeRecords = vi.fn(() => []);
+    root = null;
+    rootMargin = '';
+    thresholds = [0];
+  }
+  Object.defineProperty(window, 'IntersectionObserver', {
+    writable: true,
+    value: TestIntersectionObserver,
+  });
+}
+
+function triggerIntersect(isIntersecting: boolean) {
+  for (const { target, callback } of intersectionObservers) {
+    callback(
+      [{ target, isIntersecting } as IntersectionObserverEntry],
+      {} as IntersectionObserver
+    );
+  }
+}
 
 function stubMatchMedia() {
   Object.defineProperty(window, 'matchMedia', {
@@ -118,9 +156,11 @@ beforeEach(() => {
   viewportWidth = 390;
   reducedMotion = false;
   wideListeners.clear();
+  intersectionObservers.clear();
   useLanguageStore.setState({ language: 'ru' });
   Object.defineProperty(document, 'hidden', { value: false, configurable: true });
   stubMatchMedia();
+  stubIntersectionObserver();
 
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
     mediaCalls.push({ type: 'play', src: this.getAttribute('src') ?? '' });
@@ -166,6 +206,10 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  Object.defineProperty(window, 'IntersectionObserver', {
+    writable: true,
+    value: OriginalIntersectionObserver,
+  });
   Object.defineProperty(document, 'hidden', { value: false, configurable: true });
 });
 
@@ -404,13 +448,34 @@ describe('Mini App video banners', () => {
     });
     expect(slide21.querySelector('video')).toHaveAttribute('src', 'https://cdn.example.test/v1-wide.mp4');
 
-    // Cross literal 768 px md boundary -> wide layout renders overlay text + Uzbek pill ("Batafsil")
+    // Cross literal 768 px md boundary -> wide layout renders overlay text + Uzbek pill ("Batafsil") and keeps wide rendition
     await act(async () => {
       setViewportWidth(768);
     });
     expect(carousel).toHaveAttribute('data-format', 'wide');
     expect(screen.queryByTestId('banner-fallback-below')).not.toBeInTheDocument();
     expect(screen.getByText('Batafsil')).toBeInTheDocument();
+    expect(slide21.querySelector('img')).toHaveAttribute('src', 'https://cdn.example.test/v1-wide.jpg');
+    expect(slide21.querySelector('video')).toHaveAttribute('src', 'https://cdn.example.test/v1-wide.mp4');
+  });
+
+  it('User path D / F-02 (D-11, D-12): wide layout (>= 768 px) uses wide rendition even when all banners have phone pictures', async () => {
+    viewportWidth = 768;
+    const view = mountHome();
+    await flushInitialRender();
+
+    const carousel = screen.getByTestId('banner-carousel');
+    expect(carousel).toHaveAttribute('data-format', 'wide');
+    const slide21 = view.container.querySelector('[data-banner-id="21"]') as HTMLElement;
+    const wideStill = slide21.querySelector('img[src="https://cdn.example.test/v1-wide.jpg"]');
+    expect(wideStill).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.load(wideStill as HTMLImageElement);
+    });
+    const video = slide21.querySelector('video') as HTMLVideoElement;
+    expect(video).toHaveAttribute('src', 'https://cdn.example.test/v1-wide.mp4');
+    expect(video).toHaveAttribute('poster', 'https://cdn.example.test/v1-wide.jpg');
   });
 
   it('D-10, D-07b (F-01 guard): client pause aborting pending play() resumes cleanly instead of turning refused', async () => {
@@ -483,5 +548,93 @@ describe('Mini App video banners', () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(slide22).toHaveAttribute('data-active', 'true');
+  });
+
+  it('F-01 regression (D-05, D-07b): refused video slide with delayed still load advances at interval since activation, not interval + load delay', async () => {
+    playBehavior = () =>
+      Promise.reject(new DOMException('The request is not allowed by the user agent', 'NotAllowedError'));
+
+    const view = mountHome();
+    await flushInitialRender();
+
+    const slide21 = view.container.querySelector('[data-banner-id="21"]') as HTMLElement;
+    const slide22 = view.container.querySelector('[data-banner-id="22"]') as HTMLElement;
+
+    // Delay still load by 2000 ms, then refuse autoplay
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    await act(async () => {
+      fireEvent.load(slide21.querySelector('img') as HTMLImageElement);
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: 'Воспроизвести видео' })).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1999);
+    });
+    expect(slide21).toHaveAttribute('data-active', 'true');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(slide22).toHaveAttribute('data-active', 'true');
+  });
+
+  it('F-01 regression (D-01, D-05, D-10): image slide off screen and back advances at activation interval; manual dot click starts a full new interval', async () => {
+    currentBanners = [IMAGE_BANNER, VIDEO_BANNER];
+    const view = mountHome();
+    await flushInitialRender();
+
+    const slide22 = view.container.querySelector('[data-banner-id="22"]') as HTMLElement;
+    const slide21 = view.container.querySelector('[data-banner-id="21"]') as HTMLElement;
+    expect(slide22).toHaveAttribute('data-active', 'true');
+
+    // Scroll off screen at 3000 ms and back on screen at 3500 ms -> still advances at 4000 ms
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+      triggerIntersect(false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      triggerIntersect(true);
+    });
+    expect(slide22).toHaveAttribute('data-active', 'true');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(499);
+    });
+    expect(slide22).toHaveAttribute('data-active', 'true');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(slide21).toHaveAttribute('data-active', 'true');
+
+    // Manual dot choice is a new activation -> newly selected slide gets its full 4000 ms
+    currentBanners = [
+      IMAGE_BANNER,
+      { ...IMAGE_BANNER, id: 23, title: 'Image 23', sort_order: 1 },
+    ];
+    view.unmount();
+    const view2 = mountHome();
+    await flushInitialRender();
+
+    const img22 = view2.container.querySelector('[data-banner-id="22"]') as HTMLElement;
+    const img23 = view2.container.querySelector('[data-banner-id="23"]') as HTMLElement;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Баннер 2 из 2' }));
+    expect(img23).toHaveAttribute('data-active', 'true');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3999);
+    });
+    expect(img23).toHaveAttribute('data-active', 'true');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(img22).toHaveAttribute('data-active', 'true');
   });
 });
