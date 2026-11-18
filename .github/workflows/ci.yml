@@ -359,6 +359,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install the API and explicit bot integration dependencies
-        run: pip install -r ../api/requirements.txt aiogram==3.23.0 redis==5.3.1
+        run: pip install -r ../api/requirements.txt aiogram==3.23.0 redis==7.1.0
       - name: Exercise the actual dispatcher, Redis, API and SQL
         run: PYTHONPATH="$GITHUB_WORKSPACE/packages/api:$GITHUB_WORKSPACE/packages/bot" pytest tests/test_web_login.py tests/test_event_promotions.py -v --no-header
