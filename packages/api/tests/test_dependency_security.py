@@ -1,21 +1,19 @@
-"""Behavioral upgrade witnesses and the selected JWT crypto backend."""
+"""Dependency security boundary checks for nested secrets and admin JWT verification."""
 
+import base64
 from pathlib import Path
 
+import jwt
 import pytest
-from ecdsa import SigningKey
-from ecdsa.der import UnexpectedDER, remove_octet_string
-from jose import JWTError, jwt
-from jose.backends import ECKey
+from jwt import InvalidAlgorithmError
 from pydantic_settings import BaseSettings, NestedSecretsSettingsSource
 
 from src.auth.admin_router import create_admin_token
 from src.config import settings
 
 
-def test_der_octet_string_rejects_a_truncated_declared_length() -> None:
-    with pytest.raises(UnexpectedDER):
-        remove_octet_string(b"\x04\x82\x10\x00ABC")
+def _b64url(data: bytes) -> bytes:
+    return base64.urlsafe_b64encode(data).rstrip(b"=")
 
 
 @pytest.mark.parametrize("outside_link", [False, True], ids=["local", "escape"])
@@ -37,61 +35,25 @@ def test_nested_secrets_only_reads_files_inside_the_root(
     assert source() == ({} if outside_link else {"token": "inside-marker"})
 
 
-def test_jose_elliptic_curve_backend_is_cryptography(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The native python-ecdsa signer has an unpatched timing advisory. Both
-    # installation declarations must select the alternative backend explicitly.
-    assert ECKey.__module__ == "jose.backends.cryptography_backend"
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import ec
-
-    def forbidden_sign(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("elliptic-curve signing reached python-ecdsa")
-
-    monkeypatch.setattr(SigningKey, "sign_digest", forbidden_sign)
-    key = ec.generate_private_key(ec.SECP256R1())
-    private = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
-    public = key.public_key().public_bytes(
-        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    token = jwt.encode({"sub": "crypto-probe"}, private, algorithm="ES256")
-    assert jwt.decode(token, public, algorithms=["ES256"])["sub"] == "crypto-probe"
-
-
-def test_admin_token_signing_does_not_use_python_ecdsa(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def forbidden_sign(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("admin token signing reached python-ecdsa")
-
-    monkeypatch.setattr(SigningKey, "sign", forbidden_sign)
-    monkeypatch.setattr(SigningKey, "sign_digest", forbidden_sign)
+def test_admin_token_roundtrip_and_claims() -> None:
     token = create_admin_token(123, 456)
     payload = jwt.decode(
-        token, settings.secret_key.get_secret_value(), algorithms=[settings.algorithm]
+        token,
+        settings.secret_key.get_secret_value(),
+        algorithms=[settings.algorithm],
+        options={"require": ["exp"], "verify_sub": False},
     )
     assert payload["sub"] == "123"
     assert payload["type"] == "admin"
     assert payload["telegram_id"] == 456
+    assert isinstance(payload["exp"], int)
 
 
 @pytest.mark.parametrize("algorithm", ["ES256", "none", "RS256"])
-def test_jwt_rejects_an_unallowed_algorithm_without_ecdsa_signing(
-    monkeypatch: pytest.MonkeyPatch, algorithm: str
-) -> None:
-    from jose.utils import base64url_encode
-
-    def forbidden_sign(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("unallowed JWT reached python-ecdsa signing")
-
-    monkeypatch.setattr(SigningKey, "sign_digest", forbidden_sign)
-    header = base64url_encode(f'{{"alg":"{algorithm}"}}'.encode())
-    payload = base64url_encode(b'{"sub":"123","type":"admin"}')
-    token = b".".join([header, payload, b"invalid"])
-    with pytest.raises(JWTError):
+def test_jwt_rejects_an_unallowed_algorithm(algorithm: str) -> None:
+    header = _b64url(f'{{"alg":"{algorithm}","typ":"JWT"}}'.encode())
+    payload = _b64url(b'{"sub":"123","type":"admin","exp":9999999999}')
+    signature = b"" if algorithm == "none" else _b64url(b"signature-bytes")
+    token = b".".join([header, payload, signature])
+    with pytest.raises(InvalidAlgorithmError):
         jwt.decode(token, settings.secret_key.get_secret_value(), algorithms=["HS256"])

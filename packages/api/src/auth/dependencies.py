@@ -3,9 +3,10 @@
 import re
 from typing import Annotated
 
+import jwt
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jwt import PyJWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,11 +73,11 @@ def _admin_subject(credentials: HTTPAuthorizationCredentials, *, lightweight: bo
             credentials.credentials,
             settings.secret_key.get_secret_value(),
             algorithms=[settings.algorithm],
-            options={"require_exp": True, "verify_sub": False},
+            options={"require": ["exp"], "verify_sub": False},
         )
         if type(payload.get("exp")) is not int:
             raise ValueError("Invalid expiration")
-    except (JWTError, ValueError, TypeError, OverflowError):
+    except (PyJWTError, ValueError, TypeError, OverflowError):
         if lightweight:
             raise HTTPException(status_code=401, detail="Invalid token") from None
         raise UnauthorizedException("Invalid or expired token") from None

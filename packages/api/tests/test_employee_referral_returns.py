@@ -10,9 +10,9 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+import jwt
 import pytest
 import sentry_sdk
-from jose import jwt
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sqlalchemy import delete, event, select
 from sqlalchemy.exc import SQLAlchemyError

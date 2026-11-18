@@ -19,11 +19,11 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
+import jwt
 import psycopg2
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
 from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

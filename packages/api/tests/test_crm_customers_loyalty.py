@@ -10,10 +10,10 @@ Also covers ``purchased_products``: the regression guard for the explicit OrderI
 import time
 from decimal import Decimal
 
+import jwt
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from jose import jwt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 

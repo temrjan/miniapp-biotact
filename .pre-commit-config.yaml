@@ -28,7 +28,6 @@ repos:
         args: [--strict, --ignore-missing-imports]
         files: ^packages/api/src/
         additional_dependencies:
-          - types-python-jose
           - types-passlib
 
   # ─────────────────────────────────────────────────────────────────

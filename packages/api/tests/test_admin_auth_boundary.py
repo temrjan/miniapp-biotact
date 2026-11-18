@@ -24,9 +24,9 @@ cannot come back without ``jwt_secret``) and by the route-absence test (no circu
 
 from datetime import UTC, datetime, timedelta
 
+import jwt
 import pytest
 from httpx import AsyncClient
-from jose import jwt
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
