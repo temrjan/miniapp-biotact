@@ -11,9 +11,9 @@ in ``test_lottery_cancel.py``. This file is about who may call these two, and wh
 
 from datetime import UTC, date, datetime, timedelta
 
+import jwt
 import pytest
 import pytest_asyncio
-from jose import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 

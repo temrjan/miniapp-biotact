@@ -11,7 +11,7 @@ REST API для Telegram Mini App магазина Biotact. Каталог, за
 | Alembic | 1.17 | Миграции БД |
 | Pydantic | 2.12 | Валидация + Settings |
 | PostgreSQL | 16 | База данных |
-| python-jose | 3.5 | JWT токены |
+| PyJWT | 2.15 | JWT токены |
 | httpx | 0.28 | Async HTTP-клиент |
 | uvicorn | 0.38 | ASGI-сервер |
 

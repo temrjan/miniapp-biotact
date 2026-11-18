@@ -12,8 +12,8 @@ transaction — a second sessionmaker is used, mirroring ``test_lottery_commit.p
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
+import jwt
 import pytest_asyncio
-from jose import jwt
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 

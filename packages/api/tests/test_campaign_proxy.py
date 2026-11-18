@@ -11,10 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+import jwt
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
-from jose import jwt
 from pydantic import SecretStr
 from sqlalchemy import event, update
 from sqlalchemy.exc import OperationalError

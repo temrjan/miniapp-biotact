@@ -35,7 +35,6 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies:
-          - types-python-jose
           - types-passlib
         args: [--ignore-missing-imports, --warn-no-return, --warn-redundant-casts]
 

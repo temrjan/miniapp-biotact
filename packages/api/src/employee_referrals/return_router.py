@@ -3,11 +3,12 @@
 import re
 from typing import Annotated
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from fastapi.security import HTTPBearer
-from jose import JWTError, jwt
+from jwt import PyJWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import Message, Receive, Scope, Send
 
@@ -93,6 +94,7 @@ async def returns(
             credentials.credentials,
             settings.secret_key.get_secret_value(),
             algorithms=[settings.algorithm],
+            options={"require": ["exp"]},
         )
         subject = payload.get("sub")
         if not isinstance(subject, str):
@@ -101,7 +103,7 @@ async def returns(
         admin = await require_admin(db=db, credentials=credentials)
         if not admin.is_active:
             raise ReturnError("forbidden")
-    except (JWTError, ValueError, TypeError, OverflowError) as exc:
+    except (PyJWTError, ValueError, TypeError, OverflowError) as exc:
         raise ReturnError("invalid_auth") from exc
     except HTTPException as exc:
         raise ReturnError("invalid_auth" if exc.status_code == 401 else "forbidden") from exc

@@ -20,11 +20,11 @@ from importlib import import_module
 from typing import Any
 
 import httpx
+import jwt
 import pytest
 import pytest_asyncio
 import sentry_sdk
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
 from pydantic import SecretStr
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration

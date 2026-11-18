@@ -10,11 +10,11 @@ import threading
 import time
 
 import bcrypt
+import jwt
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
 from pydantic import SecretStr
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError

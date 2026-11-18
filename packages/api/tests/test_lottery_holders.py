@@ -19,9 +19,9 @@ whose or why. Two things here are load-bearing rather than decorative:
 
 from datetime import UTC, date, datetime, timedelta
 
+import jwt
 import pytest
 import pytest_asyncio
-from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings

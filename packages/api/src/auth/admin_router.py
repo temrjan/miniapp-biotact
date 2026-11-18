@@ -5,8 +5,8 @@ import secrets
 import time
 from typing import Annotated, Any
 
+import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from jose import jwt
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError

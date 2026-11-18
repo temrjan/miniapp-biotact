@@ -9,9 +9,9 @@ import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import jwt
 import pytest_asyncio
 from httpx import AsyncClient
-from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.analytics.service import get_loyalty_stats

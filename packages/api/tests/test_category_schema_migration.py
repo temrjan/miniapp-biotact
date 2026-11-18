@@ -15,12 +15,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
+import jwt
 import psycopg2
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
 from psycopg2 import sql
 from psycopg2.extensions import connection, parse_dsn
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

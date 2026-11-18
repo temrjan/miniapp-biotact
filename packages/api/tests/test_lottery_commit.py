@@ -10,9 +10,9 @@ in ``test_lottery_freeze.py``.
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
+import jwt
 import pytest
 import pytest_asyncio
-from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import settings
