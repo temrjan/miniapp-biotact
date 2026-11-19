@@ -237,7 +237,7 @@ export function ProductPage() {
           {product.isPurchasable !== false && (
             <>
             {product.requiresSize && <SizeSelector sizes={product.availableSizes ?? []} selected={selectedSize} onChange={setSelectedSize} />}
-            <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddToCart} disabled={!product.inStock || isSizedPurchaseBlocked(product) || (product.requiresSize && !selectedSize)} className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2 disabled:opacity-50">
+            <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddToCart} disabled={!product.inStock || isSizedPurchaseBlocked(product) || (product.requiresSize && !selectedSize)} className="w-full h-12 bg-[var(--primary)] text-white font-semibold rounded-xl text-lg flex items-center justify-center gap-2 disabled:opacity-50">
               <ShoppingCart size={20} />
               {t('product.addToCart')}
             </motion.button>

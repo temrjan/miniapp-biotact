@@ -36,17 +36,18 @@ body {
 /* ═══════════════════════════════════════════════════════════════════
    Theme Variables - добавляем в @theme для интеграции с Tailwind v4
    ═══════════════════════════════════════════════════════════════════ */
+/* Brand Deep Green #015234 (brandbook p. 15, D-7); light = 12 % white mix. */
 @theme {
-  --color-primary: #133D2C;
-  --color-primary-light: #3d8b68;
-  --color-primary-dark: #133D2C;
+  --color-primary: #015234;
+  --color-primary-light: #1f674c;
+  --color-primary-dark: #015234;
 }
 
 /* CSS Variables для компонентов */
 :root {
-  --primary: #133D2C;
-  --primary-light: #3d8b68;
-  --primary-dark: #133D2C;
+  --primary: #015234;
+  --primary-light: #1f674c;
+  --primary-dark: #015234;
 
   --bg-main: #f5f7fa;
   --bg-surface: #f5f7fa;

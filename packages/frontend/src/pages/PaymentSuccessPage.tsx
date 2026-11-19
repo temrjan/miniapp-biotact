@@ -78,7 +78,7 @@ export function PaymentSuccessPage() {
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: 'spring', stiffness: 300 }}
             className="neumorphic w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6"
-            style={{ background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' }}
+            style={{ background: 'var(--primary)' }}
           >
             {confirmed ? <CheckCircle size={48} className="text-white" /> : <Clock size={48} className="text-white" />}
           </motion.div>

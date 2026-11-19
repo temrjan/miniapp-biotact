@@ -197,7 +197,7 @@ export function CartPage() {
           disabled={blocked}
           whileTap={{ scale: 0.98 }}
           onClick={handleCheckout}
-          className="w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg"
+          className="w-full h-12 bg-[var(--primary)] text-white font-semibold rounded-xl text-lg"
         >
           {t(recovering ? 'profile.myOrders' : 'cart.checkout')}
         </motion.button>
