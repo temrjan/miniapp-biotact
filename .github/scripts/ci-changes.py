@@ -41,6 +41,9 @@ RULES: tuple[tuple[str, frozenset[str]], ...] = (
     (".github/scripts/ci-changes.py", ALL),
     # API tests and the release recovery test execute the deploy payload.
     (".github/workflows/deploy.yml", DEPLOY_PAYLOAD_READERS),
+    (".github/scripts/security-audit.py", DEPLOY_PAYLOAD_READERS),
+    (".github/security-exceptions.json", frozenset({"release_recovery"})),
+    (".github/workflows/security.yml", frozenset({"release_recovery"})),
     # API tests and lint read ops/ scripts; the release recovery job tests them.
     ("ops/", DEPLOY_PAYLOAD_READERS),
     ("packages/api/", API_READERS),
