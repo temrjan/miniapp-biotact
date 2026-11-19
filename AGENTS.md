@@ -12,8 +12,10 @@ history even after a file is deleted.
   records live only in the maintainers' private documentation (DocHub). Do not
   add them to this repository, in any folder.
 - Server details live only there too: IP addresses, SSH ports, users and key
-  names, server paths, backup locations, and the state of server hardening.
-  Do not add them to code, configuration, comments, or documentation here.
+  names, backup locations, and the state of server hardening. Do not add them
+  to code, configuration, comments, or documentation here. A server path may
+  appear only where code, its tests, or the feature README of that code need
+  it (for example the deploy workflow, `ecosystem.config.js`, `ops/`).
 - Never commit secrets: `.env` files, tokens, passwords, private keys. An
   `.env.example` holds placeholders only. In tests, write fake secrets as a
   short repeating pattern so that the secret scanner does not fire on them.
