@@ -5,12 +5,15 @@
 useDefault = true
 
 # The built-in rules miss a shell assignment such as `PGPASSWORD="..." pg_dump ...`.
-# A value that starts with `$`, `{`, `<` or a backtick (a variable, a template or a
-# placeholder) is not matched.
+# A value whose first character is `$`, `{`, `<`, `.` or a backtick (a variable, a
+# template, or a placeholder such as `<password>` or `...`) is not matched; later
+# characters may be anything but a quote or whitespace. Not covered: a value with
+# whitespace, a quoted literal that starts with `$` or `.`, and non-shell forms
+# (YAML `PGPASSWORD: ...`, `os.environ["PGPASSWORD"] = ...`).
 [[rules]]
 id = "pgpassword-assignment"
 description = "PostgreSQL password in a shell PGPASSWORD= assignment"
-regex = '''\bPGPASSWORD\s*=\s*["']?([^\s"'$`<>{}]{6,})'''
+regex = '''\bPGPASSWORD\s*=\s*["']?([^\s"'$`<{.][^\s"']{5,})'''
 secretGroup = 1
 keywords = ["pgpassword"]
 

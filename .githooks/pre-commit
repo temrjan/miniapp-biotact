@@ -3,6 +3,9 @@
 # Uses .gitleaks.toml and .gitleaksignore at the repository root, like CI.
 #
 # Enable once per clone:  git config core.hooksPath .githooks
+# core.hooksPath replaces .git/hooks: hooks set up by `pre-commit install` stop running,
+# and `pre-commit install` refuses to run while it is set. With the pre-commit framework,
+# leave core.hooksPath unset and call this script from a `repo: local` hook instead.
 #
 # Needs gitleaks on PATH; CI uses v8.24.3: https://github.com/gitleaks/gitleaks#installing
 set -eu
