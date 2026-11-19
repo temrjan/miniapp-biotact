@@ -41,7 +41,7 @@ function WebButton({ onClick, isActive, isProcessing, text, processingText }: We
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       disabled={!isActive}
-      className={`w-full h-12 bg-[#2a6b50] text-white font-semibold rounded-xl text-lg transition-opacity ${
+      className={`w-full h-12 bg-[var(--primary)] text-white font-semibold rounded-xl text-lg transition-opacity ${
         isActive ? '' : 'opacity-50 cursor-not-allowed'
       }`}
     >
@@ -266,7 +266,7 @@ export function CheckoutPage() {
   const mainButtonConfig = getMainButtonConfig();
 
   useMainButton({
-    color: '#2a6b50',
+    color: '#015234',
     textColor: '#ffffff',
     text: mainButtonConfig.text,
     onClick: mainButtonConfig.onClick,
