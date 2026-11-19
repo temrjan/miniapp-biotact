@@ -37,7 +37,7 @@ uploads/
 backups/*.sql.gz
 backups/*.log
 
-# Codex workflow transient state (durable specs under .claude/specs/ are tracked)
+# Agent workflow state; agent working documents are not committed (see AGENTS.md)
 .claude/workflow-state.json
 .claude/HANDOFF.md
 .kimi/workflow-state.json
