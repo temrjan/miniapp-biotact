@@ -63,8 +63,10 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.11'
-      - name: Exercise release traps and artifact recovery
-        run: python -B -m unittest discover -s ops/tests -p test_shop_release_assets.py -v
+      - name: Exercise release traps, artifact recovery, and security audit gate
+        run: |
+          python -B -m unittest discover -s ops/tests -p test_shop_release_assets.py -v
+          python -B -m unittest discover -s ops/tests -p test_security_audit.py -v
 
   frontend:
     name: Frontend
@@ -190,11 +192,11 @@ jobs:
       - name: Format check with ruff
         run: ruff format --check src/ tests/consultant_doubles.py tests/test_consultant_enigma_*.py tests/test_consultant_token.py tests/test_consultant_provider.py tests/test_consultant_journal.py alembic/versions/8d1b1791159b_consultant_journal.py tests/test_category_schema_migration.py tests/test_optional_telegram_consumers.py alembic/versions/b7e31c904a62_category_purchase_flag_invariant.py tests/test_buyer_auth*.py tests/test_buyer_telegram*.py tests/tg1_browser_server.py alembic/versions/c4f2a91e8d63_buyer_email_sessions.py alembic/versions/d8a14f90bc21_buyer_telegram_requests.py alembic/versions/b4f4c51eb14a_guest_orders.py tests/test_guest_checkout.py tests/test_guest_order_migration.py tests/g1_browser_server.py alembic/versions/87688cb444f4_event_promotions.py scripts/event_promotions.py tests/test_event_promotions*.py alembic/versions/c8f2b4a91e30_video_banners_media_columns.py tests/test_video_banners.py
 
-      - name: Check release asset helper
+      - name: Check release asset and security audit helpers
         run: |
-          ruff check --config pyproject.toml ../../ops/shop-release-assets.py ../../ops/tests/test_shop_release_assets.py
-          ruff format --check --config pyproject.toml ../../ops/shop-release-assets.py ../../ops/tests/test_shop_release_assets.py
-          mypy --strict --ignore-missing-imports ../../ops/shop-release-assets.py
+          ruff check --config pyproject.toml ../../ops/shop-release-assets.py ../../ops/tests/test_shop_release_assets.py ../../.github/scripts/security-audit.py ../../ops/tests/test_security_audit.py
+          ruff format --check --config pyproject.toml ../../ops/shop-release-assets.py ../../ops/tests/test_shop_release_assets.py ../../.github/scripts/security-audit.py ../../ops/tests/test_security_audit.py
+          mypy --strict --ignore-missing-imports ../../ops/shop-release-assets.py ../../.github/scripts/security-audit.py ../../ops/tests/test_security_audit.py
 
       - name: Type check with mypy
         run: mypy src/ --strict --ignore-missing-imports
