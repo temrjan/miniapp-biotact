@@ -1,24 +1,31 @@
 # gitleaks configuration — extend the built-in ruleset, allowlist documented non-secrets.
 # https://github.com/gitleaks/gitleaks#configuration
+# Known historical findings are ignored one by one, by fingerprint, in .gitleaksignore.
 [extend]
 useDefault = true
 
+# The built-in rules miss a shell assignment such as `PGPASSWORD="..." pg_dump ...`.
+# A value whose first character is `$`, `{`, `<`, `.` or a backtick (a variable, a
+# template, or a placeholder such as `<password>` or `...`) is not matched; later
+# characters may be anything but a quote or whitespace. Not covered: a value with
+# whitespace, a quoted literal that starts with `$` or `.`, and non-shell forms
+# (YAML `PGPASSWORD: ...`, `os.environ["PGPASSWORD"] = ...`).
+[[rules]]
+id = "pgpassword-assignment"
+description = "PostgreSQL password in a shell PGPASSWORD= assignment"
+regex = '''\bPGPASSWORD\s*=\s*["']?([^\s"'$`<{.][^\s"']{5,})'''
+secretGroup = 1
+keywords = ["pgpassword"]
+
 # MUST be the singular [allowlist], not the [[allowlists]] array: with `extend.useDefault`,
 # gitleaks 8.24.3 silently IGNORES the array form, so this allowlist did nothing at all and the
-# scheduled full-history scan failed on the example below. Verified on the exact CI image
+# scheduled full-history scan failed on a historical finding. Verified on the exact CI image
 # (ghcr.io/gitleaks/gitleaks:v8.24.3, full-history `detect`): [allowlist] -> "no leaks found",
 # [[allowlists]] -> "leaks found: 1". The PR-scoped scans never caught this because they only
 # read the diff, where these paths never appear.
+# No path is allowlisted: an `.env.example` is scanned like any other file.
 [allowlist]
-description = "Env templates and removed vendored docs (placeholders / teaching examples, not real secrets)"
-condition = "OR"
-paths = [
-  # .env.example holds placeholders; the real .env is gitignored and never committed.
-  '''\.env\.example$''',
-  # devops-agent/ was a vendored docs tree (removed); its style guide contained a
-  # `API_KEY = "sk_live_..."  # НИКОГДА!` teaching example flagged by generic-api-key.
-  '''devops-agent/''',
-]
+description = "Synthetic test literals (not credentials)"
 # Exact synthetic literal from the bot/API integration fixture
 # (packages/bot/tests/test_web_login.py); a test value, not a credential.
 regexes = [
