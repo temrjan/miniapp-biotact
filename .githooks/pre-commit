@@ -1,0 +1,19 @@
+#!/bin/sh
+# Scan the staged changes for secrets with gitleaks before each commit.
+# Uses .gitleaks.toml and .gitleaksignore at the repository root, like CI.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+#
+# Needs gitleaks on PATH; CI uses v8.24.3: https://github.com/gitleaks/gitleaks#installing
+set -eu
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+	echo "pre-commit: gitleaks is not installed; install it (CI uses v8.24.3) to commit with this hook." >&2
+	exit 1
+fi
+
+root=$(git rev-parse --show-toplevel)
+exec gitleaks git --staged --redact --verbose --no-banner \
+	--config "$root/.gitleaks.toml" \
+	--gitleaks-ignore-path "$root" \
+	"$root"

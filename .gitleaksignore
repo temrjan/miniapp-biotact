@@ -1,0 +1,12 @@
+# Known historical gitleaks findings, ignored one by one (commit:path:rule:line).
+# Each entry matches one finding in one old commit only; the same text in any
+# new commit is reported again. Do not add an entry to silence a new finding:
+# remove the secret from the change and rotate it.
+1c0c340713a28c074892ac56c6ace8243f77aa90:devops-agent/src/agent.py.backup:pgpassword-assignment:75
+1c0c340713a28c074892ac56c6ace8243f77aa90:devops-agent/src/agent.py.backup:pgpassword-assignment:85
+72e560e24f4ce3d189dd3ae2b0db2408317c0173:backups/backup.sh:pgpassword-assignment:12
+cbcf30dd4e6f04529276f4b14bbc754bfbe6e712:devops-agent/docs/BIOTACT_ANALYTICS_PLAN.md:pgpassword-assignment:224
+cbcf30dd4e6f04529276f4b14bbc754bfbe6e712:devops-agent/docs/BIOTACT_ANALYTICS_PLAN.md:pgpassword-assignment:260
+cbcf30dd4e6f04529276f4b14bbc754bfbe6e712:devops-agent/docs/standards/PYTHON_STYLE_GUIDE_V2.md:generic-api-key:902
+cbcf30dd4e6f04529276f4b14bbc754bfbe6e712:devops-agent/src/agent.py:pgpassword-assignment:75
+cbcf30dd4e6f04529276f4b14bbc754bfbe6e712:devops-agent/src/agent.py:pgpassword-assignment:85
