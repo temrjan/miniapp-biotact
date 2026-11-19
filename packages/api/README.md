@@ -66,7 +66,6 @@ src/
 |-------|------|----------|
 | POST | `/api/v1/payments/create` | Создать платёж (Multicard) |
 | POST | `/api/v1/payments/callback` | Webhook от Multicard |
-| GET | `/api/v1/payments/status/{uuid}` | Статус платежа |
 
 ### Админка (JWT Bearer)
 

@@ -1,7 +1,7 @@
 """Payment API router."""
 
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -384,15 +384,3 @@ async def payment_webhook(
             logger.error("Failed to send Telegram notification: %s", exc)
 
     return {"success": True}
-
-
-@router.get("/status/{payment_uuid}")
-async def get_payment_status(payment_uuid: str) -> dict[str, Any]:
-    """Get payment status from Multicard."""
-    result = await multicard_client.get_invoice_status(payment_uuid)
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Payment not found",
-        )
-    return result

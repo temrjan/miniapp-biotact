@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +21,9 @@ if TYPE_CHECKING:
     from src.orders.models import OrderItem
 
 logger = logging.getLogger(__name__)
+
+# A Multicard invoice UUID in canonical form: ASCII hex, either case, 8-4-4-4-12.
+_INVOICE_UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
 
 class MultiCardClient:
@@ -161,7 +165,14 @@ class MultiCardClient:
                 raise
 
     async def get_invoice_status(self, uuid: str) -> dict[str, Any] | None:
-        """Get invoice status from Multicard."""
+        """Get invoice status from Multicard.
+
+        ``uuid`` goes into the URL path, so anything but a canonical UUID returns None before a
+        token is fetched or a request is built.
+        """
+        if _INVOICE_UUID.fullmatch(uuid) is None:
+            logger.warning("Invoice status refused: uuid is not canonical")
+            return None
         token = await self._get_token()
         url = f"{self.base_url}/payment/invoice/{uuid}"
 
