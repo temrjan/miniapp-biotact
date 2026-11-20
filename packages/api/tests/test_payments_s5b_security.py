@@ -622,6 +622,10 @@ async def test_p01_callback_url_uses_configured_origin_ignoring_request_headers(
         (CALLBACK_ORIGIN, ""),
         (CALLBACK_ORIGIN, "http://app.example.test"),
         (CALLBACK_ORIGIN, "https://app.example.test/"),
+        # Values that urlsplit cannot parse: the route must refuse them, not raise.
+        ("https://callback.example.test:abc", MINIAPP_ORIGIN),
+        (CALLBACK_ORIGIN, "https://app.example.test:99999"),
+        (CALLBACK_ORIGIN, "https://[::1"),
     ],
     ids=[
         "callback-empty",
@@ -630,6 +634,9 @@ async def test_p01_callback_url_uses_configured_origin_ignoring_request_headers(
         "miniapp-empty",
         "miniapp-http",
         "miniapp-trailing-slash",
+        "callback-non-numeric-port",
+        "miniapp-port-out-of-range",
+        "miniapp-unclosed-ipv6",
     ],
 )
 async def test_p02_invalid_payment_or_miniapp_origin_returns_503(

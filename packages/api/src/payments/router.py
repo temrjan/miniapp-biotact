@@ -42,6 +42,14 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+def _is_exact_https_origin(value: str) -> bool:
+    """``_exact_https_origin`` that treats a value urlsplit cannot parse as not an origin."""
+    try:
+        return _exact_https_origin(value)
+    except ValueError:
+        return False
+
+
 def _is_allowed_return_url(return_url: str, allowed_origin: str) -> bool:
     """Return True only when ``return_url`` lies on ``allowed_origin`` in U+0021..U+007E."""
     return (
@@ -120,7 +128,7 @@ async def create_payment(
     if order.user_id != user.id:
         raise ForbiddenException("Not your order")
 
-    if not _exact_https_origin(settings.payment_callback_base_url) or not _exact_https_origin(
+    if not _is_exact_https_origin(settings.payment_callback_base_url) or not _is_exact_https_origin(
         settings.miniapp_public_origin
     ):
         logger.warning("Payment create refused: code=payment_unconfigured order_id=%s", order.id)
