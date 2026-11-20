@@ -249,7 +249,7 @@ export function CatalogPage({ onSale = false }: { onSale?: boolean }) {
                   }
                 `}
               >
-                <span className="text-sm font-medium truncate">{category.name}</span>
+                <span className="block text-sm font-medium truncate">{category.name}</span>
               </button>
             );
           })}
@@ -258,7 +258,7 @@ export function CatalogPage({ onSale = false }: { onSale?: boolean }) {
 
       {/* Products */}
       <section>
-        <h2 className="text-lg font-semibold mb-3">
+        <h2 className="text-lg font-bold mb-3">
           {onSale ? t('sales.title') : selectedCategory ? selectedCategory.name : t('catalog.allProducts')}
           <span className="text-sm font-normal text-[var(--text-muted)] ml-2">
             ({filteredProducts.length})

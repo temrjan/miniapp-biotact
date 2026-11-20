@@ -167,7 +167,7 @@ function SectionHeader({ title, categoryId, onViewAll, viewAllText }: SectionHea
 
   return (
     <div className="flex items-center justify-between mb-3">
-      <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+      <h2 className="text-lg font-bold text-[var(--text-primary)]">
         {title}
       </h2>
       {categoryId && onViewAll && (
@@ -524,7 +524,7 @@ export function HomePage() {
       {saleProducts.length > 0 && (
         <section aria-label={t('sales.title')}>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">{t('sales.title')}</h2>
+            <h2 className="text-lg font-bold">{t('sales.title')}</h2>
             <Link to={ROUTES.SALES} className="text-sm text-[var(--primary)]">{t('sales.viewAll')}</Link>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2">

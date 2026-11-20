@@ -181,7 +181,7 @@ export function LocationModal() {
             {/* Header */}
             <div className="sticky top-0 bg-[var(--bg-primary)] border-b border-[var(--border)] px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="text-lg font-semibold">{t('checkout.deliveryAddress')}</h2>
+                <h2 className="text-lg font-bold">{t('checkout.deliveryAddress')}</h2>
                 <button
                   onClick={handleClose}
                   className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--bg-secondary)]"

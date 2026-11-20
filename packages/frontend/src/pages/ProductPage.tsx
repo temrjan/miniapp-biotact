@@ -247,7 +247,7 @@ export function ProductPage() {
           {product.description && (
             <>
               <div>
-                <h2 className="text-lg font-semibold mb-2">{t('product.description')}</h2>
+                <h2 className="text-lg font-bold mb-2">{t('product.description')}</h2>
                 <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{parseBold(product.description)}</p>
               </div>
               <div className="h-px bg-[var(--border)]" />
@@ -261,7 +261,7 @@ export function ProductPage() {
         {product.additionalInfo && (
           <>
             <div>
-              <h2 className="text-lg font-semibold mb-2">{product.additionalInfoTitle || t('product.information')}</h2>
+              <h2 className="text-lg font-bold mb-2">{product.additionalInfoTitle || t('product.information')}</h2>
               <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{parseBold(product.additionalInfo)}</p>
             </div>
             <div className="h-px bg-[var(--border)]" />
@@ -288,7 +288,7 @@ export function ProductPage() {
 
         {similarProducts.length > 0 && (
           <div>
-            <h2 className="text-lg font-semibold mb-3">{t('product.similar')}</h2>
+            <h2 className="text-lg font-bold mb-3">{t('product.similar')}</h2>
             <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 md:-mx-6 md:px-6 scrollbar-hide">
               {similarProducts.map((item) => (
                 <motion.div key={item.id} whileTap={{ scale: 0.95 }} onClick={() => handleSimilarProductClick(item.id)} className="flex-shrink-0 w-32 md:w-40 cursor-pointer">
