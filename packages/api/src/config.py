@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # Website guest checkout (G1); reuses the buyer origin, protection key and proxy peers.
     guest_checkout_enabled: bool = False
     payment_callback_base_url: str = ""
+    miniapp_public_origin: str = "https://app.biotact.uz"
     guest_terms_version: str = ""
     guest_privacy_version: str = ""
     # Delivery config is validated lazily by the separate worker, independently per lane.

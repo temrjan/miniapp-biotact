@@ -8,6 +8,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import jwt
@@ -193,7 +194,7 @@ async def test_paid_partial_full_replay_retention_and_actual_producer(
             await asyncio.to_thread((target / name).write_bytes, row.body)
 
 
-async def test_non_sources_status_revert_and_bounds(checkout):
+async def test_non_sources_status_revert_and_bounds(checkout, monkeypatch):
     h = checkout
     headers = await admin(h)
     unpaid = (await h.create()).json()
@@ -208,6 +209,11 @@ async def test_non_sources_status_revert_and_bounds(checkout):
             )
             assert response.status_code == 404
     order = await paid_order(h)
+    monkeypatch.setattr(
+        multicard_client,
+        "get_invoice_status",
+        AsyncMock(return_value={"uuid": "count-success", "payment": {"status": "revert"}}),
+    )
     body = _webhook_body(
         uuid="count-success", invoice_id=order["order_number"], amount=5000000, status="revert"
     )

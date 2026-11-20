@@ -18,6 +18,7 @@ import json
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -544,10 +545,21 @@ async def test_callback_unknown_invoice_returns_404(client: AsyncClient, maker) 
 # --------------------------------------------------------------------------- #
 
 
-async def test_webhook_error_cancels_order(client: AsyncClient, maker) -> None:
+def _confirm_webhook(monkeypatch: pytest.MonkeyPatch, *, uuid: str, status: str) -> None:
+    monkeypatch.setattr(
+        multicard_client,
+        "get_invoice_status",
+        AsyncMock(return_value={"uuid": uuid, "payment": {"status": status}}),
+    )
+
+
+async def test_webhook_error_cancels_order(
+    client: AsyncClient, maker, monkeypatch: pytest.MonkeyPatch
+) -> None:
     order_id = await _seed_order(
         maker, order_number="ORD-ERR", payment_uuid="u-err", payment_status="pending"
     )
+    _confirm_webhook(monkeypatch, uuid="u-err", status="error")
     resp = await client.post(
         WEBHOOK_URL, json=_webhook_body(uuid="u-err", invoice_id="ORD-ERR", status="error")
     )
@@ -557,11 +569,14 @@ async def test_webhook_error_cancels_order(client: AsyncClient, maker) -> None:
     assert order.status == OrderStatus.CANCELLED
 
 
-async def test_webhook_revert_refunds_order(client: AsyncClient, maker) -> None:
+async def test_webhook_revert_refunds_order(
+    client: AsyncClient, maker, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # revert is legal only out of a paid order — arm it as paid by this attempt.
     order_id = await _seed_order(
         maker, order_number="ORD-REV", payment_uuid="u-rev", payment_status="paid"
     )
+    _confirm_webhook(monkeypatch, uuid="u-rev", status="revert")
     resp = await client.post(
         WEBHOOK_URL, json=_webhook_body(uuid="u-rev", invoice_id="ORD-REV", status="revert")
     )
@@ -571,10 +586,13 @@ async def test_webhook_revert_refunds_order(client: AsyncClient, maker) -> None:
     assert order.status == OrderStatus.CANCELLED
 
 
-async def test_duplicate_error_webhook_is_noop(client: AsyncClient, maker) -> None:
+async def test_duplicate_error_webhook_is_noop(
+    client: AsyncClient, maker, monkeypatch: pytest.MonkeyPatch
+) -> None:
     order_id = await _seed_order(
         maker, order_number="ORD-ERR2", payment_uuid="u-err2", payment_status="pending"
     )
+    _confirm_webhook(monkeypatch, uuid="u-err2", status="error")
     body = _webhook_body(uuid="u-err2", invoice_id="ORD-ERR2", status="error")
 
     await client.post(WEBHOOK_URL, json=body)
@@ -674,7 +692,7 @@ async def test_race_two_success_callbacks_apply_once(
 
 
 async def test_late_error_from_abandoned_attempt_does_not_cancel_active_order(
-    client: AsyncClient, maker
+    client: AsyncClient, maker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """THE blocker (attempt guard, isolated): order has an ACTIVE unpaid attempt B; a late error
     webhook for the abandoned attempt A arrives.
@@ -690,6 +708,7 @@ async def test_late_error_from_abandoned_attempt_does_not_cancel_active_order(
         payment_uuid="uuid-B",  # active attempt, still unpaid
         payment_status="pending",
     )
+    _confirm_webhook(monkeypatch, uuid="uuid-A", status="error")
 
     resp = await client.post(
         WEBHOOK_URL,
@@ -1151,7 +1170,7 @@ async def test_validation_signature_and_unknown_order_precede_receipt(client, ma
 
 @pytest.mark.parametrize("recovered", [False, True])
 async def test_paid_revert_rearm_replay_retains_history_guard(
-    client, maker, sent_messages, recovered
+    client, maker, sent_messages, monkeypatch: pytest.MonkeyPatch, recovered
 ):
     order_id = await _seed_order(
         maker,
@@ -1167,6 +1186,7 @@ async def test_paid_revert_rearm_replay_retains_history_guard(
     assert (await client.post(CALLBACK_URL, json=callback)).status_code == 200
     paid_at = (await _committed_order(maker, order_id)).paid_at
     retained = await _receipt(maker, "hint")
+    _confirm_webhook(monkeypatch, uuid="hint", status="revert")
     assert (
         await client.post(
             WEBHOOK_URL, json=_webhook_body(uuid="hint", invoice_id="ORD-RECOVER", status="revert")
