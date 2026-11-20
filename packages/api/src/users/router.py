@@ -31,8 +31,16 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
 async def verify_bot_token(x_bot_token: str = Header(...)) -> None:
-    """Verify bot token from header."""
-    if not _hmac.compare_digest(x_bot_token, settings.telegram_bot_token):
+    """Verify bot token from header; an unconfigured token or an empty header is refused.
+
+    Bytes, not str: ``compare_digest`` raises on a non-ASCII str, which would be a 500.
+    """
+    expected = settings.telegram_bot_token
+    if (
+        not expected
+        or not x_bot_token
+        or not _hmac.compare_digest(x_bot_token.encode("utf-8"), expected.encode("utf-8"))
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid bot token",
