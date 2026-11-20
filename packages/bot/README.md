@@ -6,7 +6,7 @@ Telegram-бот для магазина Biotact. Регистрация поль
 
 | Технология | Версия | Назначение |
 |------------|--------|------------|
-| aiogram | 3.23 | Telegram Bot API |
+| aiogram | 3.31 | Telegram Bot API |
 | SQLAlchemy | 2.0 | ORM (async, asyncpg) |
 | Redis | 5.0 | FSM-хранилище |
 | httpx | 0.25 | Async HTTP-клиент |
