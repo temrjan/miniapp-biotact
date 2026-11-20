@@ -53,6 +53,8 @@ async def create_sized(h: Checkout, points: int = 0) -> dict:
 
 async def arm(h: Checkout, order: dict, monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(settings, "multicard_store_id", "6")
+    monkeypatch.setattr(settings, "payment_callback_base_url", "https://callback.test.invalid")
+    monkeypatch.setattr(settings, "miniapp_public_origin", "https://test.invalid")
     monkeypatch.setattr(multicard_client, "secret", SECRET)
     monkeypatch.setattr(
         multicard_client,

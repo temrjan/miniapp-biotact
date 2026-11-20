@@ -90,6 +90,8 @@ async def maker(test_db: AsyncSession) -> AsyncGenerator[async_sessionmaker[Asyn
 def external_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "telegram_bot_token", BOT_TOKEN)
     monkeypatch.setattr(settings, "multicard_store_id", "6")
+    monkeypatch.setattr(settings, "payment_callback_base_url", "https://callback.example")
+    monkeypatch.setattr(settings, "miniapp_public_origin", "https://shop.example")
     monkeypatch.setattr(telegram_notifier, "notify_order_created", AsyncMock())
     monkeypatch.setattr(telegram_notifier, "notify_payment_success", AsyncMock())
     monkeypatch.setattr(

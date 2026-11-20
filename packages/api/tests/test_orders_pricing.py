@@ -34,7 +34,9 @@ CATALOGUE_PRICE = Decimal("69000.00")
 
 def _headers(telegram_id: int, first_name: str = "Buyer") -> dict[str, str]:
     """Valid Telegram initData headers for ``telegram_id`` (the mini-app's only auth)."""
-    return {"X-Init-Data": _make_init_data(BOT_TOKEN, {"id": telegram_id, "first_name": first_name})}
+    return {
+        "X-Init-Data": _make_init_data(BOT_TOKEN, {"id": telegram_id, "first_name": first_name})
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +47,8 @@ def _pin_bot_token(monkeypatch: pytest.MonkeyPatch) -> None:
     and ``get_current_user`` rejects that before it ever looks at the token).
     """
     monkeypatch.setattr(settings, "telegram_bot_token", BOT_TOKEN)
+    monkeypatch.setattr(settings, "payment_callback_base_url", "https://callback.example.test")
+    monkeypatch.setattr(settings, "miniapp_public_origin", "https://app.example.test")
 
 
 @pytest_asyncio.fixture
@@ -180,9 +184,7 @@ async def test_old_client_payload_still_works(client: AsyncClient, maker) -> Non
     assert Decimal(resp.json()["total"]) == CATALOGUE_PRICE * 2
 
 
-async def test_multi_line_totals_are_computed_by_the_server(
-    client: AsyncClient, maker
-) -> None:
+async def test_multi_line_totals_are_computed_by_the_server(client: AsyncClient, maker) -> None:
     """Two products with different quantities: subtotal is the sum of the catalogue lines."""
     cheap = await _seed_product(maker, slug="cheap", price=Decimal("15000.00"))
     dear = await _seed_product(maker, slug="dear", price=Decimal("120000.00"))
@@ -253,9 +255,7 @@ async def test_order_saves_server_sale_terms_across_sessions(
         saved = (
             (
                 await fresh.execute(
-                    select(OrderItem)
-                    .where(OrderItem.order_id == body["id"])
-                    .order_by(OrderItem.id)
+                    select(OrderItem).where(OrderItem.order_id == body["id"]).order_by(OrderItem.id)
                 )
             )
             .scalars()
@@ -449,7 +449,7 @@ async def test_create_payment_rejects_zero_total(client: AsyncClient, maker) -> 
 
     resp = await client.post(
         PAYMENTS_URL,
-        json={"order_id": order_id, "return_url": "https://x.uz"},
+        json={"order_id": order_id, "return_url": "https://app.example.test/return"},
         headers=_headers(70016),
     )
 

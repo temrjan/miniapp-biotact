@@ -3,19 +3,26 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
 from src.common.exceptions import ForbiddenException
-from src.config import settings
+from src.config import _exact_https_origin, settings
 from src.database import get_db
 from src.employee_referrals.notices import invoice_referral_label, owns_paid
 from src.employee_referrals.paid import PaidUnavailableError, commit_paid
 from src.notifications.service import source_label, telegram_notifier
 from src.orders import service as orders_service
 from src.payments import size_stock
-from src.payments.lifecycle import PaymentAmountMismatchError, process_payment_event
+from src.payments.lifecycle import (
+    STATUS_ERROR,
+    STATUS_REVERT,
+    PaymentAmountMismatchError,
+    process_payment_event,
+)
+from src.payments.models import PaymentEvent
 from src.payments.schemas import (
     CreatePaymentRequest,
     MultiCardPaymentResponse,
@@ -35,10 +42,71 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+def _is_exact_https_origin(value: str) -> bool:
+    """``_exact_https_origin`` that treats a value urlsplit cannot parse as not an origin."""
+    try:
+        return _exact_https_origin(value)
+    except ValueError:
+        return False
+
+
+def _is_allowed_return_url(return_url: str, allowed_origin: str) -> bool:
+    """Return True only when ``return_url`` lies on ``allowed_origin`` in U+0021..U+007E."""
+    return (
+        bool(return_url)
+        and all("!" <= ch <= "~" for ch in return_url)
+        and (return_url == allowed_origin or return_url.startswith(f"{allowed_origin}/"))
+    )
+
+
+async def _confirm_destructive_webhook(webhook: WebhookData) -> bool:
+    """Confirm with Multicard that ``webhook.uuid`` carries ``payment.status == webhook.status``."""
+    provider_data: object
+    try:
+        provider_data = await multicard_client.get_invoice_status(webhook.uuid)
+    except Exception:
+        provider_data = None
+
+    provider_status_marker = "<unavailable>"
+    if isinstance(provider_data, dict):
+        payment_field = provider_data.get("payment")
+        if isinstance(payment_field, dict) and "status" in payment_field:
+            raw_status = payment_field["status"]
+            if (
+                isinstance(raw_status, str)
+                and raw_status
+                and all("!" <= ch <= "~" for ch in raw_status)
+            ):
+                provider_status_marker = raw_status
+            elif raw_status == "":
+                provider_status_marker = "<empty>"
+            elif isinstance(raw_status, str):
+                provider_status_marker = "<non_printable>"
+            elif raw_status is not None:
+                provider_status_marker = type(raw_status).__name__
+            if (
+                "uuid" in provider_data
+                and isinstance(provider_data["uuid"], str)
+                and provider_data["uuid"] == webhook.uuid
+                and isinstance(raw_status, str)
+                and raw_status == webhook.status
+            ):
+                return True
+
+    logger.warning(
+        "Webhook status unconfirmed: code=payment_status_unconfirmed uuid=%s invoice_id=%s "
+        "webhook_status=%s provider_status=%s",
+        webhook.uuid,
+        webhook.invoice_id,
+        webhook.status,
+        provider_status_marker,
+    )
+    return False
+
+
 @router.post("/create", response_model=PaymentResponse)
 async def create_payment(
     request: CreatePaymentRequest,
-    req: Request,
     db: DbSession,
     user: CurrentUser,
 ) -> PaymentResponse:
@@ -59,6 +127,22 @@ async def create_payment(
     # somebody else's order is already paid.
     if order.user_id != user.id:
         raise ForbiddenException("Not your order")
+
+    if not _is_exact_https_origin(settings.payment_callback_base_url) or not _is_exact_https_origin(
+        settings.miniapp_public_origin
+    ):
+        logger.warning("Payment create refused: code=payment_unconfigured order_id=%s", order.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "payment_unconfigured"},
+        )
+
+    if not _is_allowed_return_url(request.return_url, settings.miniapp_public_origin):
+        logger.warning("Payment create refused: code=return_url_not_allowed order_id=%s", order.id)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "return_url_not_allowed"},
+        )
 
     if order.size_stock_protocol == size_stock.PROTOCOL:
         order = await size_stock.lock_order(db, order.id)
@@ -81,9 +165,8 @@ async def create_payment(
             detail="Order remainder must be positive",
         )
 
-    # Build callback URL
-    base_url = str(req.base_url).rstrip("/")
-    callback_url = f"{base_url}{settings.api_v1_prefix}/payments/callback"
+    # Build callback URL from configured origin, never from request headers.
+    callback_url = f"{settings.payment_callback_base_url}{settings.api_v1_prefix}/payments/callback"
 
     # Amount charged to the card, in tiyins — the remainder after points.
     amount_tiyins = int(amount_due * 100)
@@ -324,10 +407,10 @@ async def payment_webhook(
     """Handle a payment lifecycle webhook from Multicard (SHA1-signed).
 
     Covers the full status vocabulary the success callback does not: ``error`` (payment failed)
-    and ``revert`` (money refunded) cancel the order; ``draft``/``progress``/``hold`` are
-    recorded but move nothing. Multicard retries up to 5 times unless we answer 2xx, so every
-    outcome except a bad signature returns success — including an unknown invoice, so a stray
-    webhook stops retrying instead of hammering us.
+    and ``revert`` (money refunded) cancel an ordinary order after Multicard's invoice read
+    confirms that status (answering 503 if unconfirmed so Multicard retries); ``draft``/
+    ``progress``/``hold`` are recorded but move nothing. Non-destructive statuses and unknown
+    invoices still answer 2xx so Multicard stops retrying.
     """
     logger.info(
         "Payment webhook: uuid=%s, invoice_id=%s, status=%s",
@@ -353,6 +436,22 @@ async def payment_webhook(
     if order is not None and order.size_stock_protocol == size_stock.PROTOCOL:
         await size_stock.lifecycle_hint(db, order.id, webhook)
         return {"success": True}
+
+    if order is not None and webhook.status in (STATUS_ERROR, STATUS_REVERT):
+        already_recorded = await db.scalar(
+            select(PaymentEvent.id).where(
+                PaymentEvent.payment_uuid == webhook.uuid,
+                PaymentEvent.status == webhook.status,
+            )
+        )
+        if already_recorded is not None:
+            return {"success": True}
+        await db.rollback()
+        if not await _confirm_destructive_webhook(webhook):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "payment_status_unconfirmed"},
+            )
 
     try:
         outcome = await process_payment_event(

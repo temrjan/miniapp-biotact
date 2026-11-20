@@ -122,12 +122,18 @@ async def test_all_methods_count_retained_campaign_units_once(checkout, monkeypa
 
 
 @pytest.mark.parametrize("status", ["progress", "hold", "draft", "success", "error"])
-async def test_non_applied_events_never_produce_count(checkout, status):
+async def test_non_applied_events_never_produce_count(checkout, monkeypatch, status):
     h = checkout
     order = (await h.create()).json()
     async with h.sessions.begin() as session:
         row = await session.get(Order, order["id"])
         row.payment_uuid = "ordinary-event"
+    if status == "error":
+        monkeypatch.setattr(
+            multicard_client,
+            "get_invoice_status",
+            AsyncMock(return_value={"uuid": "ordinary-event", "payment": {"status": "error"}}),
+        )
     body = _webhook_body(
         uuid="ordinary-event", invoice_id=order["order_number"], amount=1000000, status=status
     )
