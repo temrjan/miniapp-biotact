@@ -249,7 +249,7 @@ export function CatalogPage({ onSale = false }: { onSale?: boolean }) {
                   }
                 `}
               >
-                <span className="text-sm font-medium truncate">{category.name}</span>
+                <span className="block text-sm font-medium truncate">{category.name}</span>
               </button>
             );
           })}
